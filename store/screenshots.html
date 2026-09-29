@@ -23,28 +23,33 @@
   <section class="slide" id="s1">
     <div class="text">
       <img class="logo" src="../icons/icon128.png" alt="">
-      <h1>審批卡跳出來，<br>自動幫你按允許</h1>
-      <p>Ren 存取網站時不用守著畫面，排程任務不會卡住。</p>
-      <p>可以全部都按，也可以只按你信任的網站和聊天室。</p>
+      <h1 data-en="Approval cards,<br>clicked for you">審批卡跳出來，<br>自動幫你按允許</h1>
+      <p data-en="Ren can open websites without you watching the screen, so scheduled tasks don't get stuck.">Ren 存取網站時不用守著畫面，排程任務不會卡住。</p>
+      <p data-en="Approve everything, or only the sites and chats you trust.">可以全部都按，也可以只按你信任的網站和聊天室。</p>
     </div>
     <img class="shot popup" src="../docs/images/zh-TW/popup.png" alt="">
   </section>
   <section class="slide" id="s2">
     <div class="text">
-      <h1>新的網站先問你，<br>按一次就記住</h1>
-      <p>工具列出現紅色數字時點開，選要信任到什麼範圍：這個網站、只限某個聊天室、整個聊天室，或只允許這一次。</p>
-      <p>之後同樣的請求就直接允許。</p>
+      <h1 data-en="New sites ask first,<br>then it's automatic">新的網站先問你，<br>按一次就記住</h1>
+      <p data-en="When a red number shows up on the toolbar icon, open it and pick how far to trust the request: this site, this site from one chat, the whole chat, or just this once.">工具列出現紅色數字時點開，選要信任到什麼範圍：這個網站、只限某個聊天室、整個聊天室，或只允許這一次。</p>
+      <p data-en="After that, matching requests go through on their own.">之後同樣的請求就直接允許。</p>
     </div>
     <img class="shot popup" src="../docs/images/zh-TW/popup-pending.png" alt="">
   </section>
   <section class="slide" id="s3">
-    <h1>完整清單都在設定頁</h1>
-    <p>網站可以限定聊天室、先停用不刪掉，也能匯出設定搬到別台電腦。</p>
+    <h1 data-en="Your full lists live in Settings">完整清單都在設定頁</h1>
+    <p data-en="Limit a site to certain chats, turn entries off without deleting them, and export your settings to another computer.">網站可以限定聊天室、先停用不刪掉，也能匯出設定搬到別台電腦。</p>
     <img class="shot" src="../docs/images/zh-TW/options-sites.png" alt="">
   </section>
   <script>
     const n = new URLSearchParams(location.search).get('s') || '1';
     document.getElementById(`s${n}`).classList.add('on');
+    if (new URLSearchParams(location.search).get('lang') === 'en') {
+      document.documentElement.lang = 'en';
+      document.querySelectorAll('[data-en]').forEach(el => { el.innerHTML = el.dataset.en; });
+      document.querySelectorAll('img[src*="docs/images/zh-TW/"]').forEach(img => { img.src = img.getAttribute('src').replace('zh-TW/', ''); });
+    }
   </script>
 </body>
 </html>

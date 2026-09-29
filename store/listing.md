@@ -11,10 +11,12 @@
 - 類別：工具（Tools）
 - 語言：中文（繁體）
 - 商店圖示：`icons/icon128.png`
-- 螢幕截圖：`store/screenshot-1.png`、`store/screenshot-2.png`、`store/screenshot-3.png`（照順序上傳，舊的那張刪掉）
-- 小型宣傳圖塊（440×280）：`store/promo-small.png`
-- 跑馬燈宣傳圖塊（1400×560）：`store/promo-marquee.png`
-- 宣傳圖塊的背景插圖 `store/promo-bg.jpg` 是 codex 生成的（無文字），字和 icon 由 `store/promo.html` 疊上去：`promo.html?t=small&bg=promo-bg.jpg`、`promo.html?t=marquee&bg=promo-bg.jpg&pos=center%2045%25`
+- 在地化螢幕截圖（中文）：`store/screenshot-1.png`、`store/screenshot-2.png`、`store/screenshot-3.png`（照順序上傳，舊的那張刪掉）
+- 在地化螢幕截圖（英文）：`store/screenshot-en-1.png`、`store/screenshot-en-2.png`、`store/screenshot-en-3.png`
+- 小型宣傳圖塊（440×280）：`store/promo-small.png`（中文）或 `store/promo-small-en.png`（英文）
+- 跑馬燈宣傳圖塊（1400×560）：`store/promo-marquee.png`（中文）或 `store/promo-marquee-en.png`（英文）
+- 宣傳圖塊屬於「通用資產」，所有語言共用一張，中英文擇一上傳。
+- 宣傳圖塊的背景插圖 `store/promo-bg.jpg` 是 codex 生成的（無文字），字和 icon 由 `store/promo.html` 疊上去（加 `&lang=en` 產生英文版）：`promo.html?t=small&bg=promo-bg.jpg`、`promo.html?t=marquee&bg=promo-bg.jpg&pos=center%2045%25`
 - 首頁網址：https://github.com/homieyangg/muse-auto-approve
 - 支援網址：https://github.com/homieyangg/muse-auto-approve/issues
 
