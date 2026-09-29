@@ -1,0 +1,16 @@
+main { max-width: 620px; margin: 0 auto; padding: 56px 16px 48px; text-align: center; }
+.logo { width: 80px; }
+h1 { font-size: 24px; margin: 14px 0 6px; }
+.q { font-weight: 600; margin: 28px 0 12px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; text-align: left; }
+.choice { display: block; border: 2px solid var(--line); border-radius: 14px; padding: 14px 16px; cursor: pointer; background: var(--bg); }
+.choice.on { border-color: var(--accent); background: var(--card); }
+.choice input { position: absolute; opacity: 0; }
+.choice b { display: block; margin-bottom: 4px; }
+.choice .rec { color: var(--accent); font-size: 12px; font-weight: 600; margin-left: 8px; }
+.choice > span { display: block; font-size: 13px; }
+.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.start { margin-top: 24px; padding: 10px 30px; font-size: 15px; }
+.pin { display: flex; gap: 12px; align-items: center; text-align: left; margin-top: 28px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; }
+.pin img { width: 26px; flex: none; }
+.fine { font-size: 12px; margin-top: 18px; }

@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto Approve for Muse</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="ui.css">
+  <link rel="stylesheet" href="welcome.css">
+</head>
+<body>
+  <main>
+    <img class="logo" src="icons/icon128.png" alt="">
+    <h1 data-i18n="welcomeTitle"></h1>
+    <p class="muted" data-i18n="welcomeSub"></p>
+    <p class="q" data-i18n="welcomeQ"></p>
+    <div class="choices">
+      <label class="choice on">
+        <input type="radio" name="mode" value="trusted" checked>
+        <b><span data-i18n="modeTrustedLong"></span><span class="rec" data-i18n="recommended"></span></b>
+        <span class="muted" data-i18n="welcomeTrustedDesc"></span>
+      </label>
+      <label class="choice">
+        <input type="radio" name="mode" value="all">
+        <b data-i18n="modeAllLong"></b>
+        <span class="muted" data-i18n="welcomeAllDesc"></span>
+      </label>
+    </div>
+    <button class="btn primary start" id="start" data-i18n="start"></button>
+    <div class="pin"><img src="icons/icon32.png" alt=""><span data-i18n="pinHint"></span></div>
+    <p class="fine muted" data-i18n="welcomeFine"></p>
+  </main>
+  <script src="shared.js"></script>
+  <script src="i18n.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

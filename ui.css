@@ -1,0 +1,43 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff; --card: #f4f5f7; --text: #1f2937; --muted: #6b7280; --line: #e3e5e8; --hover: #eceef1;
+  --accent: #0866ff; --input: #f6f7f9; --warn: #b45309; --warn-bg: #fff4e0; --danger: #dc2626;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1d20; --card: #26282c; --text: #f3f4f6; --muted: #9aa0a8; --line: #34363b; --hover: #2f3136;
+    --accent: #5b9bff; --input: #212327; --warn: #f5b651; --warn-bg: #3a2d14; --danger: #f07171;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; }
+button, input, select { font: inherit; color: inherit; }
+a { color: var(--accent); text-decoration: none; cursor: pointer; }
+small { font-size: 12px; }
+.muted { color: var(--muted); }
+
+.sw { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; cursor: pointer; }
+.sw input { position: absolute; opacity: 0; width: 0; height: 0; }
+.sw span { position: absolute; inset: 0; background: #9ca3af; border-radius: 11px; transition: background .15s; }
+.sw span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .15s; }
+.sw input:checked + span { background: var(--accent); }
+.sw input:checked + span::after { left: 21px; }
+.sw input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sw.sm { width: 34px; height: 20px; }
+.sw.sm span::after { width: 14px; height: 14px; }
+.sw.sm input:checked + span::after { left: 17px; }
+
+.btn { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.link { border: 0; background: none; color: var(--accent); padding: 4px 0; }
+.btn.danger { border: 0; background: none; color: var(--danger); padding: 4px 0; }
+
+.text-input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); font-size: 13px; }
+.text-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.check { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.check input { margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.error { color: var(--danger); font-size: 12px; margin: 6px 2px 0; }
+.warn { color: var(--warn); }

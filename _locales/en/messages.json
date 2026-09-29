@@ -1,0 +1,413 @@
+{
+  "extName": {
+    "message": "Auto Approve for Muse"
+  },
+  "extDescription": {
+    "message": "Clicks Allow on muse.ai approval cards for you. Trust only the sites and chats you pick. Unofficial, not affiliated with Meta."
+  },
+  "statusOn": {
+    "message": "On · $1 approved today"
+  },
+  "statusPaused": {
+    "message": "Paused. Nothing gets clicked."
+  },
+  "toggleTitle": {
+    "message": "Turn on or off"
+  },
+  "pendingAlert": {
+    "message": "Waiting for you: $1"
+  },
+  "modeLabel": {
+    "message": "What to allow"
+  },
+  "modeTrusted": {
+    "message": "Trusted only"
+  },
+  "modeAll": {
+    "message": "Everything"
+  },
+  "modeTrustedDesc": {
+    "message": "New sites and chats ask you first"
+  },
+  "modeAllDesc": {
+    "message": "Allows whatever Ren asks for"
+  },
+  "trustedSites": {
+    "message": "Trusted sites"
+  },
+  "trustedChats": {
+    "message": "Trusted chats"
+  },
+  "recentLog": {
+    "message": "Recent activity"
+  },
+  "todayN": {
+    "message": "$1 today"
+  },
+  "preferAlways": {
+    "message": "Prefer \"Always allow\""
+  },
+  "preferAlwaysDesc": {
+    "message": "muse remembers the site and stops asking"
+  },
+  "rateTitle": {
+    "message": "Finding it useful?"
+  },
+  "rateText": {
+    "message": "A quick review on the Chrome Web Store helps other people find it."
+  },
+  "rateButton": {
+    "message": "★ Leave a review"
+  },
+  "moreSettings": {
+    "message": "Settings"
+  },
+  "more": {
+    "message": "More"
+  },
+  "menuHelp": {
+    "message": "How it works"
+  },
+  "menuIssue": {
+    "message": "Report a problem"
+  },
+  "menuRate": {
+    "message": "Review on the Chrome Web Store"
+  },
+  "menuSource": {
+    "message": "Source code (GitHub)"
+  },
+  "back": {
+    "message": "Back"
+  },
+  "pendingHeader": {
+    "message": "Waiting for you"
+  },
+  "from": {
+    "message": "From $1"
+  },
+  "fromUnknown": {
+    "message": "Unknown chat"
+  },
+  "allowLater": {
+    "message": "From now on, allow:"
+  },
+  "scopeSite": {
+    "message": "This site, from any chat"
+  },
+  "scopeSiteChat": {
+    "message": "This site, only from this chat"
+  },
+  "scopeChat": {
+    "message": "Everything from this chat"
+  },
+  "scopeChatWarn": {
+    "message": "It'll be allowed to open any site"
+  },
+  "scopeOnce": {
+    "message": "Just this once"
+  },
+  "allow": {
+    "message": "Allow"
+  },
+  "notNow": {
+    "message": "Not now"
+  },
+  "pendingEmpty": {
+    "message": "Nothing is waiting for you."
+  },
+  "pendingHint": {
+    "message": "If you answer a card in muse yourself, it disappears from here."
+  },
+  "anyChat": {
+    "message": "Any chat"
+  },
+  "onlyChats": {
+    "message": "Only from: $1"
+  },
+  "withSub": {
+    "message": "$1 and subdomains"
+  },
+  "sitePlaceholder": {
+    "message": "Paste a URL or type a site, like x.com"
+  },
+  "includeSub": {
+    "message": "Include subdomains (like mail.google.com)"
+  },
+  "add": {
+    "message": "Add"
+  },
+  "siteInvalid": {
+    "message": "That doesn't look like a site. Try something like x.com."
+  },
+  "siteLimitHint": {
+    "message": "To limit a site to certain chats, use Settings."
+  },
+  "sitesEmpty": {
+    "message": "No trusted sites yet."
+  },
+  "chatsEmpty": {
+    "message": "No trusted chats yet."
+  },
+  "chatAllSites": {
+    "message": "Any site is allowed"
+  },
+  "recentChats": {
+    "message": "Add from recent chats:"
+  },
+  "recentChatsEmpty": {
+    "message": "Chats show up here after their first approval card."
+  },
+  "chatWarn": {
+    "message": "A trusted chat can open any site without asking. Only add chats you're sure about."
+  },
+  "logEmpty": {
+    "message": "Nothing here yet."
+  },
+  "clearLog": {
+    "message": "Clear activity"
+  },
+  "resultAllowed": {
+    "message": "Allowed"
+  },
+  "resultPending": {
+    "message": "Waiting"
+  },
+  "resultSkipped": {
+    "message": "Skipped"
+  },
+  "resultHandled": {
+    "message": "Answered in muse"
+  },
+  "justNow": {
+    "message": "just now"
+  },
+  "minutesAgo": {
+    "message": "$1 min ago"
+  },
+  "hoursAgo": {
+    "message": "$1 h ago"
+  },
+  "yesterday": {
+    "message": "Yesterday"
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "navSettings": {
+    "message": "Settings"
+  },
+  "navData": {
+    "message": "Data"
+  },
+  "navOther": {
+    "message": "Other"
+  },
+  "navGeneral": {
+    "message": "General"
+  },
+  "navLog": {
+    "message": "Activity"
+  },
+  "navBackup": {
+    "message": "Backup"
+  },
+  "navAbout": {
+    "message": "Help"
+  },
+  "navChangelog": {
+    "message": "Release notes"
+  },
+  "generalLead": {
+    "message": "When the extension should click Allow for you."
+  },
+  "enabledLabel": {
+    "message": "Auto approve"
+  },
+  "enabledDesc": {
+    "message": "Turn off to pause. Nothing gets clicked."
+  },
+  "modeTrustedLong": {
+    "message": "Only what I trust"
+  },
+  "modeTrustedLongDesc": {
+    "message": "New sites and chats ask you first. Answer once in the popup and it's remembered."
+  },
+  "modeAllLong": {
+    "message": "Allow everything"
+  },
+  "modeAllLongDesc": {
+    "message": "Allows whatever Ren asks for, which skips the human check."
+  },
+  "advanced": {
+    "message": "Advanced"
+  },
+  "openBackground": {
+    "message": "Open requests from other chats"
+  },
+  "openBackgroundDesc": {
+    "message": "Requests from other chats only show a review banner, so the extension clicks Review first."
+  },
+  "language": {
+    "message": "Language"
+  },
+  "languageDesc": {
+    "message": "Follows your browser by default"
+  },
+  "langAuto": {
+    "message": "Browser default"
+  },
+  "sitesLead": {
+    "message": "When Ren opens one of these sites, the extension clicks Allow. You can limit a site to certain chats."
+  },
+  "addSite": {
+    "message": "＋ Add site"
+  },
+  "newSite": {
+    "message": "New site"
+  },
+  "siteLabel": {
+    "message": "Site"
+  },
+  "scopeLabel": {
+    "message": "Allow from"
+  },
+  "onlyTheseChats": {
+    "message": "Only these chats"
+  },
+  "chatPickHint": {
+    "message": "Chats that showed up recently"
+  },
+  "chatPickEmpty": {
+    "message": "No chats have shown up yet."
+  },
+  "siteStats": {
+    "message": "Allowed $1 times in the last 7 days, most recently $2."
+  },
+  "siteStatsNone": {
+    "message": "Not used in the last 7 days."
+  },
+  "deleteRule": {
+    "message": "Delete"
+  },
+  "create": {
+    "message": "Add"
+  },
+  "chatsLead": {
+    "message": "Anything these chats (usually scheduled tasks) ask for gets allowed. Only add chats you're sure about."
+  },
+  "addChat": {
+    "message": "＋ Add chat"
+  },
+  "newChat": {
+    "message": "New chat"
+  },
+  "chatNameLabel": {
+    "message": "Chat name"
+  },
+  "chatNamePlaceholder": {
+    "message": "Exactly as it appears in muse"
+  },
+  "chatDetailWarn": {
+    "message": "This chat can open any site without asking, including sites it hasn't opened before."
+  },
+  "chatRecentSites": {
+    "message": "Sites it asked for recently"
+  },
+  "chatRecentSitesEmpty": {
+    "message": "Nothing recent."
+  },
+  "logLead": {
+    "message": "The last $1 approval cards, stored only on this computer."
+  },
+  "filterAll": {
+    "message": "All"
+  },
+  "colTime": {
+    "message": "Time"
+  },
+  "colSite": {
+    "message": "Site"
+  },
+  "colChat": {
+    "message": "Chat"
+  },
+  "colResult": {
+    "message": "Result"
+  },
+  "backupLead": {
+    "message": "Chrome browsers signed in to the same Google account sync your trusted lists automatically. Use this to move settings to a browser that isn't signed in, like one on a server."
+  },
+  "exportLabel": {
+    "message": "Export settings"
+  },
+  "exportDesc": {
+    "message": "Downloads a file with your mode and trusted sites and chats. Activity isn't included."
+  },
+  "exportBtn": {
+    "message": "Export"
+  },
+  "importLabel": {
+    "message": "Import settings"
+  },
+  "importDesc": {
+    "message": "Pick an exported file. It replaces your current settings."
+  },
+  "importBtn": {
+    "message": "Import"
+  },
+  "importDone": {
+    "message": "Imported $1 sites and $2 chats."
+  },
+  "importFailed": {
+    "message": "Couldn't read settings from that file."
+  },
+  "importConfirm": {
+    "message": "Importing replaces your current settings. Continue?"
+  },
+  "aboutLead": {
+    "message": "Unofficial. Not affiliated with Meta or muse.ai."
+  },
+  "helpDesc": {
+    "message": "The README on GitHub"
+  },
+  "issueDesc": {
+    "message": "Missed a card, clicked the wrong one, or stopped working after a muse update"
+  },
+  "rateDesc": {
+    "message": "Helps other people find it"
+  },
+  "open": {
+    "message": "Open ›"
+  },
+  "welcomeTitle": {
+    "message": "Welcome to Auto Approve for Muse"
+  },
+  "welcomeSub": {
+    "message": "When Ren wants to open a website, muse shows an approval card and waits for you to click Allow. This extension can click it for you."
+  },
+  "welcomeQ": {
+    "message": "How should it work?"
+  },
+  "recommended": {
+    "message": "Recommended"
+  },
+  "welcomeTrustedDesc": {
+    "message": "The first time a new site or chat shows up, it asks you. Answer once and it's allowed automatically after that."
+  },
+  "welcomeAllDesc": {
+    "message": "The easiest option. Whatever Ren asks for is allowed, which skips the human check."
+  },
+  "start": {
+    "message": "Get started"
+  },
+  "pinHint": {
+    "message": "Click the puzzle icon in the top right of Chrome and pin Auto Approve for Muse. A red number shows up on it when something is waiting for you."
+  },
+  "welcomeFine": {
+    "message": "You can change this anytime from the toolbar icon. Unofficial, not affiliated with Meta or muse.ai."
+  },
+  "subShort": {
+    "message": "Incl. subdomains"
+  }
+}

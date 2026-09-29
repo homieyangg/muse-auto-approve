@@ -1,25 +1,112 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html>
 <head>
   <meta charset="utf-8">
-  <style>
-    body { width: 280px; margin: 0; padding: 12px; font: 13px -apple-system, "PingFang TC", sans-serif; color: #222; }
-    h1 { font-size: 14px; margin: 0 0 10px; }
-    label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-    .count { margin: 10px 0 6px; color: #555; }
-    ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
-    li { padding: 6px 0; border-top: 1px solid #eee; font-size: 12px; line-height: 1.4; word-break: break-all; }
-    li time { color: #888; margin-right: 4px; }
-    button { margin-top: 8px; font-size: 12px; }
-  </style>
+  <link rel="stylesheet" href="ui.css">
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <h1>Auto Approve for Muse</h1>
-  <label><input type="checkbox" id="enabled"> 自動允許</label>
-  <label><input type="checkbox" id="preferAlways"> 優先按「一律允許」</label>
-  <div class="count">已自動允許 <span id="count">0</span> 次</div>
-  <ul id="log"></ul>
-  <button id="clear">清除紀錄</button>
+  <div class="view on" id="v-home">
+    <div class="head">
+      <img src="icons/icon48.png" alt="">
+      <div class="head-text"><b data-i18n="extName"></b><small id="status" class="muted"></small></div>
+      <label class="sw" data-i18n-title="toggleTitle"><input type="checkbox" id="enabled"><span></span></label>
+    </div>
+    <div id="home-body">
+      <button class="alert" id="alert" data-go="v-pending" hidden>
+        <span class="alert-n" id="alert-n"></span>
+        <span class="alert-text"><b id="alert-title"></b><small id="alert-sites"></small></span>
+        <span aria-hidden="true">›</span>
+      </button>
+      <div class="group">
+        <div class="item">
+          <div><span data-i18n="modeLabel"></span><small id="mode-desc" class="muted"></small></div>
+          <select id="mode">
+            <option value="trusted" data-i18n="modeTrusted"></option>
+            <option value="all" data-i18n="modeAll"></option>
+          </select>
+        </div>
+      </div>
+      <div class="group" id="lists">
+        <button class="item link" data-go="v-sites"><span data-i18n="trustedSites"></span><span class="val" id="sites-n"></span></button>
+        <button class="item link" data-go="v-chats"><span data-i18n="trustedChats"></span><span class="val" id="chats-n"></span></button>
+      </div>
+      <div class="group">
+        <button class="item link" data-go="v-log"><span data-i18n="recentLog"></span><span class="val" id="today-n"></span></button>
+        <div class="item">
+          <div><span data-i18n="preferAlways"></span><small class="muted" data-i18n="preferAlwaysDesc"></small></div>
+          <label class="sw"><input type="checkbox" id="prefer-always"><span></span></label>
+        </div>
+      </div>
+      <div class="rate" id="rate" hidden>
+        <button class="rate-x" id="rate-x" aria-label="close">×</button>
+        <b data-i18n="rateTitle"></b>
+        <small class="muted" data-i18n="rateText"></small>
+        <button class="rate-go" id="rate-go" data-i18n="rateButton"></button>
+      </div>
+    </div>
+    <div class="foot">
+      <a id="open-options">⚙ <span data-i18n="moreSettings"></span></a>
+      <span class="muted" id="version"></span>
+      <a id="more">⋯ <span data-i18n="more"></span></a>
+    </div>
+    <div class="menu" id="menu" hidden>
+      <a data-url="help" data-i18n="menuHelp"></a>
+      <a data-url="issue" data-i18n="menuIssue"></a>
+      <a data-url="rate" data-i18n="menuRate"></a>
+      <a data-url="source" data-i18n="menuSource"></a>
+    </div>
+  </div>
+
+  <div class="view" id="v-pending">
+    <div class="sub-head"><button class="back" data-i18n-title="back">‹</button><b data-i18n="pendingHeader"></b></div>
+    <div id="pending-list"></div>
+    <p class="hint" id="pending-empty" data-i18n="pendingEmpty" hidden></p>
+    <p class="hint" data-i18n="pendingHint"></p>
+  </div>
+
+  <div class="view" id="v-sites">
+    <div class="sub-head"><button class="back" data-i18n-title="back">‹</button><b data-i18n="trustedSites"></b></div>
+    <div class="group" id="site-list"></div>
+    <p class="hint" id="sites-empty" data-i18n="sitesEmpty" hidden></p>
+    <form class="add" id="site-form">
+      <input class="text-input" id="site-input" data-i18n-placeholder="sitePlaceholder" autocomplete="off">
+      <button class="btn primary" data-i18n="add"></button>
+    </form>
+    <label class="check hint"><input type="checkbox" id="site-sub"><span data-i18n="includeSub"></span></label>
+    <p class="error" id="site-error" data-i18n="siteInvalid" hidden></p>
+    <p class="hint" data-i18n="siteLimitHint"></p>
+  </div>
+
+  <div class="view" id="v-chats">
+    <div class="sub-head"><button class="back" data-i18n-title="back">‹</button><b data-i18n="trustedChats"></b></div>
+    <div class="group" id="chat-list"></div>
+    <p class="hint" id="chats-empty" data-i18n="chatsEmpty" hidden></p>
+    <p class="hint" data-i18n="recentChats"></p>
+    <div class="links" id="recent-chats"></div>
+    <p class="hint" id="recent-empty" data-i18n="recentChatsEmpty" hidden></p>
+    <p class="hint warn" data-i18n="chatWarn"></p>
+  </div>
+
+  <div class="view" id="v-log">
+    <div class="sub-head"><button class="back" data-i18n-title="back">‹</button><b data-i18n="recentLog"></b></div>
+    <div class="group" id="log-list"></div>
+    <p class="hint" id="log-empty" data-i18n="logEmpty" hidden></p>
+    <button class="btn link" id="clear-log" data-i18n="clearLog"></button>
+  </div>
+
+  <template id="tpl-pending">
+    <div class="req">
+      <div class="req-site"></div>
+      <small class="req-meta muted"></small>
+      <small class="muted" data-i18n="allowLater"></small>
+      <div class="scopes"></div>
+      <div class="actions"><button class="btn primary" data-act="allow" data-i18n="allow"></button><button class="btn" data-act="dismiss" data-i18n="notNow"></button></div>
+    </div>
+  </template>
+
+  <script src="shared.js"></script>
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

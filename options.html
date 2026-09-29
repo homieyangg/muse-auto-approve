@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auto Approve for Muse</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="ui.css">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <aside class="side">
+    <div class="brand"><img src="icons/icon32.png" alt=""><div><b data-i18n="extName"></b><small class="muted" id="version"></small></div></div>
+    <div class="group-label" data-i18n="navSettings"></div>
+    <a class="nav" href="#general"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span data-i18n="navGeneral"></span></a>
+    <a class="nav" href="#sites"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><span data-i18n="trustedSites"></span><span class="count" id="nav-sites-n"></span></a>
+    <a class="nav" href="#chats"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg><span data-i18n="trustedChats"></span><span class="count" id="nav-chats-n"></span></a>
+    <div class="group-label" data-i18n="navData"></div>
+    <a class="nav" href="#log"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3"/></svg><span data-i18n="navLog"></span></a>
+    <a class="nav" href="#backup"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span data-i18n="navBackup"></span></a>
+    <div class="group-label" data-i18n="navOther"></div>
+    <a class="nav" href="#about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span data-i18n="navAbout"></span></a>
+    <div class="side-foot"><a class="nav" id="changelog" target="_blank"><svg viewBox="0 0 24 24"><path d="M5 19a14 14 0 0 1 14-14M5 12a7 7 0 0 1 7 7M5 19h.01"/></svg><span data-i18n="navChangelog"></span></a></div>
+  </aside>
+
+  <main>
+    <section class="page" id="page-general">
+      <h1 data-i18n="navGeneral"></h1>
+      <p class="lead" data-i18n="generalLead"></p>
+      <div class="sec">
+        <div class="line"><div><b data-i18n="enabledLabel"></b><small class="muted" data-i18n="enabledDesc"></small></div><label class="sw"><input type="checkbox" id="enabled"><span></span></label></div>
+      </div>
+      <div class="sec">
+        <h3 data-i18n="modeLabel"></h3>
+        <label class="line check"><input type="radio" name="mode" value="trusted"><div><b data-i18n="modeTrustedLong"></b><small class="muted" data-i18n="modeTrustedLongDesc"></small></div></label>
+        <label class="line check"><input type="radio" name="mode" value="all"><div><b data-i18n="modeAllLong"></b><small class="muted" data-i18n="modeAllLongDesc"></small></div></label>
+      </div>
+      <div class="sec">
+        <h3 data-i18n="advanced"></h3>
+        <div class="line"><div><b data-i18n="preferAlways"></b><small class="muted" data-i18n="preferAlwaysDesc"></small></div><label class="sw"><input type="checkbox" id="prefer-always"><span></span></label></div>
+        <div class="line"><div><b data-i18n="openBackground"></b><small class="muted" data-i18n="openBackgroundDesc"></small></div><label class="sw"><input type="checkbox" id="open-background"><span></span></label></div>
+        <div class="line"><div><b data-i18n="language"></b><small class="muted" data-i18n="languageDesc"></small></div>
+          <select id="lang"><option value="auto" data-i18n="langAuto"></option><option value="zh_TW">繁體中文</option><option value="en">English</option></select></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-sites">
+      <h1 data-i18n="trustedSites"></h1>
+      <p class="lead" data-i18n="sitesLead"></p>
+      <div class="md">
+        <div class="list"><button class="add-btn" id="site-new" data-i18n="addSite"></button><div id="site-items"></div></div>
+        <div class="detail" id="site-detail"></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-chats">
+      <h1 data-i18n="trustedChats"></h1>
+      <p class="lead" data-i18n="chatsLead"></p>
+      <div class="md">
+        <div class="list"><button class="add-btn" id="chat-new" data-i18n="addChat"></button><div id="chat-items"></div></div>
+        <div class="detail" id="chat-detail"></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-log">
+      <h1 data-i18n="navLog"></h1>
+      <p class="lead" id="log-lead"></p>
+      <div class="filter" id="log-filter">
+        <a data-filter="" data-i18n="filterAll"></a>
+        <a data-filter="allowed" data-i18n="resultAllowed"></a>
+        <a data-filter="pending" data-i18n="resultPending"></a>
+        <a data-filter="skipped" data-i18n="resultSkipped"></a>
+        <span></span>
+        <a class="action" id="clear-log" data-i18n="clearLog"></a>
+      </div>
+      <table class="table">
+        <thead><tr><th data-i18n="colTime"></th><th data-i18n="colSite"></th><th data-i18n="colChat"></th><th data-i18n="colResult"></th></tr></thead>
+        <tbody id="log-rows"></tbody>
+      </table>
+      <p class="muted" id="log-empty" data-i18n="logEmpty" hidden></p>
+    </section>
+
+    <section class="page" id="page-backup">
+      <h1 data-i18n="navBackup"></h1>
+      <p class="lead" data-i18n="backupLead"></p>
+      <div class="sec">
+        <div class="line"><div><b data-i18n="exportLabel"></b><small class="muted" data-i18n="exportDesc"></small></div><button class="btn" id="export" data-i18n="exportBtn"></button></div>
+        <div class="line"><div><b data-i18n="importLabel"></b><small class="muted" data-i18n="importDesc"></small></div><button class="btn" id="import" data-i18n="importBtn"></button></div>
+      </div>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+      <p id="import-result" hidden></p>
+    </section>
+
+    <section class="page" id="page-about">
+      <h1 data-i18n="navAbout"></h1>
+      <p class="lead" data-i18n="aboutLead"></p>
+      <div class="sec">
+        <div class="line"><div><b data-i18n="menuHelp"></b><small class="muted" data-i18n="helpDesc"></small></div><a data-url="help" data-i18n="open"></a></div>
+        <div class="line"><div><b data-i18n="menuIssue"></b><small class="muted" data-i18n="issueDesc"></small></div><a data-url="issue" data-i18n="open"></a></div>
+        <div class="line"><div><b data-i18n="menuRate"></b><small class="muted" data-i18n="rateDesc"></small></div><a data-url="rate" data-i18n="open"></a></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="shared.js"></script>
+  <script src="i18n.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

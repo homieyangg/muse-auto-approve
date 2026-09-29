@@ -1,0 +1,413 @@
+{
+  "extName": {
+    "message": "Auto Approve for Muse"
+  },
+  "extDescription": {
+    "message": "muse.ai 跳出審批卡時自動按允許，可以只允許你信任的網站和聊天室。非官方工具，與 Meta 無關。"
+  },
+  "statusOn": {
+    "message": "運作中・今天已自動允許 $1 次"
+  },
+  "statusPaused": {
+    "message": "已暫停，不會按任何卡片"
+  },
+  "toggleTitle": {
+    "message": "總開關"
+  },
+  "pendingAlert": {
+    "message": "$1 個請求等你決定"
+  },
+  "modeLabel": {
+    "message": "自動允許方式"
+  },
+  "modeTrusted": {
+    "message": "只允許信任的"
+  },
+  "modeAll": {
+    "message": "全部允許"
+  },
+  "modeTrustedDesc": {
+    "message": "新的網站或聊天室會先問你"
+  },
+  "modeAllDesc": {
+    "message": "Ren 要開什麼都直接允許"
+  },
+  "trustedSites": {
+    "message": "信任的網站"
+  },
+  "trustedChats": {
+    "message": "信任的聊天室"
+  },
+  "recentLog": {
+    "message": "最近紀錄"
+  },
+  "todayN": {
+    "message": "今天 $1 次"
+  },
+  "preferAlways": {
+    "message": "優先按「一律允許」"
+  },
+  "preferAlwaysDesc": {
+    "message": "muse 會記住網站，以後不再跳卡"
+  },
+  "rateTitle": {
+    "message": "用得還順手嗎？"
+  },
+  "rateText": {
+    "message": "到商店留個評價，能幫更多人找到這個插件。"
+  },
+  "rateButton": {
+    "message": "★ 去評價"
+  },
+  "moreSettings": {
+    "message": "更多設定"
+  },
+  "more": {
+    "message": "更多"
+  },
+  "menuHelp": {
+    "message": "使用說明"
+  },
+  "menuIssue": {
+    "message": "回報問題"
+  },
+  "menuRate": {
+    "message": "到商店評價"
+  },
+  "menuSource": {
+    "message": "原始碼（GitHub）"
+  },
+  "back": {
+    "message": "返回"
+  },
+  "pendingHeader": {
+    "message": "等你決定"
+  },
+  "from": {
+    "message": "來自 $1"
+  },
+  "fromUnknown": {
+    "message": "來源不明"
+  },
+  "allowLater": {
+    "message": "以後自動允許："
+  },
+  "scopeSite": {
+    "message": "這個網站（任何聊天室）"
+  },
+  "scopeSiteChat": {
+    "message": "這個網站，只限這個聊天室"
+  },
+  "scopeChat": {
+    "message": "這個聊天室的所有請求"
+  },
+  "scopeChatWarn": {
+    "message": "它要開任何網站都會直接允許"
+  },
+  "scopeOnce": {
+    "message": "只允許這一次（不記住）"
+  },
+  "allow": {
+    "message": "允許"
+  },
+  "notNow": {
+    "message": "這次先不要"
+  },
+  "pendingEmpty": {
+    "message": "目前沒有等你決定的請求。"
+  },
+  "pendingHint": {
+    "message": "你在 muse 裡自己按掉的，會自動從這裡消失。"
+  },
+  "anyChat": {
+    "message": "任何聊天室"
+  },
+  "onlyChats": {
+    "message": "只限：$1"
+  },
+  "withSub": {
+    "message": "$1 和子網域"
+  },
+  "sitePlaceholder": {
+    "message": "貼上網址或輸入網站，例如 x.com"
+  },
+  "includeSub": {
+    "message": "也包含子網域（例如 mail.google.com）"
+  },
+  "add": {
+    "message": "加入"
+  },
+  "siteInvalid": {
+    "message": "看不懂這個網址，請輸入像 x.com 這樣的網站。"
+  },
+  "siteLimitHint": {
+    "message": "要限定只在某些聊天室自動允許，到「更多設定」裡改。"
+  },
+  "sitesEmpty": {
+    "message": "還沒有信任的網站。"
+  },
+  "chatsEmpty": {
+    "message": "還沒有信任的聊天室。"
+  },
+  "chatAllSites": {
+    "message": "要開任何網站都自動允許"
+  },
+  "recentChats": {
+    "message": "從最近出現過的聊天室加入："
+  },
+  "recentChatsEmpty": {
+    "message": "還沒有出現過聊天室，第一張審批卡跳出來後就會列在這裡。"
+  },
+  "chatWarn": {
+    "message": "信任聊天室代表它要開任何網站都會直接允許，只加你很確定的排程。"
+  },
+  "logEmpty": {
+    "message": "還沒有紀錄。"
+  },
+  "clearLog": {
+    "message": "清除紀錄"
+  },
+  "resultAllowed": {
+    "message": "已允許"
+  },
+  "resultPending": {
+    "message": "等你決定"
+  },
+  "resultSkipped": {
+    "message": "你略過"
+  },
+  "resultHandled": {
+    "message": "你自己處理了"
+  },
+  "justNow": {
+    "message": "剛剛"
+  },
+  "minutesAgo": {
+    "message": "$1 分鐘前"
+  },
+  "hoursAgo": {
+    "message": "$1 小時前"
+  },
+  "yesterday": {
+    "message": "昨天"
+  },
+  "remove": {
+    "message": "移除"
+  },
+  "navSettings": {
+    "message": "設定"
+  },
+  "navData": {
+    "message": "資料"
+  },
+  "navOther": {
+    "message": "其他"
+  },
+  "navGeneral": {
+    "message": "一般"
+  },
+  "navLog": {
+    "message": "紀錄"
+  },
+  "navBackup": {
+    "message": "備份與搬移"
+  },
+  "navAbout": {
+    "message": "說明與回報問題"
+  },
+  "navChangelog": {
+    "message": "更新紀錄"
+  },
+  "generalLead": {
+    "message": "插件什麼時候要幫你按允許。"
+  },
+  "enabledLabel": {
+    "message": "自動允許"
+  },
+  "enabledDesc": {
+    "message": "關掉就是暫停，插件不會按任何卡片"
+  },
+  "modeTrustedLong": {
+    "message": "只允許我信任的"
+  },
+  "modeTrustedLongDesc": {
+    "message": "新的網站或聊天室會先問你，在 popup 按一次就記住"
+  },
+  "modeAllLong": {
+    "message": "全部自動允許"
+  },
+  "modeAllLongDesc": {
+    "message": "Ren 要開什麼都直接允許，等於跳過人工確認"
+  },
+  "advanced": {
+    "message": "進階"
+  },
+  "openBackground": {
+    "message": "自動打開其他聊天室的請求"
+  },
+  "openBackgroundDesc": {
+    "message": "其他聊天室的請求只會顯示「一項工作需要檢閱」，插件會先點「檢閱」"
+  },
+  "language": {
+    "message": "介面語言"
+  },
+  "languageDesc": {
+    "message": "預設跟著瀏覽器"
+  },
+  "langAuto": {
+    "message": "跟著瀏覽器"
+  },
+  "sitesLead": {
+    "message": "Ren 要開這些網站時，插件會自動幫你按允許。可以限定只在某些聊天室才允許。"
+  },
+  "addSite": {
+    "message": "＋ 新增網站"
+  },
+  "newSite": {
+    "message": "新增網站"
+  },
+  "siteLabel": {
+    "message": "網站"
+  },
+  "scopeLabel": {
+    "message": "在哪些聊天室自動允許"
+  },
+  "onlyTheseChats": {
+    "message": "只限這些聊天室"
+  },
+  "chatPickHint": {
+    "message": "清單來自最近出現過的聊天室"
+  },
+  "chatPickEmpty": {
+    "message": "還沒有出現過聊天室。"
+  },
+  "siteStats": {
+    "message": "最近 7 天自動允許 $1 次，上次是 $2。"
+  },
+  "siteStatsNone": {
+    "message": "最近 7 天沒有自動允許。"
+  },
+  "deleteRule": {
+    "message": "刪除"
+  },
+  "create": {
+    "message": "新增"
+  },
+  "chatsLead": {
+    "message": "這些聊天室（通常是排程任務）要開任何網站，插件都會自動幫你按允許。只加你很確定的。"
+  },
+  "addChat": {
+    "message": "＋ 新增聊天室"
+  },
+  "newChat": {
+    "message": "新增聊天室"
+  },
+  "chatNameLabel": {
+    "message": "聊天室名稱"
+  },
+  "chatNamePlaceholder": {
+    "message": "跟 muse 裡的名稱一模一樣"
+  },
+  "chatDetailWarn": {
+    "message": "這個聊天室要開任何網站都會直接允許，包括它以後第一次要去的網站。"
+  },
+  "chatRecentSites": {
+    "message": "最近要求開過的網站"
+  },
+  "chatRecentSitesEmpty": {
+    "message": "最近沒有紀錄。"
+  },
+  "logLead": {
+    "message": "最近 $1 筆審批卡，只存在這台電腦。"
+  },
+  "filterAll": {
+    "message": "全部"
+  },
+  "colTime": {
+    "message": "時間"
+  },
+  "colSite": {
+    "message": "網站"
+  },
+  "colChat": {
+    "message": "聊天室"
+  },
+  "colResult": {
+    "message": "結果"
+  },
+  "backupLead": {
+    "message": "同一個 Google 帳號登入的 Chrome 會自動同步信任清單。要搬到沒登入的電腦或伺服器時用這裡。"
+  },
+  "exportLabel": {
+    "message": "匯出設定"
+  },
+  "exportDesc": {
+    "message": "下載一個檔案，裡面有模式、信任的網站和聊天室，不含紀錄"
+  },
+  "exportBtn": {
+    "message": "匯出"
+  },
+  "importLabel": {
+    "message": "匯入設定"
+  },
+  "importDesc": {
+    "message": "選剛才匯出的檔案，會取代目前的設定"
+  },
+  "importBtn": {
+    "message": "匯入"
+  },
+  "importDone": {
+    "message": "已匯入：$1 個網站、$2 個聊天室。"
+  },
+  "importFailed": {
+    "message": "這個檔案讀不出設定。"
+  },
+  "importConfirm": {
+    "message": "匯入會取代目前的設定，確定嗎？"
+  },
+  "aboutLead": {
+    "message": "非官方工具，與 Meta、muse.ai 無關。"
+  },
+  "helpDesc": {
+    "message": "GitHub 上的 README"
+  },
+  "issueDesc": {
+    "message": "插件沒按到、按錯，或 muse 改版後失效"
+  },
+  "rateDesc": {
+    "message": "能幫更多人找到這個插件"
+  },
+  "open": {
+    "message": "打開 ›"
+  },
+  "welcomeTitle": {
+    "message": "歡迎使用 Auto Approve for Muse"
+  },
+  "welcomeSub": {
+    "message": "Ren 要開網站時，muse 會跳審批卡等你按「允許」。這個插件可以幫你按。"
+  },
+  "welcomeQ": {
+    "message": "你希望怎麼處理？"
+  },
+  "recommended": {
+    "message": "推薦"
+  },
+  "welcomeTrustedDesc": {
+    "message": "第一次遇到新的網站或聊天室會先問你，按一下就記住，之後自動允許。"
+  },
+  "welcomeAllDesc": {
+    "message": "最省事，Ren 要開什麼網站都直接允許，等於跳過人工確認。"
+  },
+  "start": {
+    "message": "開始使用"
+  },
+  "pinHint": {
+    "message": "點瀏覽器右上角的拼圖圖示，把 Auto Approve for Muse 釘選出來。有請求等你決定時，圖示上會出現紅色數字。"
+  },
+  "welcomeFine": {
+    "message": "之後隨時可以在工具列圖示裡更改。非官方工具，與 Meta、muse.ai 無關。"
+  },
+  "subShort": {
+    "message": "含子網域"
+  }
+}

@@ -11,7 +11,8 @@
 
   $IsUpdate = $false
   if (Test-Path $Dest) {
-    if (-not ((Test-Path $Manifest) -and (Select-String -Path $Manifest -SimpleMatch '"Auto Approve for Muse"' -Quiet))) {
+    $NameFiles = @($Manifest, (Join-Path $Dest '_locales/en/messages.json')) | Where-Object { Test-Path $_ }
+    if (-not ($NameFiles -and (Select-String -Path $NameFiles -SimpleMatch '"Auto Approve for Muse"' -Quiet))) {
       throw "$Dest already exists and isn't this extension. Remove it or set MUSE_AA_DIR to another folder."
     }
     $IsUpdate = $true

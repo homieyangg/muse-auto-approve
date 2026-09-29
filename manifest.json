@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Auto Approve for Muse",
-  "version": "1.0.0",
-  "description": "muse.ai 跳出審批卡時自動按允許，包含其他聊天室的審批。非官方工具，與 Meta 無關。",
+  "name": "__MSG_extName__",
+  "version": "1.1.0",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -10,20 +11,26 @@
     "128": "icons/icon128.png"
   },
   "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
-    "default_title": "Auto Approve for Muse",
+    "default_title": "__MSG_extName__",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png"
     }
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "content_scripts": [
     {
       "matches": ["https://muse.ai/*", "https://*.muse.ai/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle",
-      "all_frames": true
+      "js": ["shared.js", "content.js"],
+      "run_at": "document_idle"
     }
   ]
 }

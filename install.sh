@@ -44,7 +44,7 @@ open_extensions_page() {
 
 is_update=false
 if [ -e "$DEST" ]; then
-  grep -qF "$EXT_NAME" "$DEST/manifest.json" 2>/dev/null \
+  grep -qsF "$EXT_NAME" "$DEST/manifest.json" "$DEST/_locales/en/messages.json" \
     || fail "$DEST already exists and isn't this extension. Remove it or set MUSE_AA_DIR to another folder."
   is_update=true
 fi

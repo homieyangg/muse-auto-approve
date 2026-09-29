@@ -7,14 +7,20 @@ const CONTEXT_RE = /(網域|域名|網路|网络|網站|网站|連線|连接|存
 const MAX_DEPTH = 6;
 const MAX_CONTEXT_TEXT = 1500;
 const RETRY_AFTER_MS = 5000;
-const LOG_LIMIT = 20;
 const BUTTON_SELECTOR = 'button, [role="button"]';
-const BACKGROUND_REVIEW_SELECTOR = '[data-testid="hatch-inline-approval-card"][data-hatch-background-approval-surface="true"] button';
+const BACKGROUND_SURFACE_SELECTOR = '[data-testid="hatch-inline-approval-card"][data-hatch-background-approval-surface="true"]';
 const REVIEW_RETRY_MS = 10000;
+const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 
-let settings = { enabled: true, preferAlways: true };
+let settings = { ...AAM.SETTINGS_DEFAULTS };
+let allowOnce = [];
 const handledAt = new WeakMap();
+const waitingState = new Map();
 let lastReviewAt = 0;
+let lastClickedBanner = '';
+let blockedBanner = { text: '', at: 0 };
+let lastReported = null;
+let writeQueue = Promise.resolve();
 
 function labelOf(el) {
   return (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
@@ -73,38 +79,94 @@ function contextAlive() {
   return false;
 }
 
+// 掃描頁面上的審批卡：信任的按掉，不信任的列進等你決定
 function scan() {
-  if (!contextAlive() || !settings.enabled) return;
+  if (!contextAlive()) return;
+  const cards = settings.enabled ? [...approvalCards()] : [];
   const now = Date.now();
-  let approved = false;
-  for (const [card, { always, once, body }] of approvalCards()) {
-    if (now - (handledAt.get(card) || 0) < RETRY_AFTER_MS) continue;
-    const target = settings.preferAlways ? (always || once) : (once || always);
-    handledAt.set(card, now);
-    target.click();
-    approved = true;
-    record(target === always ? 'always' : 'once', labelOf(body).slice(0, 240));
+  const waiting = [];
+  for (const [node, buttons] of cards) {
+    const card = AAM.parseCard(labelOf(buttons.body));
+    const key = AAM.cardKey(card);
+    const onceOnly = allowOnce.includes(key);
+    if (settings.mode === 'all' || onceOnly || AAM.isTrusted(settings, card)) {
+      if (now - (handledAt.get(node) || 0) >= RETRY_AFTER_MS) approve(node, buttons, card, key, onceOnly);
+    } else {
+      waiting.push({ key, host: card.host, chat: card.chat, title: card.title });
+    }
   }
-  if (!approved) openBackgroundApproval(now);
+  const banner = bannerText();
+  const tracking = settings.enabled && settings.mode === 'trusted';
+  // 其他聊天室的卡片收起來、只剩「檢閱」提示時保留等你決定，不能當成使用者已經處理
+  if (!(tracking && !cards.length && banner && waitingState.size)) syncWaiting(waiting, now, tracking);
+  if (!settings.enabled || !settings.openBackground) return;
+  if (!cards.length) openBackgroundApproval(now, banner);
+  else if (waiting.length === cards.length) blockedBanner = { text: lastClickedBanner || banner, at: now };
 }
 
-// 別的聊天室來的審批在這裡只顯示「N 項工作需要檢閱」，先點檢閱把卡片叫出來，下一輪 scan 再按允許
-function openBackgroundApproval(now) {
-  if (now - lastReviewAt < REVIEW_RETRY_MS) return;
-  const review = document.querySelector(BACKGROUND_REVIEW_SELECTOR);
+function approve(node, { always, once }, card, key, onceOnly) {
+  const target = settings.preferAlways && !onceOnly ? (always || once) : (once || always);
+  handledAt.set(node, Date.now());
+  target.click();
+  console.info('[MAA] approved', card.host || card.title, card.chat);
+  waitingState.delete(key);
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, result: 'allowed', kind: target === always ? 'always' : 'once' };
+  updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
+    const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
+    const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
+    if (onceOnly) patch.allowOnce = data.allowOnce.filter(k => k !== key);
+    return patch;
+  });
+}
+
+// 跟上一輪比對：新出現的記成等你決定，消失的代表使用者自己在 muse 處理了，最後回報給背景算工具列數字
+function syncWaiting(waiting, now, tracking) {
+  if (!tracking) waiting = [];
+  const seen = new Set(waiting.map(w => w.key));
+  const added = waiting.filter(w => !waitingState.has(w.key));
+  const gone = tracking ? [...waitingState.keys()].filter(k => !seen.has(k)) : [];
+  if (!tracking) waitingState.clear();
+  for (const w of added) waitingState.set(w.key, { ...w, ts: now });
+  for (const k of gone) waitingState.delete(k);
+  if (!waitingState.size) blockedBanner = { text: '', at: 0 };
+  if (added.length || gone.length) recordWaitingChanges(added, gone);
+  const items = [...waitingState.values()];
+  const report = items.map(i => i.key).join('\n');
+  if (report === lastReported) return;
+  lastReported = report;
+  chrome.runtime.sendMessage({ type: 'pending', items }).catch(() => {});
+}
+
+function recordWaitingChanges(added, gone) {
+  updateLocal({ log: [], dismissed: [] }, data => {
+    const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, result: 'pending' }));
+    return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
+  });
+}
+
+function bannerText() {
+  const el = document.querySelector(BACKGROUND_SURFACE_SELECTOR);
+  return el ? labelOf(el) : '';
+}
+
+// 別的聊天室來的審批在這裡只顯示「N 項工作需要檢閱」，先點檢閱把卡片叫出來；叫出來都不信任的話，同一個提示 10 分鐘內不再點
+function openBackgroundApproval(now, banner) {
+  if (!banner || now - lastReviewAt < REVIEW_RETRY_MS) return;
+  if (banner === blockedBanner.text && now - blockedBanner.at < REVIEW_BLOCK_MS) return;
+  const review = document.querySelector(`${BACKGROUND_SURFACE_SELECTOR} button`);
   if (!review || !isClickable(review)) return;
   lastReviewAt = now;
+  lastClickedBanner = banner;
   review.click();
-  console.info('[MAA] opened background approval');
 }
 
-function record(kind, summary) {
-  console.info('[MAA] approved', kind, summary);
-  if (!contextAlive()) return;
-  chrome.storage.local.get({ count: 0, log: [] }, ({ count, log }) => {
-    log.unshift({ ts: Date.now(), kind, summary });
-    chrome.storage.local.set({ count: count + 1, log: log.slice(0, LOG_LIMIT) });
-  });
+// content script 裡多個地方會同時改 local storage，排隊寫入避免互相蓋掉
+function updateLocal(defaults, fn) {
+  writeQueue = writeQueue
+    .then(() => (contextAlive() ? chrome.storage.local.get(defaults) : null))
+    .then(data => (data ? chrome.storage.local.set(fn(data)) : null))
+    .catch(() => {});
 }
 
 let pending = null;
@@ -117,13 +179,22 @@ const observer = new MutationObserver(scheduleScan);
 observer.observe(document.documentElement, { childList: true, subtree: true });
 const timer = setInterval(scan, 2000);
 
-chrome.storage.local.get(settings, stored => {
-  settings = { ...settings, ...stored };
-  scan();
+chrome.storage.sync.get(AAM.SETTINGS_DEFAULTS, stored => {
+  settings = stored;
+  scheduleScan();
 });
-chrome.storage.onChanged.addListener(changes => {
-  for (const key of Object.keys(settings)) {
-    if (changes[key]) settings[key] = changes[key].newValue;
+chrome.storage.local.get({ allowOnce: [] }, stored => {
+  allowOnce = stored.allowOnce;
+  scheduleScan();
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync') {
+    for (const key of Object.keys(AAM.SETTINGS_DEFAULTS)) if (changes[key]) settings[key] = changes[key].newValue ?? AAM.SETTINGS_DEFAULTS[key];
   }
-  if (changes.enabled?.newValue) scan();
+  if (area === 'local' && changes.allowOnce) allowOnce = changes.allowOnce.newValue || [];
+  if (area === 'sync' || (area === 'local' && changes.allowOnce)) {
+    blockedBanner = { text: '', at: 0 };
+    lastReviewAt = 0;
+    scheduleScan();
+  }
 });
