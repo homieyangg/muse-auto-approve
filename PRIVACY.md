@@ -1,19 +1,21 @@
 # Privacy Policy
 
-Auto Approve for Muse does not collect, transmit, sell, or share any user data.
+Auto Approve for Muse does not collect, sell, or share any user data. It has no server and makes no network requests of its own.
 
 - The extension only runs on `muse.ai` pages. It reads the page to find approval cards and clicks the approve button.
-- It makes no network requests of its own and has no remote servers or analytics.
-- Settings (on/off, prefer "always allow") and the last 20 approval records (time and card text) are stored locally in `chrome.storage.local` on your device. You can clear the records from the popup at any time, and they are removed when the extension is uninstalled.
+- Your settings (on/off, mode, preferences, language) and your trusted sites and chats are stored with `chrome.storage.sync`. If you are signed in to Chrome, Chrome syncs them between your own browsers through your Google account, the same way it syncs other extension settings. The developer never receives them.
+- The activity log (the last 200 approval cards, with time, site, and chat name) and the requests waiting for your decision are stored only on your device in `chrome.storage.local` and `chrome.storage.session`. You can clear the log at any time, and everything is removed when the extension is uninstalled.
+- Export creates a file on your computer that only you can see. Nothing is uploaded.
 
 If you have questions, open an issue at https://github.com/homieyangg/muse-auto-approve/issues.
 
 # 隱私權政策
 
-Auto Approve for Muse 不收集、不傳送、不販售、也不分享任何使用者資料。
+Auto Approve for Muse 不收集、不販售、也不分享任何使用者資料。插件沒有伺服器，自己不會發送任何網路請求。
 
 - 插件只在 `muse.ai` 頁面執行，讀取頁面來找審批卡並按下允許。
-- 插件本身不發送任何網路請求，沒有伺服器，也沒有分析追蹤。
-- 設定（開關、是否優先按「一律允許」）和最近 20 筆紀錄（時間與卡片文字）只存在你裝置上的 `chrome.storage.local`。紀錄可以隨時在 popup 清除，移除插件時也會一起刪掉。
+- 設定（開關、模式、偏好、語言）和信任的網站、聊天室存在 `chrome.storage.sync`。你有登入 Chrome 的話，Chrome 會透過你的 Google 帳號在你自己的瀏覽器之間同步，跟其他插件設定一樣。開發者不會拿到這些資料。
+- 紀錄（最近 200 筆審批卡的時間、網站和聊天室名稱）和等你決定的請求，只存在你裝置上的 `chrome.storage.local` 與 `chrome.storage.session`。紀錄可以隨時清除，移除插件時也會一起刪掉。
+- 匯出的設定檔只會存到你自己的電腦，不會上傳。
 
 有問題請到 https://github.com/homieyangg/muse-auto-approve/issues 開 issue。

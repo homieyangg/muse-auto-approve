@@ -12,7 +12,7 @@
 
 When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
 
-This Chrome extension clicks Allow for you. If the card offers "Always allow", it picks that one, so the same site won't ask again.
+This Chrome extension clicks Allow for you. You can let it approve everything, or only the sites and chats you trust. If the card offers "Always allow", it picks that one, so the same site won't ask again.
 
 > This is an unofficial tool and is not affiliated with Meta or muse.ai. Auto-approving removes the human check on what the assistant can access, so make sure you're fine with that.
 
@@ -53,23 +53,43 @@ Run the same command again to update. The folder stays the same, so your setting
 
 4. Reload any open muse.ai tabs, then click the extension's toolbar icon to check that it's on. If the icon isn't in the toolbar, click the puzzle piece icon and pin it.
 
-   <img src="docs/images/popup.png" width="280" alt="Extension popup">
+   <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The popup lets you pause it, choose whether to prefer "Always allow", and see the last 20 cards it approved. It's only in Traditional Chinese for now.
+The interface is in English and Traditional Chinese and follows your browser language. You can change it in Settings.
 
-## How it decides what to click
+## Trusted sites and chats
+
+After you install it, a welcome page asks how it should work. "Only what I trust" is the recommended choice. "Allow everything" clicks every card, like version 1.0 did. If you're updating from 1.0, it stays on "Allow everything" until you change it.
+
+With "Only what I trust", a card for a site you haven't trusted yet is left alone and the toolbar icon shows a red number. Open the popup, tap the request, and pick how far to trust it:
+
+<img src="docs/images/popup-pending.png" width="300" alt="A request waiting for a decision">
+
+- This site, from any chat
+- This site, only from this chat
+- Everything from this chat. Any site that chat asks for gets allowed, so keep this for scheduled tasks you're sure about.
+- Just this once, without remembering anything
+
+The card gets clicked right away, and from then on matching cards are approved without asking. A card is approved if it comes from a trusted chat, or if its site is trusted and either has no chat limit or the card came from one of the chats it's limited to.
+
+Settings has the full lists. You can limit a site to certain chats, turn an entry off without deleting it, check the activity log, and export or import your settings.
+
+<img src="docs/images/options-sites.png" width="720" alt="Trusted sites in Settings">
+
+## How it finds approval cards
 
 - It starts from the Deny button and looks for Allow or Always allow in the same block, so an Allow button anywhere else on the page is never clicked.
 - The card itself has to mention a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
 - An approval that comes from another chat only shows up as a banner with a Review button. The extension clicks Review to open the card, then approves it.
-- It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds.
+- It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the card behind a banner isn't trusted, it leaves the banner alone for 10 minutes instead of opening it again and again.
 
 It has only been tested with the Traditional Chinese UI. English and Simplified Chinese button labels are in the matching rules but haven't been tested on the live site.
 
 ## Limitations
 
 - A muse.ai tab has to stay open. If you close it, nothing gets approved.
-- It approves every card that matches, whatever the site or action.
+- In "Allow everything" mode it approves every card, whatever the site or action.
+- Cards that don't name a website, such as some connector actions, can only be trusted by chat or allowed once.
 - A muse.ai redesign can break the matching. Button labels and the markup of the review banner are the parts most likely to change.
 
 ## Running it around the clock
@@ -95,11 +115,12 @@ A few things to keep in mind:
 - The web UI includes a terminal with passwordless sudo. Never expose the port to the internet.
 - Chromium in the container defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that's the UI the extension was tested with. After signing in, also set Chromium's language to Traditional Chinese and turn off page translation, since a translated page changes the button labels the extension looks for.
 - Streaming the web UI takes a fair amount of CPU, so close it when you're done.
+- Chromium on the server isn't signed in to Google, so your trusted lists don't sync to it. Export them from Settings > Backup in your own browser and import the file on the server.
 - After updating the extension, run `docker compose restart` so Chromium loads the new version.
 
 ## Privacy
 
-The extension never sends anything out of your browser. Settings and the last 20 approval records are kept in `chrome.storage.local`. See [PRIVACY.md](PRIVACY.md) for details.
+The extension has no server and makes no network requests of its own. Your mode and trusted lists are saved with `chrome.storage.sync`, so Chrome syncs them between browsers signed in to the same Google account. The activity log stays in `chrome.storage.local` on your computer. See [PRIVACY.md](PRIVACY.md) for details.
 
 ## Packaging
 

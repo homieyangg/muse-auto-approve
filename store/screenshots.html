@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
+    body { background: #f3f5f8; font-family: -apple-system, "PingFang TC", sans-serif; color: #1f2937; }
+    .slide { display: none; width: 1280px; height: 800px; box-sizing: border-box; }
+    .slide.on { display: flex; align-items: center; justify-content: center; gap: 80px; padding: 0 90px; }
+    .text { width: 520px; }
+    .logo { width: 64px; }
+    h1 { font-size: 40px; line-height: 1.3; margin: 18px 0 18px; }
+    p { font-size: 20px; line-height: 1.7; color: #4b5563; margin: 0 0 10px; }
+    .shot { border-radius: 14px; box-shadow: 0 20px 50px rgba(15, 23, 42, .16); background: #fff; display: block; }
+    .popup { width: 380px; }
+    #s3.on { flex-direction: column; gap: 22px; padding: 44px 80px; }
+    #s3 h1 { font-size: 34px; margin: 0; }
+    #s3 p { text-align: center; margin: -10px 0 0; }
+    #s3 .shot { width: 1000px; }
+  </style>
+</head>
+<body>
+  <section class="slide" id="s1">
+    <div class="text">
+      <img class="logo" src="../icons/icon128.png" alt="">
+      <h1>審批卡跳出來，<br>自動幫你按允許</h1>
+      <p>Ren 存取網站時不用守著畫面，排程任務不會卡住。</p>
+      <p>可以全部都按，也可以只按你信任的網站和聊天室。</p>
+    </div>
+    <img class="shot popup" src="../docs/images/zh-TW/popup.png" alt="">
+  </section>
+  <section class="slide" id="s2">
+    <div class="text">
+      <h1>新的網站先問你，<br>按一次就記住</h1>
+      <p>工具列出現紅色數字時點開，選要信任到什麼範圍：這個網站、只限某個聊天室、整個聊天室，或只允許這一次。</p>
+      <p>之後同樣的請求就直接允許。</p>
+    </div>
+    <img class="shot popup" src="../docs/images/zh-TW/popup-pending.png" alt="">
+  </section>
+  <section class="slide" id="s3">
+    <h1>完整清單都在設定頁</h1>
+    <p>網站可以限定聊天室、先停用不刪掉，也能匯出設定搬到別台電腦。</p>
+    <img class="shot" src="../docs/images/zh-TW/options-sites.png" alt="">
+  </section>
+  <script>
+    const n = new URLSearchParams(location.search).get('s') || '1';
+    document.getElementById(`s${n}`).classList.add('on');
+  </script>
+</body>
+</html>
