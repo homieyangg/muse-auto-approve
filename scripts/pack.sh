@@ -9,4 +9,6 @@ out="dist/muse-auto-approve-${version}.zip"
 mkdir -p dist
 rm -f "$out"
 zip -qr "$out" manifest.json content.js popup.html popup.js icons
+# 安裝腳本固定抓 release 的 muse-auto-approve.zip，所以多放一份不帶版本號的
+cp "$out" dist/muse-auto-approve.zip
 echo "$out"

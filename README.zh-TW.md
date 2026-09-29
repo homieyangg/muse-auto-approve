@@ -14,7 +14,27 @@ muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你
 
 ## 安裝
 
-從 Chrome 網上應用程式商店安裝（上架後補連結），或自己載入：
+Chrome 網上應用程式商店還在審核，通過後會把連結放在這裡。在那之前可以用安裝腳本，或自己手動載入。
+
+### 安裝腳本
+
+macOS / Linux：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.sh | bash
+```
+
+Windows（PowerShell）：
+
+```powershell
+irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.ps1 | iex
+```
+
+腳本會把最新版下載到 `~/muse-auto-approve`（Windows 是 `%USERPROFILE%\muse-auto-approve`），幫你打開 `chrome://extensions`，並把資料夾路徑複製到剪貼簿。Chrome 不允許程式自己安裝插件，所以下面的步驟 2 和 3 還是要自己按；跳出選資料夾的視窗時，直接貼上路徑就好，不用一層層找。
+
+之後要更新，再跑一次同一個指令就好。資料夾位置不變，設定會保留。更新完到 `chrome://extensions` 按一下插件卡片上的重新載入圖示。
+
+### 手動安裝
 
 1. 下載或 clone 這個 repo。下載 ZIP 的話要先解壓縮。
 2. Chrome 開 `chrome://extensions`，打開右上角「開發人員模式」。

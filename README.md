@@ -14,7 +14,27 @@ This Chrome extension clicks Allow for you. If the card offers "Always allow", i
 
 ## Install
 
-Install it from the Chrome Web Store (link coming once the listing is approved), or load it yourself:
+The Chrome Web Store listing is under review. The link will go here once it's approved. Until then, use the install script or load it manually.
+
+### Install script
+
+macOS / Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.ps1 | iex
+```
+
+The script downloads the latest release to `~/muse-auto-approve` (`%USERPROFILE%\muse-auto-approve` on Windows), opens `chrome://extensions`, and copies the folder path to your clipboard. Chrome doesn't let scripts install extensions on their own, so you still need to do steps 2 and 3 below. When the folder picker opens, paste the path instead of browsing for it.
+
+Run the same command again to update. The folder stays the same, so your settings are kept. After updating, click the reload icon on the extension's card in `chrome://extensions`.
+
+### Manual install
 
 1. Clone or download this repo. If you download the ZIP, unzip it first.
 2. Open `chrome://extensions` and turn on Developer mode in the top right corner.
