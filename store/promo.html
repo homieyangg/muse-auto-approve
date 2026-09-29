@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body { margin: 0; overflow: hidden; }
+    body { font-family: -apple-system, "PingFang TC", sans-serif; }
+    .tile { display: none; position: relative; box-sizing: border-box; overflow: hidden; }
+    .tile.on { display: flex; align-items: center; }
+    .blue { background: #0866ff; color: #fff; }
+    .art { background: #f3f5f8 center / cover no-repeat; color: #1f2937; }
+    .badge { background: #fff; border-radius: 22%; display: grid; place-items: center; flex: none; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); }
+    .badge img { width: 78%; }
+    .name { font-weight: 700; letter-spacing: -.01em; }
+    .line { opacity: .92; }
+    .art .line { color: #4b5563; opacity: 1; }
+
+    #small { width: 440px; height: 280px; padding: 0 34px; gap: 22px; }
+    #small .badge { width: 84px; height: 84px; }
+    #small .name { font-size: 25px; line-height: 1.25; }
+    #small .line { font-size: 16px; line-height: 1.6; margin-top: 10px; }
+
+    #marquee { width: 1400px; height: 560px; padding: 0 90px; gap: 60px; }
+    #marquee .left { width: 600px; }
+    #marquee .badge { width: 104px; height: 104px; margin-bottom: 28px; }
+    #marquee .name { font-size: 50px; line-height: 1.15; }
+    #marquee .line { font-size: 26px; line-height: 1.6; margin-top: 16px; }
+    #marquee .sub { font-size: 19px; margin-top: 18px; opacity: .8; }
+    #marquee .shots { position: relative; flex: 1; height: 100%; }
+    #marquee .shots img { position: absolute; width: 310px; border-radius: 14px; box-shadow: 0 24px 60px rgba(0, 0, 0, .28); background: #fff; }
+    #marquee .shots .home { left: 40px; top: 70px; }
+    #marquee .shots .pending { left: 290px; top: 150px; }
+    #marquee.art .left { width: 560px; }
+    #small.art { background-size: auto 112%; background-position: right center !important; }
+    #small.art .badge { display: none; }
+    #small.art .name { font-size: 24px; }
+    #small.art .line { font-size: 15px; }
+  </style>
+</head>
+<body>
+  <section class="tile" id="small">
+    <div class="badge"><img src="../icons/icon128.png" alt=""></div>
+    <div>
+      <div class="name">Auto Approve<br>for Muse</div>
+      <div class="line">審批卡跳出來，<br>自動幫你按允許</div>
+    </div>
+  </section>
+  <section class="tile" id="marquee">
+    <div class="left">
+      <div class="badge"><img src="../icons/icon128.png" alt=""></div>
+      <div class="name">Auto Approve for Muse</div>
+      <div class="line">muse.ai 審批卡跳出來，自動幫你按允許。<br>只允許你信任的網站和聊天室。</div>
+      <div class="line sub">非官方工具，與 Meta、muse.ai 無關</div>
+    </div>
+    <div class="shots">
+      <img class="home" src="../docs/images/zh-TW/popup.png" alt="">
+      <img class="pending" src="../docs/images/zh-TW/popup-pending.png" alt="">
+    </div>
+  </section>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const tile = document.getElementById(q.get('t') || 'small');
+    tile.classList.add('on');
+    const bg = q.get('bg');
+    if (bg) {
+      tile.classList.add('art');
+      tile.style.backgroundImage = `url(${bg})`;
+      tile.style.backgroundPosition = q.get('pos') || 'right center';
+      tile.querySelector('.shots')?.remove();
+    } else {
+      tile.classList.add('blue');
+    }
+  </script>
+</body>
+</html>
