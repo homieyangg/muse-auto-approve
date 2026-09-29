@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 280px; margin: 0; padding: 12px; font: 13px -apple-system, "PingFang TC", sans-serif; color: #222; }
+    h1 { font-size: 14px; margin: 0 0 10px; }
+    label { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .count { margin: 10px 0 6px; color: #555; }
+    ul { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+    li { padding: 6px 0; border-top: 1px solid #eee; font-size: 12px; line-height: 1.4; word-break: break-all; }
+    li time { color: #888; margin-right: 4px; }
+    button { margin-top: 8px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Auto Approve for Muse</h1>
+  <label><input type="checkbox" id="enabled"> 自動允許</label>
+  <label><input type="checkbox" id="preferAlways"> 優先按「一律允許」</label>
+  <div class="count">已自動允許 <span id="count">0</span> 次</div>
+  <ul id="log"></ul>
+  <button id="clear">清除紀錄</button>
+  <script src="popup.js"></script>
+</body>
+</html>

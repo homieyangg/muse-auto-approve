@@ -1,0 +1,25 @@
+services:
+  chromium:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: muse-browser
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Taipei
+      - CHROME_CLI=--lang=zh-TW --hide-crash-restore-bubble --load-extension=/ext --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows https://muse.ai/
+    volumes:
+      - muse-browser-config:/config
+      - ..:/ext:ro
+    # 只綁 localhost：網頁介面內建免密 sudo terminal，只能走 SSH tunnel 進來
+    ports:
+      - 127.0.0.1:13000:3000
+    shm_size: "1gb"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  muse-browser-config:
