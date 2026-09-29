@@ -1,6 +1,10 @@
-# Auto Approve for Muse
+<p align="center">
+  <img src="icons/icon128.png" width="112" alt="Auto Approve for Muse icon">
+</p>
 
-[繁體中文](README.zh-TW.md)
+<h1 align="center">Auto Approve for Muse</h1>
+
+<p align="center"><a href="README.zh-TW.md">繁體中文</a></p>
 
 When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
 
@@ -12,12 +16,20 @@ This Chrome extension clicks Allow for you. If the card offers "Always allow", i
 
 Install it from the Chrome Web Store (link coming once the listing is approved), or load it yourself:
 
-1. Clone or download this repo.
+1. Clone or download this repo. If you download the ZIP, unzip it first.
 2. Open `chrome://extensions` and turn on Developer mode in the top right corner.
-3. Click "Load unpacked" and select the repo folder.
-4. Reload any open muse.ai tabs.
 
-Click the toolbar icon to pause it, choose whether to prefer "Always allow", or see the last 20 cards it approved.
+   <img src="docs/images/install-developer-mode.png" width="720" alt="Developer mode toggle on the Extensions page">
+
+3. Click "Load unpacked" and select the folder that contains `manifest.json`. Auto Approve for Muse then shows up in the list.
+
+   <img src="docs/images/install-load-unpacked.png" width="720" alt="Load unpacked button and the loaded extension">
+
+4. Reload any open muse.ai tabs, then click the extension's toolbar icon to check that it's on. If the icon isn't in the toolbar, click the puzzle piece icon and pin it.
+
+   <img src="docs/images/popup.png" width="280" alt="Extension popup">
+
+The popup lets you pause it, choose whether to prefer "Always allow", and see the last 20 cards it approved. It's only in Traditional Chinese for now.
 
 ## How it decides what to click
 

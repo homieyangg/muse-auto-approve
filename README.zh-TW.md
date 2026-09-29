@@ -1,6 +1,10 @@
-# Auto Approve for Muse
+<p align="center">
+  <img src="icons/icon128.png" width="112" alt="Auto Approve for Muse 圖示">
+</p>
 
-[English](README.md)
+<h1 align="center">Auto Approve for Muse</h1>
+
+<p align="center"><a href="README.md">English</a></p>
 
 muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你按「允許」。沒人按，任務就卡在那裡，排程任務特別常遇到。
 
@@ -12,12 +16,20 @@ muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你
 
 從 Chrome 網上應用程式商店安裝（上架後補連結），或自己載入：
 
-1. 下載或 clone 這個 repo
-2. Chrome 開 `chrome://extensions`，打開右上角「開發人員模式」
-3. 按「載入未封裝項目」，選 repo 資料夾
-4. 重新整理 muse.ai 分頁
+1. 下載或 clone 這個 repo。下載 ZIP 的話要先解壓縮。
+2. Chrome 開 `chrome://extensions`，打開右上角「開發人員模式」。
 
-點工具列上的圖示可以暫停自動允許、切換是否優先按「一律允許」，也看得到最近 20 筆按過的卡片。
+   <img src="docs/images/zh-TW/install-developer-mode.png" width="720" alt="擴充功能頁面的開發人員模式開關">
+
+3. 按「載入未封裝項目」，選有 `manifest.json` 的那個資料夾。載入後清單裡會出現 Auto Approve for Muse。
+
+   <img src="docs/images/zh-TW/install-load-unpacked.png" width="720" alt="載入未封裝項目按鈕與載入後的插件">
+
+4. 重新整理 muse.ai 分頁，再點工具列上的插件圖示確認有開著。工具列上沒看到圖示的話，點拼圖圖示把它釘選出來。
+
+   <img src="docs/images/zh-TW/popup.png" width="280" alt="插件的 popup">
+
+popup 可以暫停自動允許、切換是否優先按「一律允許」，也看得到最近 20 筆按過的卡片。
 
 ## 怎麼判斷審批卡
 
