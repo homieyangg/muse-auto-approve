@@ -1,73 +1,75 @@
 # Auto Approve for Muse
 
-muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你按「允許」。沒人按，任務就卡在那裡，排程任務特別常遇到。
+[繁體中文](README.zh-TW.md)
 
-這個 Chrome 插件看到審批卡就自動按允許。有「一律允許」時優先按它，之後同一個網站就不會再問。
+When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
 
-> 非官方工具，與 Meta、muse.ai 無關。自動允許等於關掉人工確認這一關，請自行評估風險。
+This Chrome extension clicks Allow for you. If the card offers "Always allow", it picks that one, so the same site won't ask again.
 
-## 安裝
+> This is an unofficial tool and is not affiliated with Meta or muse.ai. Auto-approving removes the human check on what the assistant can access, so make sure you're fine with that.
 
-從 Chrome 網上應用程式商店安裝（上架後補連結），或自己載入：
+## Install
 
-1. 下載或 clone 這個 repo
-2. Chrome 開 `chrome://extensions`，打開右上角「開發人員模式」
-3. 按「載入未封裝項目」，選 repo 資料夾
-4. 重新整理 muse.ai 分頁
+Install it from the Chrome Web Store (link coming once the listing is approved), or load it yourself:
 
-點工具列上的圖示可以暫停自動允許、切換是否優先按「一律允許」，也看得到最近 20 筆按過的卡片。
+1. Clone or download this repo.
+2. Open `chrome://extensions` and turn on Developer mode in the top right corner.
+3. Click "Load unpacked" and select the repo folder.
+4. Reload any open muse.ai tabs.
 
-## 怎麼判斷審批卡
+Click the toolbar icon to pause it, choose whether to prefer "Always allow", or see the last 20 cards it approved.
 
-- 先找「拒絕 / Deny」按鈕，再找同一區塊裡的「一律允許」或「允許」。卡片外的「允許」不會被點到。
-- 卡片本身的文字要提到網站、存取、瀏覽器、權限這類字眼才會按，刪除確認這類對話框不會動。
-- 審批來自別的聊天室時，目前畫面只會顯示「一項工作需要檢閱」。插件會先按「檢閱」把卡片叫出來，再按允許。
-- 同一張卡 5 秒內不會重按，「檢閱」最多 10 秒按一次。
+## How it decides what to click
 
-目前只在繁體中文介面實際測過，英文和簡體的按鈕文字有列進判斷，但沒有實測。
+- It starts from the Deny button and looks for Allow or Always allow in the same block, so an Allow button anywhere else on the page is never clicked.
+- The card itself has to mention a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
+- An approval that comes from another chat only shows up as a banner with a Review button. The extension clicks Review to open the card, then approves it.
+- It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds.
 
-## 限制
+It has only been tested with the Traditional Chinese UI. English and Simplified Chinese button labels are in the matching rules but haven't been tested on the live site.
 
-- muse.ai 的分頁要開著才有用，關掉就沒人按了。
-- 符合條件的審批卡都會按，不分網站或動作類型。
-- muse 改版可能讓判斷失效，最可能出問題的是按鈕文字和「檢閱」提示的結構。
+## Limitations
 
-## 讓它 24 小時跑
+- A muse.ai tab has to stay open. If you close it, nothing gets approved.
+- It approves every card that matches, whatever the site or action.
+- A muse.ai redesign can break the matching. Button labels and the markup of the review banner are the parts most likely to change.
 
-電腦會關機的話，可以在自己的 server 上跑一個常駐的 Chromium，把插件載進去。`deploy/compose.yml` 是用 [linuxserver/chromium](https://github.com/linuxserver/docker-chromium) 的範例，amd64 和 arm64 都能跑。
+## Running it around the clock
+
+If your computer doesn't stay on, you can run Chromium on a server with the extension loaded. `deploy/compose.yml` uses [linuxserver/chromium](https://github.com/linuxserver/docker-chromium) and runs on both amd64 and arm64.
 
 ```bash
 cd deploy
 docker compose up -d
 ```
 
-第一次要從網頁介面登入 muse.ai。compose 只把介面綁在 server 的 `127.0.0.1:13000`，從自己電腦用 SSH tunnel 連進去：
+You need to sign in to muse.ai once through the web UI. The compose file binds it to `127.0.0.1:13000` on the server, so connect through an SSH tunnel:
 
 ```bash
 ssh -L 13000:127.0.0.1:13000 <your-server>
-# 瀏覽器開 http://localhost:13000
+# then open http://localhost:13000
 ```
 
-登入完關掉網頁、斷開 SSH 都沒關係，Chromium 會繼續在 server 上跑。登入狀態存在 docker volume `muse-browser-config`。
+Once you're signed in, you can close the page and the SSH session. Chromium keeps running on the server, and the login is stored in the `muse-browser-config` Docker volume.
 
-幾個要注意的地方：
+A few things to keep in mind:
 
-- 網頁介面裡有一個免密碼 sudo 的 terminal，不要把 port 對外開放。
-- 遠端 Chromium 預設是英文，muse 會跟著變英文介面。compose 已經加了 `--lang=zh-TW`，但第一次登入後最好再到 Chromium 設定把語言改成繁體中文、關掉翻譯，避免頁面被翻成英文，插件就認不到按鈕。
-- 網頁介面開著時會即時壓縮畫面串流，CPU 用量比較高，看完就關掉。
-- 更新插件後要 `docker compose restart`，Chromium 才會載入新版。
+- The web UI includes a terminal with passwordless sudo. Never expose the port to the internet.
+- Chromium in the container defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that's the UI the extension was tested with. After signing in, also set Chromium's language to Traditional Chinese and turn off page translation, since a translated page changes the button labels the extension looks for.
+- Streaming the web UI takes a fair amount of CPU, so close it when you're done.
+- After updating the extension, run `docker compose restart` so Chromium loads the new version.
 
-## 隱私
+## Privacy
 
-插件不會把任何資料送出瀏覽器。設定和最近 20 筆紀錄只存在 `chrome.storage.local`。詳見 [PRIVACY.md](PRIVACY.md)。
+The extension never sends anything out of your browser. Settings and the last 20 approval records are kept in `chrome.storage.local`. See [PRIVACY.md](PRIVACY.md) for details.
 
-## 打包
+## Packaging
 
 ```bash
 ./scripts/pack.sh
 ```
 
-會在 `dist/` 產出上架用的 zip，只包含插件本身需要的檔案。
+This writes a zip for the Chrome Web Store to `dist/`, containing only the files the extension needs.
 
 ## License
 
