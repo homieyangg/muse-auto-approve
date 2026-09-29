@@ -4,6 +4,10 @@
 
 <h1 align="center">Auto Approve for Muse</h1>
 
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome Web Store"></a>
+</p>
+
 <p align="center"><a href="README.zh-TW.md">繁體中文</a></p>
 
 When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
@@ -14,7 +18,9 @@ This Chrome extension clicks Allow for you. If the card offers "Always allow", i
 
 ## Install
 
-The Chrome Web Store listing is under review. The link will go here once it's approved. Until then, use the install script or load it manually.
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii). The store version updates automatically.
+
+If you'd rather not use the store, the install script and the manual steps below load the same extension from this repo. Pick one way. If you install both, two copies run on the same page.
 
 ### Install script
 

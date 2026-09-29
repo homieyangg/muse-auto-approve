@@ -4,6 +4,10 @@
 
 <h1 align="center">Auto Approve for Muse</h1>
 
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome 線上應用程式商店"></a>
+</p>
+
 <p align="center"><a href="README.md">English</a></p>
 
 muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你按「允許」。沒人按，任務就卡在那裡，排程任務特別常遇到。
@@ -14,7 +18,9 @@ muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你
 
 ## 安裝
 
-Chrome 網上應用程式商店還在審核，通過後會把連結放在這裡。在那之前可以用安裝腳本，或自己手動載入。
+從 [Chrome 線上應用程式商店](https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii) 安裝，商店版會自動更新。
+
+不想用商店的話，下面的安裝腳本和手動安裝載入的是同一個插件，只是從這個 repo 來。兩種擇一就好，兩個都裝的話同一個頁面會有兩份在跑。
 
 ### 安裝腳本
 
