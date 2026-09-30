@@ -30,6 +30,7 @@
       <div class="group" id="lists">
         <button class="item link" data-go="v-sites"><span data-i18n="trustedSites"></span><span class="val" id="sites-n"></span></button>
         <button class="item link" data-go="v-chats"><span data-i18n="trustedChats"></span><span class="val" id="chats-n"></span></button>
+        <button class="item link" data-go="v-actions"><span data-i18n="trustedActions"></span><span class="val" id="actions-n"></span></button>
       </div>
       <div class="group">
         <button class="item link" data-go="v-log"><span data-i18n="recentLog"></span><span class="val" id="today-n"></span></button>
@@ -86,6 +87,13 @@
     <div class="links" id="recent-chats"></div>
     <p class="hint" id="recent-empty" data-i18n="recentChatsEmpty" hidden></p>
     <p class="hint warn" data-i18n="chatWarn"></p>
+  </div>
+
+  <div class="view" id="v-actions">
+    <div class="sub-head"><button class="back" data-i18n-title="back">‹</button><b data-i18n="trustedActions"></b></div>
+    <div class="group" id="action-list"></div>
+    <p class="hint" id="actions-empty" data-i18n="actionsEmpty" hidden></p>
+    <p class="hint" data-i18n="actionsHint"></p>
   </div>
 
   <div class="view" id="v-log">

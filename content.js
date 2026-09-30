@@ -9,6 +9,7 @@ const MAX_CONTEXT_TEXT = 1500;
 const RETRY_AFTER_MS = 5000;
 const BUTTON_SELECTOR = 'button, [role="button"]';
 const BACKGROUND_SURFACE_SELECTOR = '[data-testid="hatch-inline-approval-card"][data-hatch-background-approval-surface="true"]';
+const CARD_SELECTOR = '[data-testid="hatch-inline-approval-card"]:not([data-hatch-background-approval-surface="true"])';
 const REVIEW_RETRY_MS = 10000;
 const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 
@@ -54,11 +55,20 @@ function approvalBody(node) {
   return null;
 }
 
-// 審批卡一定有拒絕鈕：從拒絕鈕往上找最近一層有允許鈕的容器，避免點到卡片外的「允許」
+function hasDeny(scope) {
+  return [...scope.querySelectorAll(BUTTON_SELECTOR)].some(b => DENY_RE.test(labelOf(b)) && isClickable(b));
+}
+
+// muse 會把審批卡標成 hatch-inline-approval-card，優先用標記認卡片；
+// 沒有標記的才走舊判斷：從拒絕鈕往上找最近一層有允許鈕的容器，再看卡片文字像不像存取網站
 function approvalCards() {
   const cards = new Map();
+  for (const card of document.querySelectorAll(CARD_SELECTOR)) {
+    const buttons = hasDeny(card) && findAllowButtons(card);
+    if (buttons) cards.set(card, { ...buttons, body: card });
+  }
   for (const deny of document.querySelectorAll(BUTTON_SELECTOR)) {
-    if (!DENY_RE.test(labelOf(deny)) || !isClickable(deny)) continue;
+    if (deny.closest(CARD_SELECTOR) || !DENY_RE.test(labelOf(deny)) || !isClickable(deny)) continue;
     let node = deny.parentElement;
     for (let i = 0; node && i < MAX_DEPTH; i++, node = node.parentElement) {
       const buttons = findAllowButtons(node);
@@ -89,14 +99,16 @@ function scan() {
     const card = AAM.parseCard(labelOf(buttons.body));
     const key = AAM.cardKey(card);
     const onceOnly = allowOnce.includes(key);
-    if (settings.mode === 'all' || onceOnly || AAM.isTrusted(settings, card)) {
+    // 全部允許預設只按存取網站的卡；發文這類動作公開又收不回來，要另外打開才一起按
+    const allowAll = settings.mode === 'all' && (card.host || settings.includeActions);
+    if (allowAll || onceOnly || AAM.isTrusted(settings, card)) {
       if (now - (handledAt.get(node) || 0) >= RETRY_AFTER_MS) approve(node, buttons, card, key, onceOnly);
     } else {
-      waiting.push({ key, host: card.host, chat: card.chat, title: card.title });
+      waiting.push({ key, host: card.host, chat: card.chat, title: card.title, action: card.action });
     }
   }
   const banner = bannerText();
-  const tracking = settings.enabled && settings.mode === 'trusted';
+  const tracking = settings.enabled;
   // 其他聊天室的卡片收起來、只剩「檢閱」提示時保留等你決定，不能當成使用者已經處理
   if (!(tracking && !cards.length && banner && waitingState.size)) syncWaiting(waiting, now, tracking);
   if (!settings.enabled || !settings.openBackground) return;
@@ -108,9 +120,9 @@ function approve(node, { always, once }, card, key, onceOnly) {
   const target = settings.preferAlways && !onceOnly ? (always || once) : (once || always);
   handledAt.set(node, Date.now());
   target.click();
-  console.info('[MAA] approved', card.host || card.title, card.chat);
+  console.info('[MAA] approved', card.host || card.action, card.chat);
   waitingState.delete(key);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, result: 'allowed', kind: target === always ? 'always' : 'once' };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, result: 'allowed', kind: target === always ? 'always' : 'once' };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -140,7 +152,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

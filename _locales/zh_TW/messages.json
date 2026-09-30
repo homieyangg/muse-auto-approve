@@ -3,7 +3,7 @@
     "message": "Auto Approve for Muse"
   },
   "extDescription": {
-    "message": "muse.ai 跳出審批卡時自動按允許，可以只允許你信任的網站和聊天室。非官方工具，與 Meta 無關。"
+    "message": "muse.ai 跳出審批卡時自動按允許，可以只允許你信任的網站、動作和聊天室。非官方工具，與 Meta 無關。"
   },
   "statusOn": {
     "message": "運作中・今天已自動允許 $1 次"
@@ -27,10 +27,10 @@
     "message": "全部允許"
   },
   "modeTrustedDesc": {
-    "message": "新的網站或聊天室會先問你"
+    "message": "新的網站、動作或聊天室會先問你"
   },
   "modeAllDesc": {
-    "message": "Ren 要開什麼都直接允許"
+    "message": "存取網站的請求都直接允許"
   },
   "trustedSites": {
     "message": "信任的網站"
@@ -102,7 +102,7 @@
     "message": "這個聊天室的所有請求"
   },
   "scopeChatWarn": {
-    "message": "它要開任何網站都會直接允許"
+    "message": "它的所有請求都會直接允許，包括發文這類動作"
   },
   "scopeOnce": {
     "message": "只允許這一次（不記住）"
@@ -150,7 +150,7 @@
     "message": "還沒有信任的聊天室。"
   },
   "chatAllSites": {
-    "message": "要開任何網站都自動允許"
+    "message": "所有請求都自動允許"
   },
   "recentChats": {
     "message": "從最近出現過的聊天室加入："
@@ -159,7 +159,7 @@
     "message": "還沒有出現過聊天室，第一張審批卡跳出來後就會列在這裡。"
   },
   "chatWarn": {
-    "message": "信任聊天室代表它要開任何網站都會直接允許，只加你很確定的排程。"
+    "message": "信任聊天室代表它的所有請求都會直接允許，包括發文這類動作，只加你很確定的排程。"
   },
   "logEmpty": {
     "message": "還沒有紀錄。"
@@ -231,13 +231,13 @@
     "message": "只允許我信任的"
   },
   "modeTrustedLongDesc": {
-    "message": "新的網站或聊天室會先問你，在 popup 按一次就記住"
+    "message": "新的網站、動作或聊天室會先問你，在 popup 按一次就記住"
   },
   "modeAllLong": {
     "message": "全部自動允許"
   },
   "modeAllLongDesc": {
-    "message": "Ren 要開什麼都直接允許，等於跳過人工確認"
+    "message": "存取網站的請求都直接允許，等於跳過人工確認。發文這類動作要另外在進階設定打開"
   },
   "advanced": {
     "message": "進階"
@@ -294,7 +294,7 @@
     "message": "新增"
   },
   "chatsLead": {
-    "message": "這些聊天室（通常是排程任務）要開任何網站，插件都會自動幫你按允許。只加你很確定的。"
+    "message": "這些聊天室（通常是排程任務）的所有請求，插件都會自動幫你按允許。只加你很確定的。"
   },
   "addChat": {
     "message": "＋ 新增聊天室"
@@ -309,7 +309,7 @@
     "message": "跟 muse 裡的名稱一模一樣"
   },
   "chatDetailWarn": {
-    "message": "這個聊天室要開任何網站都會直接允許，包括它以後第一次要去的網站。"
+    "message": "這個聊天室的所有請求都會直接允許，包括它以後第一次要去的網站和發文這類動作。"
   },
   "chatRecentSites": {
     "message": "最近要求開過的網站"
@@ -396,7 +396,7 @@
     "message": "第一次遇到新的網站或聊天室會先問你，按一下就記住，之後自動允許。"
   },
   "welcomeAllDesc": {
-    "message": "最省事，Ren 要開什麼網站都直接允許，等於跳過人工確認。"
+    "message": "最省事，Ren 要開什麼網站都直接允許。發文這類動作還是會先問你。"
   },
   "start": {
     "message": "開始使用"
@@ -409,5 +409,29 @@
   },
   "subShort": {
     "message": "含子網域"
+  },
+  "trustedActions": {
+    "message": "信任的動作"
+  },
+  "scopeAction": {
+    "message": "這個動作（任何聊天室）"
+  },
+  "scopeActionChat": {
+    "message": "這個動作，只限這個聊天室"
+  },
+  "actionsEmpty": {
+    "message": "還沒有信任的動作。"
+  },
+  "actionsHint": {
+    "message": "發文、傳訊息這類動作卡跳出來時，在「等你決定」選「這個動作」就會加進來。"
+  },
+  "actionsLead": {
+    "message": "發文、傳訊息這類動作，插件會照這份清單自動允許。動作要等審批卡跳出來時才能加入。"
+  },
+  "includeActions": {
+    "message": "全部允許時也按動作卡"
+  },
+  "includeActionsDesc": {
+    "message": "「全部自動允許」預設只按存取網站的卡。發文、傳訊息這類動作是公開的、收不回來，要打開這個才會一起按"
   }
 }

@@ -3,7 +3,7 @@
     "message": "Auto Approve for Muse"
   },
   "extDescription": {
-    "message": "Clicks Allow on muse.ai approval cards for you. Trust only the sites and chats you pick. Unofficial, not affiliated with Meta."
+    "message": "Clicks Allow on muse.ai approval cards. Trust only the sites, actions, and chats you pick. Unofficial, not affiliated with Meta."
   },
   "statusOn": {
     "message": "On · $1 approved today"
@@ -27,10 +27,10 @@
     "message": "Everything"
   },
   "modeTrustedDesc": {
-    "message": "New sites and chats ask you first"
+    "message": "New sites, actions, and chats ask you first"
   },
   "modeAllDesc": {
-    "message": "Allows whatever Ren asks for"
+    "message": "Allows every website request"
   },
   "trustedSites": {
     "message": "Trusted sites"
@@ -102,7 +102,7 @@
     "message": "Everything from this chat"
   },
   "scopeChatWarn": {
-    "message": "It'll be allowed to open any site"
+    "message": "Everything it asks for is allowed, including actions like posting"
   },
   "scopeOnce": {
     "message": "Just this once"
@@ -150,7 +150,7 @@
     "message": "No trusted chats yet."
   },
   "chatAllSites": {
-    "message": "Any site is allowed"
+    "message": "Everything is allowed"
   },
   "recentChats": {
     "message": "Add from recent chats:"
@@ -159,7 +159,7 @@
     "message": "Chats show up here after their first approval card."
   },
   "chatWarn": {
-    "message": "A trusted chat can open any site without asking. Only add chats you're sure about."
+    "message": "A trusted chat gets everything it asks for, including actions like posting. Only add chats you're sure about."
   },
   "logEmpty": {
     "message": "Nothing here yet."
@@ -231,13 +231,13 @@
     "message": "Only what I trust"
   },
   "modeTrustedLongDesc": {
-    "message": "New sites and chats ask you first. Answer once in the popup and it's remembered."
+    "message": "New sites, actions, and chats ask you first. Answer once in the popup and it's remembered."
   },
   "modeAllLong": {
     "message": "Allow everything"
   },
   "modeAllLongDesc": {
-    "message": "Allows whatever Ren asks for, which skips the human check."
+    "message": "Allows every website request, which skips the human check. Actions like posting need a separate switch under Advanced."
   },
   "advanced": {
     "message": "Advanced"
@@ -294,7 +294,7 @@
     "message": "Add"
   },
   "chatsLead": {
-    "message": "Anything these chats (usually scheduled tasks) ask for gets allowed. Only add chats you're sure about."
+    "message": "Everything these chats (usually scheduled tasks) ask for gets allowed. Only add chats you're sure about."
   },
   "addChat": {
     "message": "＋ Add chat"
@@ -309,7 +309,7 @@
     "message": "Exactly as it appears in muse"
   },
   "chatDetailWarn": {
-    "message": "This chat can open any site without asking, including sites it hasn't opened before."
+    "message": "Everything this chat asks for is allowed, including sites it hasn't opened before and actions like posting."
   },
   "chatRecentSites": {
     "message": "Sites it asked for recently"
@@ -396,7 +396,7 @@
     "message": "The first time a new site or chat shows up, it asks you. Answer once and it's allowed automatically after that."
   },
   "welcomeAllDesc": {
-    "message": "The easiest option. Whatever Ren asks for is allowed, which skips the human check."
+    "message": "The easiest option. Every website Ren asks for is allowed. Actions like posting still ask you first."
   },
   "start": {
     "message": "Get started"
@@ -409,5 +409,29 @@
   },
   "subShort": {
     "message": "Incl. subdomains"
+  },
+  "trustedActions": {
+    "message": "Trusted actions"
+  },
+  "scopeAction": {
+    "message": "This action, from any chat"
+  },
+  "scopeActionChat": {
+    "message": "This action, only from this chat"
+  },
+  "actionsEmpty": {
+    "message": "No trusted actions yet."
+  },
+  "actionsHint": {
+    "message": "When an action card like posting shows up, pick \"This action\" under Waiting for you to add it here."
+  },
+  "actionsLead": {
+    "message": "The extension approves these actions, like posting or sending messages. Actions get added from approval cards when they show up."
+  },
+  "includeActions": {
+    "message": "Include actions in \"Allow everything\""
+  },
+  "includeActionsDesc": {
+    "message": "\"Allow everything\" only approves website requests by default. Posts and messages can't be taken back, so they're only approved when this is on."
   }
 }

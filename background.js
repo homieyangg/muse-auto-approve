@@ -36,12 +36,12 @@ function runSetup() {
 }
 
 async function refreshBadge() {
-  const [{ pendingByTab }, { dismissed }, { enabled, mode }] = await Promise.all([
+  const [{ pendingByTab }, { dismissed }, { enabled }] = await Promise.all([
     chrome.storage.session.get({ pendingByTab: {} }),
     chrome.storage.local.get({ dismissed: [] }),
-    chrome.storage.sync.get({ enabled: true, mode: 'trusted' }),
+    chrome.storage.sync.get({ enabled: true }),
   ]);
-  const count = enabled && mode === 'trusted' ? AAM.mergePending(pendingByTab, dismissed).length : 0;
+  const count = enabled ? AAM.mergePending(pendingByTab, dismissed).length : 0;
   await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
   await chrome.action.setBadgeText({ text: count ? String(count) : '' });
 }

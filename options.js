@@ -8,17 +8,19 @@ const URLS = {
   rate: `${AAM.STORE_URL}/reviews`,
   changelog: `${AAM.REPO_URL}/releases`,
 };
-const PAGES = ['general', 'sites', 'chats', 'log', 'backup', 'about'];
+const PAGES = ['general', 'sites', 'chats', 'actions', 'log', 'backup', 'about'];
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RESULT_TEXT = { allowed: 'resultAllowed', pending: 'resultPending', skipped: 'resultSkipped', handled: 'resultHandled' };
 const GLOBE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>';
 const BUBBLE = '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>';
+const BOLT = '<svg viewBox="0 0 24 24"><path d="M13 3 5 13h6l-1 8 8-10h-6z"/></svg>';
 
 let settings = { ...AAM.SETTINGS_DEFAULTS };
 let local = { ...AAM.LOCAL_DEFAULTS };
 let pendingByTab = {};
 let selectedSite = null;
 let selectedChat = null;
+let selectedAction = null;
 let logFilter = '';
 
 async function loadState() {
@@ -70,6 +72,7 @@ function knownChats() {
   const names = [
     ...settings.chats.map(c => c.name),
     ...settings.sites.flatMap(s => s.chats),
+    ...settings.actions.flatMap(a => a.chats),
     ...AAM.mergePending(pendingByTab).map(i => i.chat),
     ...local.log.map(e => e.chat),
   ].filter(Boolean);
@@ -87,6 +90,7 @@ function renderNav() {
   document.querySelectorAll('.nav[href]').forEach(a => a.classList.toggle('on', a.getAttribute('href') === `#${page}`));
   $('#nav-sites-n').textContent = settings.sites.length;
   $('#nav-chats-n').textContent = settings.chats.length;
+  $('#nav-actions-n').textContent = settings.actions.length;
 }
 
 function renderGeneral() {
@@ -94,6 +98,7 @@ function renderGeneral() {
   document.querySelectorAll('input[name=mode]').forEach(r => { r.checked = r.value === settings.mode; });
   $('#prefer-always').checked = settings.preferAlways;
   $('#open-background').checked = settings.openBackground;
+  $('#include-actions').checked = settings.includeActions;
   $('#lang').value = settings.lang;
 }
 
@@ -263,13 +268,54 @@ function renderChats(force) {
   $('#chat-detail').replaceChildren(...(chat ? chatDetail(chat) : newChatForm()));
 }
 
+function updateAction(id, patch) {
+  return saveSettings({ actions: settings.actions.map(a => (a.id === id ? { ...a, ...patch } : a)) });
+}
+
+function actionEntry(action) {
+  const scope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
+    glyph(BOLT),
+    el('div', {}, el('b', { textContent: action.title }), el('small', { textContent: scope })),
+    toggle(action.on, on => updateAction(action.id, { on })));
+  entry.addEventListener('click', e => {
+    if (e.target.closest('.sw')) return;
+    selectedAction = action.id;
+    renderActions(true);
+  });
+  return entry;
+}
+
+function actionDetail(action) {
+  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && Date.now() - e.ts < WEEK_MS);
+  const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
+  remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
+  return [
+    el('div', { className: 'detail-head' }, glyph(BOLT), el('b', { textContent: action.title })),
+    ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
+    el('p', { className: 'stats', textContent: hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone') }),
+    el('div', { className: 'detail-foot' }, el('span'), remove),
+  ];
+}
+
+// 動作只能從審批卡加入，這裡沒有新增表單
+function renderActions(force) {
+  if (!settings.actions.some(a => a.id === selectedAction)) selectedAction = settings.actions[0]?.id ?? null;
+  $('#action-items').replaceChildren(...settings.actions.map(actionEntry));
+  $('#actions-empty').hidden = settings.actions.length > 0;
+  $('#action-detail').hidden = !settings.actions.length;
+  if (!force && $('#action-detail').contains(document.activeElement)) return;
+  const action = settings.actions.find(a => a.id === selectedAction);
+  $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
+}
+
 function renderLog() {
   $('#log-lead').textContent = t('logLead', AAM.LOG_LIMIT);
   document.querySelectorAll('#log-filter [data-filter]').forEach(a => a.classList.toggle('on', a.dataset.filter === logFilter));
   const entries = local.log.filter(e => !logFilter || e.result === logFilter);
   $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
     el('td', { textContent: I18N.clock(e.ts) }),
-    el('td', { textContent: e.host || e.title || '' }),
+    el('td', { textContent: e.host || e.action || e.title || '' }),
     el('td', { textContent: e.chat || t('fromUnknown') }),
     el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
   $('#log-empty').hidden = entries.length > 0;
@@ -280,6 +326,7 @@ function renderAll() {
   renderGeneral();
   renderSites();
   renderChats();
+  renderActions();
   renderLog();
 }
 
@@ -313,6 +360,7 @@ function bind() {
   document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => saveSettings({ mode: r.value })));
   $('#prefer-always').addEventListener('change', e => saveSettings({ preferAlways: e.target.checked }));
   $('#open-background').addEventListener('change', e => saveSettings({ openBackground: e.target.checked }));
+  $('#include-actions').addEventListener('change', e => saveSettings({ includeActions: e.target.checked }));
   $('#lang').addEventListener('change', async e => { await saveSettings({ lang: e.target.value }); location.reload(); });
   $('#site-new').addEventListener('click', () => { selectedSite = 'new'; renderSites(true); });
   $('#chat-new').addEventListener('click', () => { selectedChat = 'new'; renderChats(true); });

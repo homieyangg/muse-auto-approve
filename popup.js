@@ -10,7 +10,7 @@ const URLS = {
 };
 const RATE_MIN_APPROVALS = 20;
 const RATE_MIN_MS = 3 * 24 * 60 * 60 * 1000;
-const SCOPE_TEXT = { site: 'scopeSite', siteChat: 'scopeSiteChat', chat: 'scopeChat', once: 'scopeOnce' };
+const SCOPE_TEXT = { site: 'scopeSite', siteChat: 'scopeSiteChat', action: 'scopeAction', actionChat: 'scopeActionChat', chat: 'scopeChat', once: 'scopeOnce' };
 const RESULT_TEXT = { allowed: 'resultAllowed', pending: 'resultPending', skipped: 'resultSkipped', handled: 'resultHandled' };
 
 let settings = { ...AAM.SETTINGS_DEFAULTS };
@@ -36,8 +36,8 @@ function saveSettings(patch) {
 }
 
 const sep = () => (I18N.code === 'zh_TW' ? '、' : ', ');
-const label = item => item.host || item.title || t('fromUnknown');
-const tracking = () => settings.enabled && settings.mode === 'trusted';
+const label = item => item.host || item.action || item.title || t('fromUnknown');
+const tracking = () => settings.enabled;
 
 function pendingItems() {
   if (!tracking()) return [];
@@ -65,9 +65,9 @@ function renderHome() {
   $('#alert-sites').textContent = pending.map(label).join(sep());
   $('#mode').value = settings.mode;
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
-  $('#lists').classList.toggle('dim', settings.mode === 'all');
   $('#sites-n').textContent = settings.sites.length;
   $('#chats-n').textContent = settings.chats.length;
+  $('#actions-n').textContent = settings.actions.length;
   $('#today-n').textContent = t('todayN', today);
   $('#prefer-always').checked = settings.preferAlways;
   $('#rate').hidden = !showRate();
@@ -77,6 +77,8 @@ function scopeOptions(item) {
   const scopes = [];
   if (item.host) scopes.push('site');
   if (item.host && item.chat) scopes.push('siteChat');
+  if (!item.host && item.action) scopes.push('action');
+  if (!item.host && item.action && item.chat) scopes.push('actionChat');
   if (item.chat) scopes.push('chat');
   scopes.push('once');
   return scopes;
@@ -121,6 +123,8 @@ async function allowPending(item, scope) {
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
     await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat) });
+  } else if (scope === 'action' || scope === 'actionChat') {
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '' }) });
   } else {
     await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? item.chat : '' }) });
   }
@@ -155,6 +159,18 @@ function renderSites() {
   $('#site-list').replaceChildren(...rows);
   $('#site-list').hidden = !rows.length;
   $('#sites-empty').hidden = rows.length > 0;
+}
+
+function renderActions() {
+  const rows = settings.actions.map(action => row(
+    action.title,
+    action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
+    !action.on,
+    () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),
+  ));
+  $('#action-list').replaceChildren(...rows);
+  $('#action-list').hidden = !rows.length;
+  $('#actions-empty').hidden = rows.length > 0;
 }
 
 function recentChats() {
@@ -203,6 +219,7 @@ function render() {
   renderPending();
   renderSites();
   renderChats();
+  renderActions();
   renderLog();
 }
 
