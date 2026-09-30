@@ -74,6 +74,8 @@ The card gets clicked right away, and from then on matching cards are approved w
 
 Some cards aren't about opening a website. They ask Ren to do something, like posting to Threads or sending a message. For those, the popup offers "This action" instead of "This site", and the action is remembered by the card's title. "Allow everything" leaves action cards alone unless you turn on "Include actions" under Settings > General > Advanced, because a post or a message can't be taken back.
 
+To trust a chat, you can pick it from your muse side chats. Open the chat list in muse once and the extension remembers the names, so there's nothing to type.
+
 Settings has the full lists. You can limit a site to certain chats, turn an entry off without deleting it, check the activity log, and export or import your settings.
 
 <img src="docs/images/options-sites.png" width="720" alt="Trusted sites in Settings">

@@ -74,6 +74,8 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
 有些卡不是要開網站，而是要 Ren 做一件事，例如發文到 Threads、傳訊息。這種卡在 popup 裡的選項是「這個動作」，插件用卡片標題記住這個動作。「全部自動允許」預設不會按這種動作卡，因為發出去的文章和訊息收不回來；要一起按的話，到「設定 → 一般 → 進階」打開「全部允許時也按動作卡」。
 
+要信任聊天室時，可以直接從 muse 的副聊天室挑。在 muse 打開左邊的聊天室清單一次，插件就會記下名稱，不用自己打字。
+
 設定頁有完整的清單。可以把網站限定在某些聊天室、先停用某一筆但不刪掉、看紀錄，還有匯出匯入設定。
 
 <img src="docs/images/zh-TW/options-sites.png" width="720" alt="設定頁的信任網站">

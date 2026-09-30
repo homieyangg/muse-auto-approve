@@ -174,8 +174,8 @@ function renderActions() {
 }
 
 function recentChats() {
-  const names = [...pendingItems().map(i => i.chat), ...local.log.map(e => e.chat)].filter(Boolean);
-  return [...new Set(names)].slice(0, 8);
+  const names = [...local.museChats, ...pendingItems().map(i => i.chat), ...local.log.map(e => e.chat)].filter(Boolean);
+  return [...new Set(names)].slice(0, 20);
 }
 
 function renderChats() {

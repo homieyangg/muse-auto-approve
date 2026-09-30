@@ -67,9 +67,10 @@ function check(type, checked, text, onChange, name) {
 const sep = () => (I18N.code === 'zh_TW' ? '、' : ', ');
 const sameHost = (a, b) => AAM.hostMatches({ host: a, sub: false }, b);
 
-// 最近出現過的聊天室：信任清單、網站限定的聊天室、紀錄和等你決定裡的都算
+// 可挑的聊天室：muse 側邊欄記下的，加上信任清單、網站限定的聊天室、紀錄和等你決定裡的
 function knownChats() {
   const names = [
+    ...local.museChats,
     ...settings.chats.map(c => c.name),
     ...settings.sites.flatMap(s => s.chats),
     ...settings.actions.flatMap(a => a.chats),

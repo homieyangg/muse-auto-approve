@@ -153,10 +153,10 @@
     "message": "所有請求都自動允許"
   },
   "recentChats": {
-    "message": "從最近出現過的聊天室加入："
+    "message": "從 muse 的聊天室加入："
   },
   "recentChatsEmpty": {
-    "message": "還沒有出現過聊天室，第一張審批卡跳出來後就會列在這裡。"
+    "message": "在 muse 打開左邊的聊天室清單一次，副聊天室就會列在這裡。"
   },
   "chatWarn": {
     "message": "信任聊天室代表它的所有請求都會直接允許，包括發文這類動作，只加你很確定的排程。"
@@ -276,10 +276,10 @@
     "message": "只限這些聊天室"
   },
   "chatPickHint": {
-    "message": "清單來自最近出現過的聊天室"
+    "message": "清單來自 muse 的副聊天室和最近出現過的聊天室"
   },
   "chatPickEmpty": {
-    "message": "還沒有出現過聊天室。"
+    "message": "還沒有聊天室。在 muse 打開左邊的聊天室清單一次就會出現。"
   },
   "siteStats": {
     "message": "最近 7 天自動允許 $1 次，上次是 $2。"

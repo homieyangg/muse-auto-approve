@@ -153,10 +153,10 @@
     "message": "Everything is allowed"
   },
   "recentChats": {
-    "message": "Add from recent chats:"
+    "message": "Add from your muse chats:"
   },
   "recentChatsEmpty": {
-    "message": "Chats show up here after their first approval card."
+    "message": "Open the chat list in muse once and your side chats will show up here."
   },
   "chatWarn": {
     "message": "A trusted chat gets everything it asks for, including actions like posting. Only add chats you're sure about."
@@ -276,10 +276,10 @@
     "message": "Only these chats"
   },
   "chatPickHint": {
-    "message": "Chats that showed up recently"
+    "message": "Your muse side chats and chats that showed up recently"
   },
   "chatPickEmpty": {
-    "message": "No chats have shown up yet."
+    "message": "No chats yet. Open the chat list in muse once and they will show up."
   },
   "siteStats": {
     "message": "Allowed $1 times in the last 7 days, most recently $2."

@@ -3,7 +3,7 @@
 // popup、設定頁、背景和 content script 共用的設定結構與判斷規則
 const AAM = (() => {
   const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [] };
-  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false };
+  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [] };
   const LOG_LIMIT = 200;
   const STORE_URL = 'https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii';
   const REPO_URL = 'https://github.com/homieyangg/muse-auto-approve';

@@ -12,6 +12,8 @@ const BACKGROUND_SURFACE_SELECTOR = '[data-testid="hatch-inline-approval-card"][
 const CARD_SELECTOR = '[data-testid="hatch-inline-approval-card"]:not([data-hatch-background-approval-surface="true"])';
 const REVIEW_RETRY_MS = 10000;
 const REVIEW_BLOCK_MS = 10 * 60 * 1000;
+// 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
+const CHAT_ROW_SELECTOR = '[data-testid="hatch-thread-row"][data-slot="context-menu-trigger"]';
 
 let settings = { ...AAM.SETTINGS_DEFAULTS };
 let allowOnce = [];
@@ -21,6 +23,7 @@ let lastReviewAt = 0;
 let lastClickedBanner = '';
 let blockedBanner = { text: '', at: 0 };
 let lastReported = null;
+let lastChats = '';
 let writeQueue = Promise.resolve();
 
 function labelOf(el) {
@@ -89,9 +92,21 @@ function contextAlive() {
   return false;
 }
 
+// 側邊欄打開時記下副聊天室名稱給信任清單挑；收起來時整串不在 DOM，保留上次記的
+function recordChats() {
+  const names = [...document.querySelectorAll(CHAT_ROW_SELECTOR)]
+    .map(row => AAM.cleanText(row.querySelector('[title]')?.getAttribute('title')))
+    .filter(Boolean);
+  const json = JSON.stringify([...new Set(names)]);
+  if (!names.length || json === lastChats) return;
+  lastChats = json;
+  chrome.storage.local.set({ museChats: JSON.parse(json) }).catch(() => {});
+}
+
 // 掃描頁面上的審批卡：信任的按掉，不信任的列進等你決定
 function scan() {
   if (!contextAlive()) return;
+  recordChats();
   const cards = settings.enabled ? [...approvalCards()] : [];
   const now = Date.now();
   const waiting = [];
