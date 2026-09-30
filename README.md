@@ -12,7 +12,7 @@
 
 When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
 
-This Chrome extension clicks Allow for you. You can let it approve everything, or only the sites and chats you trust. If the card offers "Always allow", it picks that one, so the same site won't ask again.
+This Chrome extension clicks Allow for you. You can let it approve everything, or only the sites, actions, and chats you trust. If the card offers "Always allow", it picks that one, so the same site won't ask again.
 
 > This is an unofficial tool and is not affiliated with Meta or muse.ai. Auto-approving removes the human check on what the assistant can access, so make sure you're fine with that.
 
@@ -67,10 +67,12 @@ With "Only what I trust", a card for a site you haven't trusted yet is left alon
 
 - This site, from any chat
 - This site, only from this chat
-- Everything from this chat. Any site that chat asks for gets allowed, so keep this for scheduled tasks you're sure about.
+- Everything from this chat. Anything that chat asks for gets allowed, including posts and messages, so keep this for scheduled tasks you're sure about.
 - Just this once, without remembering anything
 
-The card gets clicked right away, and from then on matching cards are approved without asking. A card is approved if it comes from a trusted chat, or if its site is trusted and either has no chat limit or the card came from one of the chats it's limited to.
+The card gets clicked right away, and from then on matching cards are approved without asking. A card is approved if it comes from a trusted chat, or if its site or action is trusted and either has no chat limit or the card came from one of the chats it's limited to.
+
+Some cards aren't about opening a website. They ask Ren to do something, like posting to Threads or sending a message. For those, the popup offers "This action" instead of "This site", and the action is remembered by the card's title. "Allow everything" leaves action cards alone unless you turn on "Include actions" under Settings > General > Advanced, because a post or a message can't be taken back.
 
 Settings has the full lists. You can limit a site to certain chats, turn an entry off without deleting it, check the activity log, and export or import your settings.
 
@@ -78,8 +80,8 @@ Settings has the full lists. You can limit a site to certain chats, turn an entr
 
 ## How it finds approval cards
 
-- It starts from the Deny button and looks for Allow or Always allow in the same block, so an Allow button anywhere else on the page is never clicked.
-- The card itself has to mention a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
+- muse marks its approval cards with `data-testid="hatch-inline-approval-card"`, and the extension only clicks Allow or Always allow inside a marked card, so an Allow button anywhere else on the page is never clicked.
+- If muse ever drops that marker, it falls back to looking for Deny and Allow buttons in the same block, and only when the card text mentions a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
 - An approval that comes from another chat only shows up as a banner with a Review button. The extension clicks Review to open the card, then approves it.
 - It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the card behind a banner isn't trusted, it leaves the banner alone for 10 minutes instead of opening it again and again.
 
@@ -88,8 +90,9 @@ It has only been tested with the Traditional Chinese UI. English and Simplified 
 ## Limitations
 
 - A muse.ai tab has to stay open. If you close it, nothing gets approved.
-- In "Allow everything" mode it approves every card, whatever the site or action.
-- Cards that don't name a website, such as some connector actions, can only be trusted by chat or allowed once.
+- In "Allow everything" mode it approves every website card, and action cards too if you turn that on.
+- Actions are matched by the card title. Trusting "post to Threads" covers every post, whatever the text or account.
+- Cards that appear inside the chat that started the task often don't say which chat they came from, so the "only from this chat" options aren't offered for them.
 - A muse.ai redesign can break the matching. Button labels and the markup of the review banner are the parts most likely to change.
 
 ## Running it around the clock
