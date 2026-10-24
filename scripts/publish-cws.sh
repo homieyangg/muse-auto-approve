@@ -46,7 +46,8 @@ token=$(access_token)
 auth="Authorization: Bearer $token"
 
 result=$(api -X POST -H "$auth" -T "$zip" "$base/upload/v2/$item:upload")
-echo "upload: $result"
+# 回應裡有發布者 ID，整行會被 GitHub 當 secret 遮掉，只印用得到的欄位
+echo "upload: $(jq -c '{uploadState, crxVersion}' <<<"$result")"
 state=$(jq -r .uploadState <<<"$result")
 # 套件還在處理時先回 IN_PROGRESS，改用 fetchStatus 輪詢，最多等 2 分鐘
 for _ in $(seq 24); do
@@ -60,4 +61,4 @@ if [ "$state" != SUCCEEDED ]; then
 fi
 
 result=$(api -X POST -H "$auth" -H 'Content-Type: application/json' -d '{}' "$base/v2/$item:publish")
-echo "publish: $result"
+echo "publish: $(jq -c '{state, warnings: .warningInfo.warnings}' <<<"$result")"
