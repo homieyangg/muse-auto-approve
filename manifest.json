@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
   "icons": {
@@ -39,6 +39,17 @@
         "content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://muse.ai/*",
+        "https://*.muse.ai/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
     }
   ]
 }

@@ -73,7 +73,9 @@ function renderHome() {
   $('#rate').hidden = !showRate();
 }
 
+// 結帳、購買的卡插件不會自動按，只給「只允許這一次」
 function scopeOptions(item) {
+  if (AAM.isPurchase(item)) return ['once'];
   const scopes = [];
   if (item.host) scopes.push('site');
   if (item.host && item.chat) scopes.push('siteChat');
@@ -124,7 +126,7 @@ async function allowPending(item, scope) {
   } else if (scope === 'chat') {
     await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat) });
   } else if (scope === 'action' || scope === 'actionChat') {
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '' }) });
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy }) });
   } else {
     await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? item.chat : '' }) });
   }

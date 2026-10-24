@@ -10,9 +10,11 @@ const AAM = (() => {
 
   const INVISIBLE_RE = /[‎‏⁦-⁩]/g;
   const HOST_RE = /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}/i;
-  const CHAT_RES = [/此任務來自([^。]*)。/, /此任务来自([^。]*)。/, /this task (?:is |came )?from ([^.]*)\./i];
+  // 來源：副聊天室寫「此任務來自…」，排程任務寫「這是針對排定的…任務」，排程名稱也當成聊天室，才能用信任清單涵蓋
+  const CHAT_RES = [/此任務來自([^。]*)。/, /此任务来自([^。]*)。/, /這是針對排定的([^。]*)任務。/, /这是预定任务([^。]*)。/, /this task (?:is |comes |came )?from ([^.]*)\./i, /this is for the scheduled task ([^.]*)\./i];
   const QUOTED_RE = /[「『“"]([^」』”"]+)[」』”"]/;
   const ACCESS_RE = /(存取|訪問|访问|開啟|打開|打开|前往|瀏覽|浏览|access|visit|open|browse)/i;
+  const PURCHASE_RE = /(結帳|下訂單|購買|结账|结帐|下单|购买|想买|check ?out|place (?:an )?order|purchase|\bbuy\b)/i;
 
   function cleanText(text) {
     return (text || '').replace(INVISIBLE_RE, '').replace(/\s+/g, ' ').trim();
@@ -38,10 +40,12 @@ const AAM = (() => {
     return h === r || (rule.sub && h.endsWith('.' + r));
   }
 
-  // 網站只從標題（第一個問號前）找，而且標題要是「存取某網站」；其他卡（發文、傳訊息）用標題當動作名稱
-  function parseCard(text) {
+  // 網站只從標題（第一個問號前）找，而且標題要是「存取某網站」；其他卡（發文、傳訊息）用標題當動作名稱。
+  // 批次卡的子項目沒有問號標題，由呼叫端傳 heading；policy 是 muse 的權限種類（例如 connector.gmail.users.messages.send），
+  // 同一個動作在單張卡和批次卡標題寫法不同，靠它認成同一個
+  function parseCard(text, heading, policy) {
     const t = cleanText(text);
-    const title = t.split(/[？?]/)[0].slice(0, 120);
+    const title = (heading ? cleanText(heading) : t.split(/[？?]/)[0]).slice(0, 120);
     const hostMatch = ACCESS_RE.test(title) ? title.match(HOST_RE) : null;
     let chat = '';
     for (const re of CHAT_RES) {
@@ -52,19 +56,25 @@ const AAM = (() => {
       break;
     }
     const host = hostMatch ? hostMatch[0].toLowerCase() : '';
-    return { host, chat, title, action: host ? '' : title };
+    return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '' };
   }
 
   function cardKey(card) {
-    return `${card.host || card.action || ''}|${card.chat}`;
+    return `${card.host || card.policy || card.action || ''}|${card.chat}`;
   }
 
-  // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）
+  // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
   function isTrusted(settings, card) {
     if (card.chat && settings.chats.some(c => c.on && c.name === card.chat)) return true;
     const scoped = rule => rule.on && (!rule.chats.length || rule.chats.includes(card.chat));
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
-    return !!card.action && (settings.actions || []).some(a => scoped(a) && a.title === card.action);
+    const sameAction = a => a.title === card.action || (!!a.policy && a.policy === card.policy);
+    return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
+  }
+
+  // 結帳、下單、購買的卡會花到錢，不管信任設定都不自動按，只接受使用者在 popup 按的「只允許這一次」
+  function isPurchase(card) {
+    return !card.host && PURCHASE_RE.test(card.title || card.action || '');
   }
 
   function newId() {
@@ -83,11 +93,12 @@ const AAM = (() => {
     return next;
   }
 
-  function addActionRule(actions, title, { chat = '' } = {}) {
+  function addActionRule(actions, title, { chat = '', policy = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
-    const found = next.find(a => a.title === title);
-    if (!found) return [...next, { id: newId(), title, chats: chat ? [chat] : [], on: true }];
+    const found = next.find(a => a.title === title || (policy && a.policy === policy));
+    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
+    if (policy) found.policy = policy;
     if (!chat) found.chats = [];
     else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
     return next;
@@ -128,12 +139,18 @@ const AAM = (() => {
     if (Array.isArray(raw.actions)) {
       out.actions = raw.actions
         .filter(a => a && typeof a.title === 'string' && a.title)
-        .map(a => ({ id: String(a.id || newId()), title: a.title.slice(0, 120), on: a.on !== false, chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [] }));
+        .map(a => ({
+          id: String(a.id || newId()),
+          title: a.title.slice(0, 120),
+          ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
+          on: a.on !== false,
+          chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
+        }));
     }
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, cleanText, normalizeHost, hostMatches, parseCard, cardKey, isTrusted, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, cleanText, normalizeHost, hostMatches, parseCard, cardKey, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

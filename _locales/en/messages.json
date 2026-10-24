@@ -102,7 +102,7 @@
     "message": "Everything from this chat"
   },
   "scopeChatWarn": {
-    "message": "Everything it asks for is allowed, including actions like posting"
+    "message": "Everything it asks for is allowed, including actions like posting. Checkouts and purchases still ask you"
   },
   "scopeOnce": {
     "message": "Just this once"
@@ -159,7 +159,7 @@
     "message": "Open the chat list in muse once and your side chats will show up here."
   },
   "chatWarn": {
-    "message": "A trusted chat gets everything it asks for, including actions like posting. Only add chats you're sure about."
+    "message": "A trusted chat gets everything it asks for, including actions like posting (checkouts and purchases still ask you). Only add chats you're sure about."
   },
   "logEmpty": {
     "message": "Nothing here yet."
@@ -309,7 +309,7 @@
     "message": "Exactly as it appears in muse"
   },
   "chatDetailWarn": {
-    "message": "Everything this chat asks for is allowed, including sites it hasn't opened before and actions like posting."
+    "message": "Everything this chat asks for is allowed, including sites it hasn't opened before and actions like posting. Checkouts and purchases still ask you."
   },
   "chatRecentSites": {
     "message": "Sites it asked for recently"
