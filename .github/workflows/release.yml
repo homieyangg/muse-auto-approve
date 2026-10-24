@@ -14,7 +14,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      # checkout 只抓到 tag 指向的 commit，沒有 annotated tag 本身，--notes-from-tag 會讀成 commit 訊息
+      - name: Fetch tag message
+        run: git fetch --force --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
 
       - name: Check manifest version matches tag
         run: |
