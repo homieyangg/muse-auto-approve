@@ -1,0 +1,47 @@
+# 推 v* tag 時打包、發 GitHub release（內文用 tag 的說明），
+# repo 有設 CWS_SERVICE_ACCOUNT_KEY 和 CWS_PUBLISHER_ID 兩個 secret 的話，順便上傳到 Chrome 商店送審。
+# 沒設就只發 release；設好之後到 Actions 重跑這次的 run 就會補上架。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check manifest version matches tag
+        run: |
+          version=$(jq -r .version manifest.json)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::manifest.json is $version but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Pack
+        run: bash scripts/pack.sh
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 重跑時 release 已經在了，不再建一次
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && exit 0
+          gh release create "$GITHUB_REF_NAME" dist/muse-auto-approve.zip --title "$GITHUB_REF_NAME" --notes-from-tag --verify-tag
+
+      - name: Upload to Chrome Web Store
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          if [ -z "$CWS_SERVICE_ACCOUNT_KEY" ] || [ -z "$CWS_PUBLISHER_ID" ]; then
+            echo "::warning::CWS_SERVICE_ACCOUNT_KEY or CWS_PUBLISHER_ID is not set, skipped the Chrome Web Store upload"
+            exit 0
+          fi
+          bash scripts/publish-cws.sh "dist/muse-auto-approve-${GITHUB_REF_NAME#v}.zip"
