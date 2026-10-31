@@ -36,7 +36,7 @@ function saveSettings(patch) {
 }
 
 const sep = () => (I18N.code === 'zh_TW' ? '、' : ', ');
-const label = item => item.host || item.action || item.title || t('fromUnknown');
+const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
 
 function pendingItems() {
@@ -126,7 +126,7 @@ async function allowPending(item, scope) {
   } else if (scope === 'chat') {
     await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat) });
   } else if (scope === 'action' || scope === 'actionChat') {
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy }) });
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy, site: item.site }) });
   } else {
     await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? item.chat : '' }) });
   }
@@ -165,7 +165,7 @@ function renderSites() {
 
 function renderActions() {
   const rows = settings.actions.map(action => row(
-    action.title,
+    label(action),
     action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
     !action.on,
     () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),

@@ -13,7 +13,10 @@ const AAM = (() => {
   // 來源：副聊天室寫「此任務來自…」，排程任務寫「這是針對排定的…任務」，排程名稱也當成聊天室，才能用信任清單涵蓋
   const CHAT_RES = [/此任務來自([^。]*)。/, /此任务来自([^。]*)。/, /這是針對排定的([^。]*)任務。/, /这是预定任务([^。]*)。/, /this task (?:is |comes |came )?from ([^.]*)\./i, /this is for the scheduled task ([^.]*)\./i];
   const QUOTED_RE = /[「『“"]([^」』”"]+)[」』”"]/;
-  const ACCESS_RE = /(存取|訪問|访问|開啟|打開|打开|前往|瀏覽|浏览|access|visit|open|browse)/i;
+  // English verbs need word boundaries, otherwise the "Browser" connector name in browser cards reads as "browse"
+  const ACCESS_RE = /(存取|訪問|访问|開啟|打開|打开|前往|瀏覽|浏览|\b(?:access|visit|open|browse)\b)/i;
+  // muse scopes browser upload approvals to the destination site ("Always allow uploads to this site")
+  const UPLOAD_POLICY = 'connector.browser.page.upload';
   const PURCHASE_RE = /(結帳|下訂單|購買|结账|结帐|下单|购买|想买|check ?out|place (?:an )?order|purchase|\bbuy\b)/i;
 
   function cleanText(text) {
@@ -43,7 +46,8 @@ const AAM = (() => {
   // 網站只從標題（第一個問號前）找，而且標題要是「存取某網站」；其他卡（發文、傳訊息）用標題當動作名稱。
   // 批次卡的子項目沒有問號標題，由呼叫端傳 heading；policy 是 muse 的權限種類（例如 connector.gmail.users.messages.send），
   // 同一個動作在單張卡和批次卡標題寫法不同，靠它認成同一個
-  function parseCard(text, heading, policy) {
+  // site is the upload destination read by bridge.js; only browser upload cards keep it
+  function parseCard(text, heading, policy, site) {
     const t = cleanText(text);
     const title = (heading ? cleanText(heading) : t.split(/[？?]/)[0]).slice(0, 120);
     const hostMatch = ACCESS_RE.test(title) ? title.match(HOST_RE) : null;
@@ -56,11 +60,18 @@ const AAM = (() => {
       break;
     }
     const host = hostMatch ? hostMatch[0].toLowerCase() : '';
-    return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '' };
+    const uploadSite = !host && policy === UPLOAD_POLICY ? normalizeHost(site) : '';
+    return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '', site: uploadSite };
   }
 
   function cardKey(card) {
-    return `${card.host || card.policy || card.action || ''}|${card.chat}`;
+    const subject = card.host || card.policy || card.action || '';
+    return `${card.site ? `${subject}@${card.site}` : subject}|${card.chat}`;
+  }
+
+  // Name shown in the popup and settings for a card, log entry, or action rule
+  function cardLabel(item, t) {
+    return item.site ? t('uploadTo', item.site) : item.host || item.action || item.title || '';
   }
 
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
@@ -68,7 +79,9 @@ const AAM = (() => {
     if (card.chat && settings.chats.some(c => c.on && c.name === card.chat)) return true;
     const scoped = rule => rule.on && (!rule.chats.length || rule.chats.includes(card.chat));
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
-    const sameAction = a => a.title === card.action || (!!a.policy && a.policy === card.policy);
+    // An action rule with a site only covers uploads to that site; rules without one cover every site
+    const sameSite = a => !a.site || hostMatches({ host: a.site, sub: false }, card.site || '');
+    const sameAction = a => sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
     return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
   }
 
@@ -93,10 +106,10 @@ const AAM = (() => {
     return next;
   }
 
-  function addActionRule(actions, title, { chat = '', policy = '' } = {}) {
+  function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
-    const found = next.find(a => a.title === title || (policy && a.policy === policy));
-    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), chats: chat ? [chat] : [], on: true }];
+    const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
+    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
     if (!chat) found.chats = [];
@@ -143,6 +156,7 @@ const AAM = (() => {
           id: String(a.id || newId()),
           title: a.title.slice(0, 120),
           ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
+          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site) }),
           on: a.on !== false,
           chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
         }));
@@ -150,7 +164,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, cleanText, normalizeHost, hostMatches, parseCard, cardKey, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

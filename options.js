@@ -277,7 +277,7 @@ function actionEntry(action) {
   const scope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
   const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
-    el('div', {}, el('b', { textContent: action.title }), el('small', { textContent: scope })),
+    el('div', {}, el('b', { textContent: AAM.cardLabel(action, t) }), el('small', { textContent: scope })),
     toggle(action.on, on => updateAction(action.id, { on })));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
@@ -288,11 +288,11 @@ function actionEntry(action) {
 }
 
 function actionDetail(action) {
-  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && Date.now() - e.ts < WEEK_MS);
+  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && (!action.site || e.site === action.site) && Date.now() - e.ts < WEEK_MS);
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
   remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
   return [
-    el('div', { className: 'detail-head' }, glyph(BOLT), el('b', { textContent: action.title })),
+    el('div', { className: 'detail-head' }, glyph(BOLT), el('b', { textContent: AAM.cardLabel(action, t) })),
     ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
     el('p', { className: 'stats', textContent: hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone') }),
     el('div', { className: 'detail-foot' }, el('span'), remove),
@@ -316,7 +316,7 @@ function renderLog() {
   const entries = local.log.filter(e => !logFilter || e.result === logFilter);
   $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
     el('td', { textContent: I18N.clock(e.ts) }),
-    el('td', { textContent: e.host || e.action || e.title || '' }),
+    el('td', { textContent: AAM.cardLabel(e, t) }),
     el('td', { textContent: e.chat || t('fromUnknown') }),
     el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
   $('#log-empty').hidden = entries.length > 0;

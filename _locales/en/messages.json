@@ -433,5 +433,8 @@
   },
   "includeActionsDesc": {
     "message": "\"Allow everything\" only approves website requests by default. Posts and messages can't be taken back, so they're only approved when this is on."
+  },
+  "uploadTo": {
+    "message": "Upload to $1"
   }
 }

@@ -24,6 +24,7 @@ const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 const ID_ATTR = 'data-maa-approval-id';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
+const SITE_ATTR = 'data-maa-site';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 右側面板的分頁按鈕只有各語言的名稱可認
@@ -101,7 +102,7 @@ function approvalCards() {
       const buttons = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
-      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', policy: node.getAttribute(POLICY_ATTR) || '' });
+      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', policy: node.getAttribute(POLICY_ATTR) || '', site: node.getAttribute(SITE_ATTR) || '' });
     }
   }
   for (const deny of document.querySelectorAll(BUTTON_SELECTOR)) {
@@ -149,7 +150,7 @@ function scan() {
   const busyCards = new Set();
   let trusted = 0;
   for (const [node, buttons] of cards) {
-    const card = AAM.parseCard(labelOf(buttons.body), buttons.heading, buttons.policy);
+    const card = AAM.parseCard(labelOf(buttons.body), buttons.heading, buttons.policy, buttons.site);
     const key = AAM.cardKey(card);
     linkActionPolicy(card);
     if (handledElsewhere(buttons, key, now)) {
@@ -184,15 +185,16 @@ function scan() {
   else blockedBanner = { text: lastClickedBanner || signature, at: now };
 }
 
-// 全部允許預設只按存取網站的卡；發文這類動作公開又收不回來，要另外打開才一起按。結帳、購買只按使用者指定的這一次
+// "Allow everything" approves website cards, including browser uploads to a site; posts and other actions are public and
+// can't be undone, so they need the separate switch. Checkouts and purchases are only approved when the user picks "just this once"
 function shouldAllow(card, onceOnly) {
   if (onceOnly) return true;
   if (AAM.isPurchase(card)) return false;
-  return (settings.mode === 'all' && !!(card.host || settings.includeActions)) || AAM.isTrusted(settings, card);
+  return (settings.mode === 'all' && !!(card.host || card.site || settings.includeActions)) || AAM.isTrusted(settings, card);
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site };
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -239,7 +241,7 @@ function panelPreviews() {
 function reviewPreviews(previews, now, waiting, canExpand) {
   let trusted = 0;
   for (const preview of previews) {
-    const card = AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '');
+    const card = AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || '');
     const key = AAM.cardKey(card);
     if (!shouldAllow(card, allowOnce.includes(key))) {
       if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));
@@ -262,7 +264,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   waitingState.delete(key);
   const kind = await clickAllow(buttons, settings.preferAlways && !onceOnly);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -321,7 +323,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

@@ -74,6 +74,8 @@ The card gets clicked right away, and from then on matching cards are approved w
 
 Some cards aren't about opening a website. They ask Ren to do something, like posting to Threads or sending a message. For those, the popup offers "This action" instead of "This site". The extension remembers the permission type muse attaches to the action (for example, sending Gmail), so it recognizes the same action on a single card and on a combined card that bundles several approvals. "Allow everything" leaves action cards alone unless you turn on "Include actions" under Settings > General > Advanced, because a post or a message can't be taken back.
 
+Browser upload cards ("Allow Ren to use Browser to upload this file?") are tied by muse to the site the file goes to, so the extension treats them as a request to that site. "Allow everything" approves them and picks "Always allow uploads to this site". With "Only what I trust", the popup shows "Upload to tumblr.com", and trusting it only covers uploads to that site. Trusting a site for browsing doesn't cover uploads to it.
+
 Checkout, order, and purchase cards spend money, so the extension never approves them on its own, whatever the settings. The popup only offers "Just this once" for them.
 
 To trust a chat, you can pick it from your muse side chats. Open the chat list in muse once and the extension remembers the names, so there's nothing to type.
@@ -88,17 +90,17 @@ Settings has the full lists. You can limit a site to certain chats, turn an entr
 - If muse ever drops that marker, it falls back to looking for Deny and Allow buttons in the same block, and only when the card text mentions a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
 - Cards like "send this email" label their buttons with the action itself ("Send", "Don't send"). The extension finds the main button by the attribute muse puts on it, not by its text.
 - When several approvals are combined into one card ("Ren needs approval to continue"), it approves them one at a time and waits for the card to redraw before the next one.
-- A small script inside the muse page reads each card's approval ID and permission type, plus the list of all pending approvals. This is data the muse page already has. It stays in your browser and is never sent anywhere. With the approval ID, an approval shown both in the side panel and in the chat is only clicked once.
+- A small script inside the muse page reads each card's approval ID, permission type, and upload destination, plus the list of all pending approvals. This is data the muse page already has. It stays in your browser and is never sent anywhere. With the approval ID, an approval shown both in the side panel and in the chat is only clicked once.
 - An approval that comes from another chat or a scheduled task only shows up as a banner with a Review button, and the extension clicks Review to open it. When the current chat has its own card waiting, muse hides that banner. If the extension sees approvals that aren't on screen, it opens the Approvals tab in the side panel instead. That tab expands one approval at a time, so a trusted one further down the list gets expanded first and then approved.
 - When "Always allow" is tucked into the "More allow options" menu (side panel, combined cards), the extension opens the menu to click it.
 - It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the cards it opened aren't trusted, it leaves the same set of approvals alone for 10 minutes instead of opening them again and again.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations.
 
 ## Limitations
 
 - A muse.ai tab has to stay open. If you close it, nothing gets approved.
-- In "Allow everything" mode it approves every website card, and action cards too if you turn that on.
+- In "Allow everything" mode it approves every website card, including browser uploads to a site, and action cards too if you turn that on.
 - Actions are matched by muse's permission type. Rules saved by older versions only have the card title, and they pick up the permission type the next time that card shows up. Trusting "post to Threads" covers every post, whatever the text or account.
 - Cards that appear inside the chat that started the task often don't say which chat they came from, so the "only from this chat" options aren't offered for them.
 - A muse.ai redesign can break the matching. Button labels, the markup of the review banner, and the approval data read from the page are the parts most likely to change. Without that data it falls back to the card text, which handles combined and duplicate cards less well.

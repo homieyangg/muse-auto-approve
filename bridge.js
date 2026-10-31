@@ -32,6 +32,13 @@
     return [];
   }
 
+  // Upload approvals carry the target in payloadPreview, e.g. "Destination: https://tmpfiles.org"
+  function destinationOf(approval) {
+    const m = String(approval.payloadPreview ?? '').match(/^Destination:\s*(\S+)/m);
+    if (!m) return '';
+    try { return new URL(m[1]).hostname; } catch { return ''; }
+  }
+
   function setAttr(el, name, value) {
     if (!value) el.removeAttribute(name);
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
@@ -44,6 +51,7 @@
       const one = approvals.length === 1 ? approvals[0] : null;
       setAttr(el, 'data-maa-approval-id', one?.approvalId);
       setAttr(el, 'data-maa-policy', one?.policySubject);
+      setAttr(el, 'data-maa-site', one && destinationOf(one));
     }
   }
 
