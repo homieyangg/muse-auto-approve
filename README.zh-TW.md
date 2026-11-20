@@ -76,6 +76,8 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
 用瀏覽器上傳檔案的卡（「允許 Ren 使用 Browser 上傳此檔案？」）muse 會限定上傳到哪個網站，插件把它當成對那個網站的請求。「全部自動允許」會直接按，並選「Always allow uploads to this site」；「只允許我信任的」在 popup 會顯示「上傳到 tumblr.com」，信任後只放行上傳到這個網站。信任網站存取不包含上傳。
 
+有些網站每個帳號各有一個子網域，例如 Workday 的求職申請，每家公司的網址都不一樣（`company.wd5.myworkdayjobs.com`），每家都會再問一次。這時可以到「設定 → 動作」改上傳規則的網站，並勾選「也包含子網域」，一條 `myworkdayjobs.com` 的規則就涵蓋所有公司的 Workday。範圍比原本的規則大，只對你放心讓 Ren 上傳檔案的網站這樣做。
+
 結帳、下單、購買的卡會花到錢，不管怎麼設定插件都不會自動按，popup 裡也只有「只允許這一次」。
 
 要信任聊天室時，可以直接從 muse 的副聊天室挑。在 muse 打開左邊的聊天室清單一次，插件就會記下名稱，不用自己打字。

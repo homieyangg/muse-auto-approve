@@ -436,5 +436,8 @@
   },
   "uploadTo": {
     "message": "上傳到 $1"
+  },
+  "uploadToWithSub": {
+    "message": "上傳到 $1 和子網域"
   }
 }

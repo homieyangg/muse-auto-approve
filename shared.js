@@ -71,7 +71,8 @@ const AAM = (() => {
 
   // Name shown in the popup and settings for a card, log entry, or action rule
   function cardLabel(item, t) {
-    return item.site ? t('uploadTo', item.site) : item.host || item.action || item.title || '';
+    if (item.site) return t(item.sub ? 'uploadToWithSub' : 'uploadTo', item.site);
+    return item.host || item.action || item.title || '';
   }
 
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
@@ -79,8 +80,8 @@ const AAM = (() => {
     if (card.chat && settings.chats.some(c => c.on && c.name === card.chat)) return true;
     const scoped = rule => rule.on && (!rule.chats.length || rule.chats.includes(card.chat));
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
-    // An action rule with a site only covers uploads to that site; rules without one cover every site
-    const sameSite = a => !a.site || hostMatches({ host: a.site, sub: false }, card.site || '');
+    // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
+    const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
     const sameAction = a => sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
     return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
   }
@@ -156,7 +157,7 @@ const AAM = (() => {
           id: String(a.id || newId()),
           title: a.title.slice(0, 120),
           ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
-          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site) }),
+          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
           on: a.on !== false,
           chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
         }));

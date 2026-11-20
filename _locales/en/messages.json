@@ -436,5 +436,8 @@
   },
   "uploadTo": {
     "message": "Upload to $1"
+  },
+  "uploadToWithSub": {
+    "message": "Upload to $1 and subdomains"
   }
 }
