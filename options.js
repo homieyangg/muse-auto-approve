@@ -274,7 +274,8 @@ function updateAction(id, patch) {
 }
 
 function actionEntry(action) {
-  const scope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const chatScope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const scope = action.site && action.sub ? `${t('subShort')}・${chatScope}` : chatScope;
   const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
     el('div', {}, el('b', { textContent: AAM.cardLabel(action, t) }), el('small', { textContent: scope })),
@@ -287,12 +288,29 @@ function actionEntry(action) {
   return entry;
 }
 
+// Upload rules can change their site and cover its subdomains, e.g. one myworkdayjobs.com rule for every company's Workday host
+function uploadSiteFields(action) {
+  const input = el('input', { className: 'text-input', value: action.site });
+  const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
+  input.addEventListener('change', () => {
+    const site = AAM.normalizeHost(input.value);
+    error.hidden = !!site;
+    if (site && site !== action.site) updateAction(action.id, { site });
+  });
+  return [
+    el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error,
+    check('checkbox', !!action.sub, t('includeSub'), sub => updateAction(action.id, { sub })),
+  ];
+}
+
 function actionDetail(action) {
-  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && (!action.site || e.site === action.site) && Date.now() - e.ts < WEEK_MS);
+  const sameSite = e => !action.site || AAM.hostMatches({ host: action.site, sub: !!action.sub }, e.site || '');
+  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && sameSite(e) && Date.now() - e.ts < WEEK_MS);
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
   remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
   return [
     el('div', { className: 'detail-head' }, glyph(BOLT), el('b', { textContent: AAM.cardLabel(action, t) })),
+    ...(action.site ? uploadSiteFields(action) : []),
     ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
     el('p', { className: 'stats', textContent: hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone') }),
     el('div', { className: 'detail-foot' }, el('span'), remove),
