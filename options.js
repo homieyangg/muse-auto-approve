@@ -294,6 +294,8 @@ function uploadSiteFields(action, current) {
   const input = el('input', { className: 'text-input', value: action.site });
   const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
   input.addEventListener('change', () => {
+    // The site was removed elsewhere and the rebuild that drops this field fires change on blur; don't write the draft back
+    if (!current().site) return;
     const site = AAM.normalizeHost(input.value);
     error.hidden = !!site;
     if (!site) return;
@@ -301,8 +303,14 @@ function uploadSiteFields(action, current) {
     if (site !== current().site) updateAction(action.id, { site });
   });
   const sub = check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on }));
+  // Only an unsaved edit in the focused input is kept; otherwise the input follows the stored site
+  let shown = action.site;
   const refresh = rule => {
-    if (document.activeElement !== input) input.value = rule.site;
+    if (document.activeElement !== input || input.value === shown) {
+      input.value = rule.site;
+      error.hidden = true;
+    }
+    shown = rule.site;
     sub.querySelector('input').checked = !!rule.sub;
   };
   return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, sub], refresh };
@@ -317,6 +325,9 @@ function actionStatsText(action) {
 // The rule shown in the detail panel; renderActions updates it in place so the panel never shows a stale site, scope or heading
 let actionPanel = null;
 
+// What the chat checkboxes were built from: the rule's chats and every chat that can be picked
+const chatPickKey = action => JSON.stringify([action.chats, [...new Set([...action.chats, ...knownChats()])].sort()]);
+
 function actionDetail(action) {
   const current = () => settings.actions.find(a => a.id === action.id) || action;
   const heading = el('b', { textContent: AAM.cardLabel(action, t) });
@@ -326,7 +337,8 @@ function actionDetail(action) {
   remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
   actionPanel = {
     id: action.id,
-    chats: action.chats.join('\n'),
+    upload: !!action.site,
+    chatKey: chatPickKey(action),
     refresh: rule => {
       heading.textContent = AAM.cardLabel(rule, t);
       stats.textContent = actionStatsText(rule);
@@ -344,15 +356,26 @@ function actionDetail(action) {
 
 // Typing a site and then clicking "Include subdomains" saves the site on mousedown. Redrawing then can shorten the
 // heading and move the checkbox before mouseup, so the click is lost; wait until the button is released
+// Dragging a link ends with pointercancel instead of pointerup
 let pointerHeld = false;
+let renderOnRelease = false;
+const releasePointer = () => {
+  pointerHeld = false;
+  if (renderOnRelease) {
+    renderOnRelease = false;
+    setTimeout(() => renderActions());
+  }
+};
 document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
-document.addEventListener('pointerup', () => { pointerHeld = false; }, true);
+document.addEventListener('pointerup', releasePointer, true);
+document.addEventListener('pointercancel', releasePointer, true);
 
 // 動作只能從審批卡加入，這裡沒有新增表單
-// Same rule with the same chats: update the panel in place instead of rebuilding it, so the checkbox being clicked survives
+// The same rule is updated in place instead of rebuilt, so the checkbox being clicked survives. The chat checkboxes
+// can't be updated in place, so they are rebuilt when they changed, but not while focus is inside the panel
 function renderActions(force) {
   if (!force && pointerHeld) {
-    window.addEventListener('pointerup', () => setTimeout(() => renderActions()), { once: true });
+    renderOnRelease = true;
     return;
   }
   if (!settings.actions.some(a => a.id === selectedAction)) selectedAction = settings.actions[0]?.id ?? null;
@@ -360,11 +383,14 @@ function renderActions(force) {
   $('#actions-empty').hidden = settings.actions.length > 0;
   $('#action-detail').hidden = !settings.actions.length;
   const action = settings.actions.find(a => a.id === selectedAction);
-  if (!force && action && actionPanel?.id === action.id && actionPanel.chats === action.chats.join('\n')) {
+  const focused = $('#action-detail').contains(document.activeElement);
+  const sameRule = !force && action && actionPanel?.id === action.id;
+  // A rule that gained or lost its site (import, sync) needs the Site field added or removed, so it's always rebuilt
+  if (sameRule && actionPanel.upload === !!action.site && (focused || actionPanel.chatKey === chatPickKey(action))) {
     actionPanel.refresh(action);
     return;
   }
-  if (!force && $('#action-detail').contains(document.activeElement)) return;
+  if (!force && focused && !sameRule) return;
   actionPanel = null;
   $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
 }
