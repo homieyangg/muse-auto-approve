@@ -294,6 +294,8 @@ function uploadSiteFields(action, current) {
   const input = el('input', { className: 'text-input', value: action.site });
   const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
   input.addEventListener('change', () => {
+    // The site was removed elsewhere and the rebuild that drops this field fires change on blur; don't write the draft back
+    if (!current().site) return;
     const site = AAM.normalizeHost(input.value);
     error.hidden = !!site;
     if (!site) return;
