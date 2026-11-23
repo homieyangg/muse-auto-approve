@@ -76,6 +76,8 @@ Some cards aren't about opening a website. They ask Ren to do something, like po
 
 Browser upload cards ("Allow Ren to use Browser to upload this file?") are tied by muse to the site the file goes to, so the extension treats them as a request to that site. "Allow everything" approves them and picks "Always allow uploads to this site". With "Only what I trust", the popup shows "Upload to tumblr.com", and trusting it only covers uploads to that site. Trusting a site for browsing doesn't cover uploads to it.
 
+Some sites give every account its own subdomain. Workday job applications, for example, go to a different host for each company (`company.wd5.myworkdayjobs.com`), so each one would ask again. In Settings > Actions you can change an upload rule's site and turn on "Include subdomains". One rule for `myworkdayjobs.com` then covers uploads to every company's Workday host. That is broader than the original rule, so only do it for sites you're happy to have Ren upload files to.
+
 Checkout, order, and purchase cards spend money, so the extension never approves them on its own, whatever the settings. The popup only offers "Just this once" for them.
 
 To trust a chat, you can pick it from your muse side chats. Open the chat list in muse once and the extension remembers the names, so there's nothing to type.

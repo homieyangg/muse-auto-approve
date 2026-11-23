@@ -274,7 +274,8 @@ function updateAction(id, patch) {
 }
 
 function actionEntry(action) {
-  const scope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const chatScope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const scope = action.site && action.sub ? `${t('subShort')}・${chatScope}` : chatScope;
   const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
     el('div', {}, el('b', { textContent: AAM.cardLabel(action, t) }), el('small', { textContent: scope })),
@@ -287,26 +288,84 @@ function actionEntry(action) {
   return entry;
 }
 
+// Upload rules can change their site and cover its subdomains, e.g. one myworkdayjobs.com rule for every company's Workday host.
+// Compares against the stored rule, not the one the panel was built from, because the panel isn't rebuilt while it has focus
+function uploadSiteFields(action, current) {
+  const input = el('input', { className: 'text-input', value: action.site });
+  const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
+  input.addEventListener('change', () => {
+    const site = AAM.normalizeHost(input.value);
+    error.hidden = !!site;
+    if (!site) return;
+    input.value = site;
+    if (site !== current().site) updateAction(action.id, { site });
+  });
+  const sub = check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on }));
+  const refresh = rule => {
+    if (document.activeElement !== input) input.value = rule.site;
+    sub.querySelector('input').checked = !!rule.sub;
+  };
+  return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, sub], refresh };
+}
+
+function actionStatsText(action) {
+  const sameSite = e => !action.site || AAM.hostMatches({ host: action.site, sub: !!action.sub }, e.site || '');
+  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && sameSite(e) && Date.now() - e.ts < WEEK_MS);
+  return hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone');
+}
+
+// The rule shown in the detail panel; renderActions updates it in place so the panel never shows a stale site, scope or heading
+let actionPanel = null;
+
 function actionDetail(action) {
-  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && (!action.site || e.site === action.site) && Date.now() - e.ts < WEEK_MS);
+  const current = () => settings.actions.find(a => a.id === action.id) || action;
+  const heading = el('b', { textContent: AAM.cardLabel(action, t) });
+  const stats = el('p', { className: 'stats', textContent: actionStatsText(action) });
+  const site = action.site ? uploadSiteFields(action, current) : null;
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
   remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
+  actionPanel = {
+    id: action.id,
+    chats: action.chats.join('\n'),
+    refresh: rule => {
+      heading.textContent = AAM.cardLabel(rule, t);
+      stats.textContent = actionStatsText(rule);
+      site?.refresh(rule);
+    },
+  };
   return [
-    el('div', { className: 'detail-head' }, glyph(BOLT), el('b', { textContent: AAM.cardLabel(action, t) })),
+    el('div', { className: 'detail-head' }, glyph(BOLT), heading),
+    ...(site ? site.nodes : []),
     ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
-    el('p', { className: 'stats', textContent: hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone') }),
+    stats,
     el('div', { className: 'detail-foot' }, el('span'), remove),
   ];
 }
 
+// Typing a site and then clicking "Include subdomains" saves the site on mousedown. Redrawing then can shorten the
+// heading and move the checkbox before mouseup, so the click is lost; wait until the button is released
+let pointerHeld = false;
+document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+document.addEventListener('pointerup', () => { pointerHeld = false; }, true);
+
 // 動作只能從審批卡加入，這裡沒有新增表單
+// Same rule with the same chats: update the panel in place instead of rebuilding it, so the checkbox being clicked survives
 function renderActions(force) {
+  if (!force && pointerHeld) {
+    window.addEventListener('pointerup', () => setTimeout(() => renderActions()), { once: true });
+    return;
+  }
   if (!settings.actions.some(a => a.id === selectedAction)) selectedAction = settings.actions[0]?.id ?? null;
   $('#action-items').replaceChildren(...settings.actions.map(actionEntry));
   $('#actions-empty').hidden = settings.actions.length > 0;
   $('#action-detail').hidden = !settings.actions.length;
-  if (!force && $('#action-detail').contains(document.activeElement)) return;
   const action = settings.actions.find(a => a.id === selectedAction);
+  if (!force && action && actionPanel?.id === action.id && actionPanel.chats === action.chats.join('\n')) {
+    actionPanel.refresh(action);
+    return;
+  }
+  if (!force && $('#action-detail').contains(document.activeElement)) return;
+  actionPanel = null;
   $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
 }
 
