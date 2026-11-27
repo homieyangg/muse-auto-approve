@@ -1,0 +1,449 @@
+{
+  "extName": {
+    "message": "Auto Approve for Muse"
+  },
+  "extDescription": {
+    "message": "muse.ai 弹出审批卡时自动点击允许，任务和定时任务不卡住；可只放行信任的网站、操作和聊天。非官方工具，与 Meta 无关。"
+  },
+  "statusOn": {
+    "message": "运行中 · 今天已自动允许 $1 次"
+  },
+  "statusPaused": {
+    "message": "已暂停，不会点击任何卡片"
+  },
+  "toggleTitle": {
+    "message": "总开关"
+  },
+  "pendingAlert": {
+    "message": "$1 个请求等你决定"
+  },
+  "modeLabel": {
+    "message": "自动允许方式"
+  },
+  "modeTrusted": {
+    "message": "只允许信任的"
+  },
+  "modeAll": {
+    "message": "全部允许"
+  },
+  "modeTrustedDesc": {
+    "message": "新的网站、操作或聊天会先问你"
+  },
+  "modeAllDesc": {
+    "message": "访问网站的请求都直接允许"
+  },
+  "trustedSites": {
+    "message": "信任的网站"
+  },
+  "trustedChats": {
+    "message": "信任的聊天"
+  },
+  "recentLog": {
+    "message": "最近记录"
+  },
+  "todayN": {
+    "message": "今天 $1 次"
+  },
+  "preferAlways": {
+    "message": "优先点击始终允许类的选项"
+  },
+  "preferAlwaysDesc": {
+    "message": "muse 会记住网站，以后不再弹卡"
+  },
+  "rateTitle": {
+    "message": "用得还顺手吗？"
+  },
+  "rateText": {
+    "message": "去商店留个评价，能帮更多人找到这个插件。"
+  },
+  "rateButton": {
+    "message": "★ 去评价"
+  },
+  "moreSettings": {
+    "message": "更多设置"
+  },
+  "more": {
+    "message": "更多"
+  },
+  "menuHelp": {
+    "message": "使用说明"
+  },
+  "menuIssue": {
+    "message": "反馈问题"
+  },
+  "menuRate": {
+    "message": "去商店评价"
+  },
+  "menuSource": {
+    "message": "源代码（GitHub）"
+  },
+  "back": {
+    "message": "返回"
+  },
+  "pendingHeader": {
+    "message": "等你决定"
+  },
+  "from": {
+    "message": "来自 $1"
+  },
+  "fromUnknown": {
+    "message": "来源不明"
+  },
+  "allowLater": {
+    "message": "以后自动允许："
+  },
+  "scopeSite": {
+    "message": "这个网站（任何聊天）"
+  },
+  "scopeSiteChat": {
+    "message": "这个网站，仅限这个聊天"
+  },
+  "scopeChat": {
+    "message": "这个聊天的所有请求"
+  },
+  "scopeChatWarn": {
+    "message": "它的所有请求都会直接允许，包括发帖这类操作；结账、购买仍会先问你"
+  },
+  "scopeOnce": {
+    "message": "只允许这一次（不记住）"
+  },
+  "allow": {
+    "message": "允许"
+  },
+  "notNow": {
+    "message": "这次先不要"
+  },
+  "pendingEmpty": {
+    "message": "当前没有等你决定的请求。"
+  },
+  "pendingHint": {
+    "message": "你在 muse 里自己点掉的，会自动从这里消失。"
+  },
+  "reasonAction": {
+    "message": "「全部允许」默认不会点击这类操作卡，除非在「设置 → 通用 → 高级」开启「全部允许时也点操作卡」。可以在这里信任这个操作，或打开该开关。"
+  },
+  "reasonPurchase": {
+    "message": "结账、下单、购买的卡片不会自动允许。选「只允许这一次」只会允许本次。"
+  },
+  "anyChat": {
+    "message": "任何聊天"
+  },
+  "onlyChats": {
+    "message": "仅限：$1"
+  },
+  "withSub": {
+    "message": "$1 及子域名"
+  },
+  "sitePlaceholder": {
+    "message": "粘贴网址或输入网站，例如 x.com"
+  },
+  "includeSub": {
+    "message": "也包含子域名（例如 mail.google.com）"
+  },
+  "add": {
+    "message": "添加"
+  },
+  "siteInvalid": {
+    "message": "无法识别这个网址，请输入类似 x.com 的网站。"
+  },
+  "siteLimitHint": {
+    "message": "要限定只在部分聊天中自动允许，请到「更多设置」里修改。"
+  },
+  "sitesEmpty": {
+    "message": "还没有信任的网站。"
+  },
+  "chatsEmpty": {
+    "message": "还没有信任的聊天。"
+  },
+  "chatAllSites": {
+    "message": "所有请求都自动允许"
+  },
+  "recentChats": {
+    "message": "从 muse 的聊天中添加："
+  },
+  "recentChatsEmpty": {
+    "message": "在 muse 打开左侧的聊天列表一次，子聊天就会显示在这里。"
+  },
+  "chatWarn": {
+    "message": "信任聊天意味着它的所有请求都会直接允许，包括发帖这类操作（结账、购买仍会先问你），只添加你很确定的定时任务。"
+  },
+  "logEmpty": {
+    "message": "还没有记录。"
+  },
+  "clearLog": {
+    "message": "清除记录"
+  },
+  "resultAllowed": {
+    "message": "已允许"
+  },
+  "resultPending": {
+    "message": "等你决定"
+  },
+  "resultSkipped": {
+    "message": "已跳过"
+  },
+  "resultHandled": {
+    "message": "你已自行处理"
+  },
+  "justNow": {
+    "message": "刚刚"
+  },
+  "minutesAgo": {
+    "message": "$1 分钟前"
+  },
+  "hoursAgo": {
+    "message": "$1 小时前"
+  },
+  "yesterday": {
+    "message": "昨天"
+  },
+  "remove": {
+    "message": "移除"
+  },
+  "navSettings": {
+    "message": "设置"
+  },
+  "navData": {
+    "message": "数据"
+  },
+  "navOther": {
+    "message": "其他"
+  },
+  "navGeneral": {
+    "message": "通用"
+  },
+  "navLog": {
+    "message": "记录"
+  },
+  "navBackup": {
+    "message": "备份与迁移"
+  },
+  "navAbout": {
+    "message": "说明与反馈问题"
+  },
+  "navChangelog": {
+    "message": "更新日志"
+  },
+  "generalLead": {
+    "message": "插件什么时候帮你点击允许。"
+  },
+  "enabledLabel": {
+    "message": "自动允许"
+  },
+  "enabledDesc": {
+    "message": "关闭即暂停，插件不会点击任何卡片"
+  },
+  "modeTrustedLong": {
+    "message": "只允许我信任的"
+  },
+  "modeTrustedLongDesc": {
+    "message": "新的网站、操作或聊天会先问你，在弹窗里点一次就会记住"
+  },
+  "modeAllLong": {
+    "message": "全部自动允许"
+  },
+  "modeAllLongDesc": {
+    "message": "访问网站的请求都直接允许，相当于跳过人工确认。发帖这类操作需要在高级设置里单独开启"
+  },
+  "advanced": {
+    "message": "高级"
+  },
+  "openBackground": {
+    "message": "自动打开其他聊天的请求"
+  },
+  "openBackgroundDesc": {
+    "message": "其他聊天的请求只会显示审阅提示，插件会先点击提示把卡片展开"
+  },
+  "language": {
+    "message": "界面语言"
+  },
+  "languageDesc": {
+    "message": "默认跟随浏览器"
+  },
+  "langAuto": {
+    "message": "跟随浏览器"
+  },
+  "sitesLead": {
+    "message": "Ren 要打开这些网站时，插件会自动帮你点击允许。可以限定仅在部分聊天中允许。"
+  },
+  "addSite": {
+    "message": "＋ 添加网站"
+  },
+  "newSite": {
+    "message": "添加网站"
+  },
+  "siteLabel": {
+    "message": "网站"
+  },
+  "scopeLabel": {
+    "message": "在哪些聊天中自动允许"
+  },
+  "onlyTheseChats": {
+    "message": "仅限这些聊天"
+  },
+  "chatPickHint": {
+    "message": "列表来自 muse 的子聊天和最近出现过的聊天"
+  },
+  "chatPickEmpty": {
+    "message": "还没有聊天。在 muse 打开左侧的聊天列表一次就会出现。"
+  },
+  "siteStats": {
+    "message": "最近 7 天自动允许 $1 次，上次是 $2。"
+  },
+  "siteStatsNone": {
+    "message": "最近 7 天没有自动允许。"
+  },
+  "deleteRule": {
+    "message": "删除"
+  },
+  "create": {
+    "message": "添加"
+  },
+  "chatsLead": {
+    "message": "这些聊天（通常是定时任务）的所有请求，插件都会自动帮你点击允许。只添加你很确定的。"
+  },
+  "addChat": {
+    "message": "＋ 添加聊天"
+  },
+  "newChat": {
+    "message": "添加聊天"
+  },
+  "chatNameLabel": {
+    "message": "聊天名称"
+  },
+  "chatNamePlaceholder": {
+    "message": "与 muse 里的名称完全一致"
+  },
+  "chatDetailWarn": {
+    "message": "这个聊天的所有请求都会直接允许，包括它以后第一次要访问的网站和发帖这类操作；结账、购买仍会先问你。"
+  },
+  "chatRecentSites": {
+    "message": "最近请求打开过的网站"
+  },
+  "chatRecentSitesEmpty": {
+    "message": "最近没有记录。"
+  },
+  "logLead": {
+    "message": "最近 $1 条审批卡，仅保存在本机。"
+  },
+  "filterAll": {
+    "message": "全部"
+  },
+  "colTime": {
+    "message": "时间"
+  },
+  "colSite": {
+    "message": "网站"
+  },
+  "colChat": {
+    "message": "聊天"
+  },
+  "colResult": {
+    "message": "结果"
+  },
+  "backupLead": {
+    "message": "登录同一个 Google 账号的 Chrome 会自动同步信任列表。要迁移到未登录的电脑或服务器时用这里。"
+  },
+  "exportLabel": {
+    "message": "导出设置"
+  },
+  "exportDesc": {
+    "message": "下载一个文件，包含模式、信任的网站和聊天，不含记录"
+  },
+  "exportBtn": {
+    "message": "导出"
+  },
+  "importLabel": {
+    "message": "导入设置"
+  },
+  "importDesc": {
+    "message": "选择之前导出的文件，会覆盖当前设置"
+  },
+  "importBtn": {
+    "message": "导入"
+  },
+  "importDone": {
+    "message": "已导入：$1 个网站、$2 个聊天。"
+  },
+  "importFailed": {
+    "message": "无法从这个文件读取设置。"
+  },
+  "importConfirm": {
+    "message": "导入会覆盖当前设置，确定继续吗？"
+  },
+  "aboutLead": {
+    "message": "非官方工具，与 Meta、muse.ai 无关。"
+  },
+  "helpDesc": {
+    "message": "GitHub 上的 README"
+  },
+  "issueDesc": {
+    "message": "插件没点到、点错，或 muse 改版后失效"
+  },
+  "rateDesc": {
+    "message": "能帮更多人找到这个插件"
+  },
+  "open": {
+    "message": "打开 ›"
+  },
+  "welcomeTitle": {
+    "message": "欢迎使用 Auto Approve for Muse"
+  },
+  "welcomeSub": {
+    "message": "Ren 要打开网站时，muse 会弹出审批卡等你点击允许。这个插件可以帮你自动点击。"
+  },
+  "welcomeQ": {
+    "message": "你希望怎么处理？"
+  },
+  "recommended": {
+    "message": "推荐"
+  },
+  "welcomeTrustedDesc": {
+    "message": "第一次遇到新的网站或聊天会先问你，点一下就会记住，之后自动允许。"
+  },
+  "welcomeAllDesc": {
+    "message": "最省事，Ren 要打开什么网站都直接允许。发帖这类操作仍会先问你。"
+  },
+  "start": {
+    "message": "开始使用"
+  },
+  "pinHint": {
+    "message": "点击浏览器右上角的拼图图标，将 Auto Approve for Muse 固定到工具栏。有请求等你决定时，图标上会出现红色数字。"
+  },
+  "welcomeFine": {
+    "message": "之后随时可以在工具栏图标里更改。非官方工具，与 Meta、muse.ai 无关。"
+  },
+  "subShort": {
+    "message": "含子域名"
+  },
+  "trustedActions": {
+    "message": "信任的操作"
+  },
+  "scopeAction": {
+    "message": "这个操作（任何聊天）"
+  },
+  "scopeActionChat": {
+    "message": "这个操作，仅限这个聊天"
+  },
+  "actionsEmpty": {
+    "message": "还没有信任的操作。"
+  },
+  "actionsHint": {
+    "message": "发帖、发消息这类操作卡弹出时，在「等你决定」里选择「这个操作」就会添加进来。"
+  },
+  "actionsLead": {
+    "message": "发帖、发消息这类操作，插件会按这份列表自动允许。操作需要等审批卡弹出时才能添加。"
+  },
+  "includeActions": {
+    "message": "全部允许时也点操作卡"
+  },
+  "includeActionsDesc": {
+    "message": "「全部自动允许」默认只点击访问网站的卡片。发帖、发消息这类操作是公开且无法撤回的，需要打开这个开关才会一并点击"
+  },
+  "uploadTo": {
+    "message": "上传到 $1"
+  },
+  "uploadToWithSub": {
+    "message": "上传到 $1 及子域名"
+  }
+}

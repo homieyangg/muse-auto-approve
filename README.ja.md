@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome ウェブストア"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · 日本語</p>
+<p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · 日本語</p>
 
 muse.ai のアシスタントが新しいサイトや重要なサイトを開こうとすると、承認カードが表示され、「許可」を押すまで待ちます。誰も操作しないとタスクはそのまま止まってしまい、スケジュールタスクでは特に頻繁に起こります。
 
@@ -55,7 +55,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
    <img src="docs/images/popup.png" width="300" alt="拡張機能のポップアップ">
 
-画面は英語・繁体字中国語・日本語に対応し、既定ではブラウザの言語に従います。設定ページで変更できます。
+画面は英語・繁体字中国語・簡体字中国語・日本語に対応し、既定ではブラウザの言語に従います。設定ページで変更できます。
 
 ## 信頼するサイトとチャット
 

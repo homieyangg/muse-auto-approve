@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome 線上應用程式商店"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a> · <a href="README.ja.md">日本語</a></p>
+<p align="center"><a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a></p>
 
 muse.ai 跳出審批卡時，這個 Chrome 插件會自動幫你按「允許」，人不在電腦前任務也不會卡住，跑排程特別有感。你可以讓它全部自動按，或只放行你信任的網站、動作和聊天室。
 
@@ -55,7 +55,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
    <img src="docs/images/zh-TW/popup.png" width="300" alt="插件的 popup">
 
-介面支援繁體中文、英文、日文，預設跟著瀏覽器語言，也可以在設定頁切換。繁體中文、英文、日文帳號的 muse.ai 審批卡都有支援。
+介面支援繁體中文、簡體中文、英文、日文，預設跟著瀏覽器語言，也可以在設定頁切換。繁體中文、英文、日文帳號的 muse.ai 審批卡都有支援。
 
 ## 模式與信任清單
 

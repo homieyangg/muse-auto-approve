@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome Web Store"></a>
 </p>
 
-<p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.ja.md">日本語</a></p>
+<p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a></p>
 
 Auto Approve for Muse clicks Allow on muse.ai approval cards so tasks do not stall while you are away, scheduled tasks most of all. You can approve everything, or limit it to the sites, actions, and chats you trust.
 
@@ -55,7 +55,7 @@ Run the same command again to update. Your folder and settings stay intact. Afte
 
    <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The interface supports English, Traditional Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, and Japanese muse.ai accounts are supported.
+The interface supports English, Traditional Chinese, Simplified Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, and Japanese muse.ai accounts are supported.
 
 ## Modes and trusted rules
 
