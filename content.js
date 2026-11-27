@@ -33,6 +33,11 @@ const OPTION_KIND_ATTR = 'data-maa-option-kind';
 const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const STATE_ATTR = 'data-maa-state';
+// Set by bridge.js on a chat card or item, from the approval's scope, when every source agrees; and on sidebar rows
+const THREAD_ATTR = 'data-maa-thread-id';
+const SCHEDULE_ATTR = 'data-maa-schedule-id';
+const THREAD_ROW_SELECTOR = '[data-testid="hatch-thread-row"]';
+const CHAT_NAMES_LIMIT = 200;
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -54,6 +59,7 @@ let lastClickedBanner = '';
 let blockedBanner = { text: '', at: 0 };
 let lastReported = null;
 let lastChats = '';
+let lastChatNames = '';
 let writeQueue = Promise.resolve();
 
 function labelOf(el) {
@@ -152,9 +158,26 @@ function recordChats() {
     .map(row => AAM.cleanText(row.querySelector('[title]')?.getAttribute('title')))
     .filter(Boolean);
   const json = JSON.stringify([...new Set(names)]);
-  if (!names.length || json === lastChats) return;
-  lastChats = json;
-  chrome.storage.local.set({ museChats: JSON.parse(json) }).catch(() => {});
+  if (names.length && json !== lastChats) {
+    lastChats = json;
+    chrome.storage.local.set({ museChats: JSON.parse(json) }).catch(() => {});
+  }
+  recordChatNames();
+}
+
+// Sidebar name of each thread id bridge.js found, kept across collapses so the popup and settings can name a chat known by id
+function recordChatNames() {
+  const seen = [...document.querySelectorAll(`${THREAD_ROW_SELECTOR}[${THREAD_ATTR}]`)]
+    .map(row => [AAM.sourceId(row.getAttribute(THREAD_ATTR)), AAM.cleanText(row.querySelector('[title]')?.getAttribute('title'))])
+    .filter(([id, name]) => id && name);
+  const json = JSON.stringify(seen);
+  if (!seen.length || json === lastChatNames) return;
+  lastChatNames = json;
+  updateLocal({ museChatNames: {} }, data => {
+    const fresh = Object.fromEntries(seen);
+    const kept = Object.entries(data.museChatNames || {}).filter(([id]) => !(id in fresh));
+    return { museChatNames: Object.fromEntries([...seen, ...kept].slice(0, CHAT_NAMES_LIMIT)) };
+  });
 }
 
 // 掃描頁面上的審批卡：信任的按掉，不信任的列進等你決定
@@ -222,15 +245,24 @@ function purchaseState(node, body) {
   return AAG.combinePurchase(body === node ? [freshPurchase(node)] : [freshPurchase(node), freshPurchase(body)]);
 }
 
-// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data
+// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data.
+// Source ids are only taken from a mark that answered this request, so stale ids never reach the trust check
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase };
+  const fresh = buttons.muse && freshlyMarked(node);
+  const threadId = fresh ? AAM.sourceId(attr(THREAD_ATTR)) : '';
+  const scheduleId = fresh ? AAM.sourceId(attr(SCHEDULE_ATTR)) : '';
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), ...sourceFields({ threadId, scheduleId }), purchase };
+}
+
+// Only the ids a card has, so cards without them stay shaped as on main
+function sourceFields(card) {
+  return { ...(card.threadId && { threadId: card.threadId }), ...(card.scheduleId && { scheduleId: card.scheduleId }) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
+  return { key, host: card.host, chat: card.chat, ...sourceFields(card), title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -303,7 +335,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, ...sourceFields(card), title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -399,7 +431,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, ...sourceFields(w), title: w.title, action: w.action, site: w.site, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

@@ -3,7 +3,7 @@
 // popup、設定頁、背景和 content script 共用的設定結構與判斷規則
 const AAM = (() => {
   const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [] };
-  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [] };
+  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [], museChatNames: {} };
   const LOG_LIMIT = 200;
   const STORE_URL = 'https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii';
   const REPO_URL = 'https://github.com/homieyangg/muse-auto-approve';
@@ -137,9 +137,11 @@ const AAM = (() => {
     return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '', site: uploadSite };
   }
 
+  // Cards without source ids keep main's key; ids make it narrower, so another chat of the same name is a different card
   function cardKey(card) {
     const subject = card.host || card.policy || card.action || '';
-    return `${card.site ? `${subject}@${card.site}` : subject}|${card.chat}`;
+    const ids = `${card.threadId ? `|t:${card.threadId}` : ''}${card.scheduleId ? `|s:${card.scheduleId}` : ''}`;
+    return `${card.site ? `${subject}@${card.site}` : subject}|${card.chat}${ids}`;
   }
 
   // Name shown in the popup and settings for a card, log entry, or action rule
@@ -148,10 +150,82 @@ const AAM = (() => {
     return item.host || item.action || item.title || '';
   }
 
+  // Source ids come from muse's approval data through bridge.js; anything that doesn't look like an id is treated as absent
+  const SOURCE_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
+  const SOURCE_TYPES = ['threadId', 'scheduleId'];
+
+  function sourceId(value) {
+    return typeof value === 'string' && SOURCE_ID_RE.test(value) ? value : '';
+  }
+
+  // A chat entry in a trust list: a legacy name string, or { name, threadId?, scheduleId? }. Returns null for anything else
+  function sourceOf(entry) {
+    if (typeof entry === 'string') return { name: entry };
+    if (!entry || typeof entry !== 'object') return null;
+    const out = { name: typeof entry.name === 'string' ? entry.name : '' };
+    for (const type of SOURCE_TYPES) if (sourceId(entry[type])) out[type] = entry[type];
+    return out;
+  }
+
+  const hasIds = src => !!src && SOURCE_TYPES.some(type => src[type]);
+
+  // Ids of the types both sides carry must all be equal, and there must be at least one; null when either side has none
+  function idsMatch(a, b) {
+    if (!hasIds(a) || !hasIds(b)) return null;
+    const shared = SOURCE_TYPES.filter(type => a[type] && b[type]);
+    return shared.length > 0 && shared.every(type => a[type] === b[type]);
+  }
+
+  // An entry with ids matches a card with ids on the ids alone, so a renamed chat still matches and another chat of the
+  // same name does not. Without ids on either side it is main's name match: a legacy string exactly as rule.chats.includes,
+  // an object only on a non-empty name
+  function sourceMatches(entry, card) {
+    const src = sourceOf(entry);
+    if (!src) return false;
+    const byId = idsMatch(src, { threadId: sourceId(card.threadId), scheduleId: sourceId(card.scheduleId) });
+    if (byId !== null) return byId;
+    if (typeof entry === 'string') return entry === card.chat;
+    return !!src.name && src.name === card.chat;
+  }
+
+  // The same chat for de-duplicating a list: same ids when either has ids, otherwise the same name
+  function sameSource(a, b) {
+    const x = sourceOf(a), y = sourceOf(b);
+    if (!x || !y) return false;
+    if (hasIds(x) || hasIds(y)) return !!idsMatch(x, y);
+    return x.name === y.name;
+  }
+
+  function sourceName(entry) {
+    return sourceOf(entry)?.name || '';
+  }
+
+  // Stored form of a rule's chat limit: main's plain name string unless there are ids
+  function sourceEntry(src) {
+    const s = sourceOf(src);
+    if (!s) return '';
+    return hasIds(s) ? s : s.name;
+  }
+
+  const emptySource = chat => { const s = sourceOf(chat); return !s || (!s.name && !hasIds(s)); };
+
+  // Adds a chat to a rule's chat limit. An entry with the same ids gets the better name; a name-only entry of the same
+  // name gets the ids attached; a name-only chat already covered by an entry of that name is not added again
+  function addSource(list, chat) {
+    if (emptySource(chat)) return list;
+    const src = sourceOf(chat);
+    if (!hasIds(src)) return list.some(e => sourceName(e) === src.name) ? list : [...list, src.name];
+    const same = list.findIndex(e => idsMatch(sourceOf(e), src));
+    if (same >= 0) return list.map((e, i) => (i === same ? { ...sourceOf(e), ...src, name: src.name || sourceName(e) } : e));
+    const legacy = src.name ? list.findIndex(e => !hasIds(sourceOf(e)) && sourceName(e) === src.name) : -1;
+    if (legacy >= 0) return list.map((e, i) => (i === legacy ? sourceEntry(src) : e));
+    return [...list, sourceEntry(src)];
+  }
+
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
   function isTrusted(settings, card) {
-    if (card.chat && settings.chats.some(c => c.on && c.name === card.chat)) return true;
-    const scoped = rule => rule.on && (!rule.chats.length || rule.chats.includes(card.chat));
+    if (settings.chats.some(c => c.on && sourceMatches(c, card))) return true;
+    const scoped = rule => rule.on && (!rule.chats.length || rule.chats.some(c => sourceMatches(c, card)));
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
     const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
@@ -171,31 +245,44 @@ const AAM = (() => {
   }
 
   // 加網站規則；同一個網站已經有規則時合併，不重複新增
+  // chat is a name string or { name, threadId?, scheduleId? }
   function addSiteRule(sites, host, { sub = false, chat = '' } = {}) {
     const next = sites.map(s => ({ ...s, chats: [...s.chats] }));
     const found = next.find(s => bareHost(s.host) === bareHost(host));
-    if (!found) return [...next, { id: newId(), host, sub, chats: chat ? [chat] : [], on: true }];
+    if (!found) return [...next, { id: newId(), host, sub, chats: addSource([], chat), on: true }];
     found.on = true;
     found.sub = found.sub || sub;
-    if (!chat) found.chats = [];
-    else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
+    if (emptySource(chat)) found.chats = [];
+    else if (found.chats.length) found.chats = addSource(found.chats, chat);
     return next;
   }
 
   function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
     const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
-    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
+    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: addSource([], chat), on: true }];
     found.on = true;
     if (policy) found.policy = policy;
-    if (!chat) found.chats = [];
-    else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
+    if (emptySource(chat)) found.chats = [];
+    else if (found.chats.length) found.chats = addSource(found.chats, chat);
     return next;
   }
 
-  function addChatRule(chats, name) {
-    if (chats.some(c => c.name === name)) return chats.map(c => (c.name === name ? { ...c, on: true } : c));
-    return [...chats, { id: newId(), name, on: true }];
+  // Same merging as addSource: by ids when the chat has them (attaching them to a name-only rule of the same name), else by name
+  function addChatRule(chats, name, ids = {}) {
+    const src = sourceOf({ ...ids, name });
+    if (!hasIds(src)) {
+      if (chats.some(c => c.name === name)) return chats.map(c => (c.name === name ? { ...c, on: true } : c));
+      return [...chats, { id: newId(), name, on: true }];
+    }
+    const same = chats.findIndex(c => idsMatch(sourceOf(c), src));
+    const at = same >= 0 ? same : src.name ? chats.findIndex(c => !hasIds(sourceOf(c)) && c.name === src.name) : -1;
+    if (at < 0) return [...chats, { id: newId(), name: src.name, ...pickIds(src), on: true }];
+    return chats.map((c, i) => (i === at ? { id: c.id, name: src.name || sourceName(c), ...pickIds({ ...sourceOf(c), ...pickIds(src) }), on: true } : c));
+  }
+
+  function pickIds(src) {
+    return Object.fromEntries(SOURCE_TYPES.filter(type => src?.[type]).map(type => [type, src[type]]));
   }
 
   // 各分頁回報的等你決定合併成一份，同一張卡只留最早的時間
@@ -216,6 +303,24 @@ const AAM = (() => {
     return [];
   }
 
+  // A rule's chat limit on import: main's name strings as they are, objects with their name and valid ids. A limit that only
+  // held entries that can't be read is returned as null so the rule is dropped instead of widening to every chat
+  function sanitizeRuleChats(chats) {
+    if (!Array.isArray(chats)) return [];
+    const out = [];
+    let unreadable = false;
+    for (const c of chats) {
+      if (typeof c === 'string') {
+        if (c) out.push(c);
+        continue;
+      }
+      const src = c && typeof c === 'object' ? sourceOf(c) : null;
+      if (src && (src.name || hasIds(src))) out.push(sourceEntry(src));
+      else unreadable = true;
+    }
+    return unreadable && !out.length ? null : out;
+  }
+
   // 匯入的設定只留認得的欄位，型別不對就用預設值
   function sanitizeSettings(raw) {
     const out = { ...SETTINGS_DEFAULTS };
@@ -225,11 +330,13 @@ const AAM = (() => {
     if (raw.lang === 'auto' || supportedLangs().includes(raw.lang)) out.lang = raw.lang;
     if (Array.isArray(raw.sites)) {
       out.sites = raw.sites
-        .map(s => ({ id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, chats: Array.isArray(s.chats) ? s.chats.filter(c => typeof c === 'string' && c) : [] }))
-        .filter(s => s.host);
+        .map(s => ({ id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, chats: sanitizeRuleChats(s.chats) }))
+        .filter(s => s.host && s.chats);
     }
     if (Array.isArray(raw.chats)) {
-      out.chats = raw.chats.filter(c => c && typeof c.name === 'string' && c.name).map(c => ({ id: String(c.id || newId()), name: c.name, on: c.on !== false }));
+      out.chats = raw.chats
+        .filter(c => c && typeof c === 'object' && ((typeof c.name === 'string' && c.name) || hasIds(sourceOf(c))))
+        .map(c => ({ id: String(c.id || newId()), name: sourceName(c), ...pickIds(sourceOf(c)), on: c.on !== false }));
     }
     if (Array.isArray(raw.actions)) {
       out.actions = raw.actions
@@ -240,13 +347,14 @@ const AAM = (() => {
           ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
           ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
           on: a.on !== false,
-          chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
-        }));
+          chats: sanitizeRuleChats(a.chats),
+        }))
+        .filter(a => a.chats);
     }
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, sourceOf, sourceMatches, sameSource, sourceName, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

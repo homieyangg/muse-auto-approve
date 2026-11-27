@@ -38,6 +38,11 @@ function saveSettings(patch) {
 const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
+const hasSource = item => !!(item.chat || item.threadId || item.scheduleId);
+// The sidebar name for a thread id, else the name read from the card
+const chatName = item => (item.threadId && local.museChatNames?.[item.threadId]) || item.chat || '';
+const chatLabel = entry => AAM.sourceName(entry) || t('fromUnknown');
+const chatList = chats => chats.map(chatLabel).join(sep());
 
 function pendingItems() {
   if (!tracking()) return [];
@@ -85,10 +90,10 @@ function scopeOptions(item) {
   if (AAM.isPurchase(item)) return ['once'];
   const scopes = [];
   if (item.host) scopes.push('site');
-  if (item.host && item.chat) scopes.push('siteChat');
+  if (item.host && hasSource(item)) scopes.push('siteChat');
   if (!item.host && item.action) scopes.push('action');
-  if (!item.host && item.action && item.chat) scopes.push('actionChat');
-  if (item.chat) scopes.push('chat');
+  if (!item.host && item.action && hasSource(item)) scopes.push('actionChat');
+  if (hasSource(item)) scopes.push('chat');
   scopes.push('once');
   return scopes;
 }
@@ -108,7 +113,7 @@ function pendingCard(item) {
   const node = $('#tpl-pending').content.firstElementChild.cloneNode(true);
   I18N.apply(node);
   node.querySelector('.req-site').textContent = label(item);
-  node.querySelector('.req-meta').textContent = `${item.chat ? t('from', item.chat) : t('fromUnknown')}・${I18N.ago(item.ts)}`;
+  node.querySelector('.req-meta').textContent = `${chatName(item) ? t('from', chatName(item)) : t('fromUnknown')}・${I18N.ago(item.ts)}`;
   const reason = pendingReason(item);
   const note = node.querySelector('.req-reason');
   note.hidden = !reason;
@@ -129,17 +134,20 @@ function renderPending() {
 }
 
 // 依選的範圍加進信任清單；「只允許這一次」交給 content script 按掉那張卡，但不記住
+// A card with source ids makes rules that store them; one without stays main's name-only rule
 async function allowPending(item, scope) {
   resolved.add(item.key);
+  const ids = { ...(item.threadId && { threadId: item.threadId }), ...(item.scheduleId && { scheduleId: item.scheduleId }) };
+  const chat = Object.keys(ids).length ? { name: chatName(item), ...ids } : item.chat;
   if (scope === 'once') {
     render();
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
-    await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat) });
+    await saveSettings({ chats: AAM.addChatRule(settings.chats, chatName(item), ids) });
   } else if (scope === 'action' || scope === 'actionChat') {
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy, site: item.site }) });
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? chat : '', policy: item.policy, site: item.site }) });
   } else {
-    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? item.chat : '' }) });
+    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? chat : '' }) });
   }
 }
 
@@ -165,7 +173,7 @@ function row(title, sub, off, onRemove) {
 function renderSites() {
   const rows = settings.sites.map(site => row(
     site.sub ? t('withSub', site.host) : site.host,
-    site.chats.length ? t('onlyChats', site.chats.join(sep())) : t('anyChat'),
+    site.chats.length ? t('onlyChats', chatList(site.chats)) : t('anyChat'),
     !site.on,
     () => saveSettings({ sites: settings.sites.filter(s => s.id !== site.id) }),
   ));
@@ -177,7 +185,7 @@ function renderSites() {
 function renderActions() {
   const rows = settings.actions.map(action => row(
     label(action),
-    action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
+    action.chats.length ? t('onlyChats', chatList(action.chats)) : t('anyChat'),
     !action.on,
     () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),
   ));
@@ -192,7 +200,7 @@ function recentChats() {
 }
 
 function renderChats() {
-  const rows = settings.chats.map(chat => row(chat.name, t('chatAllSites'), !chat.on,
+  const rows = settings.chats.map(chat => row(chatLabel(chat), t('chatAllSites'), !chat.on,
     () => saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) })));
   $('#chat-list').replaceChildren(...rows);
   $('#chat-list').hidden = !rows.length;
@@ -213,7 +221,7 @@ function logRow(entry) {
   const time = Object.assign(document.createElement('time'), { textContent: I18N.clock(entry.ts) });
   const text = document.createElement('div');
   text.textContent = label(entry);
-  text.append(Object.assign(document.createElement('small'), { textContent: entry.chat || t('fromUnknown') }));
+  text.append(Object.assign(document.createElement('small'), { textContent: chatName(entry) || t('fromUnknown') }));
   const result = Object.assign(document.createElement('span'), { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') });
   el.append(time, text, result);
   return el;

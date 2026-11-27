@@ -68,7 +68,17 @@ const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const sameHost = (a, b) => AAM.hostMatches({ host: a, sub: false }, b);
 
 // 可挑的聊天室：muse 側邊欄記下的，加上信任清單、網站限定的聊天室、紀錄和等你決定裡的
+// Entries are rule-chat entries: a name string, or { name, threadId?, scheduleId? } for a chat known by id. A name also
+// known by id is only offered by id
 function knownChats() {
+  const withIds = [
+    ...Object.entries(local.museChatNames || {}).map(([threadId, name]) => ({ name, threadId })),
+    ...settings.chats,
+    ...settings.sites.flatMap(s => s.chats),
+    ...settings.actions.flatMap(a => a.chats),
+    ...AAM.mergePending(pendingByTab),
+    ...local.log,
+  ].map(chatEntryOf).filter(e => e && typeof e === 'object');
   const names = [
     ...local.museChats,
     ...settings.chats.map(c => c.name),
@@ -76,9 +86,26 @@ function knownChats() {
     ...settings.actions.flatMap(a => a.chats),
     ...AAM.mergePending(pendingByTab).map(i => i.chat),
     ...local.log.map(e => e.chat),
-  ].filter(Boolean);
-  return [...new Set(names)];
+  ].filter(n => typeof n === 'string' && n && !withIds.some(e => e.name === n));
+  return uniqueChats([...withIds, ...names]);
 }
+
+// A chat entry for a trust rule from a settings entry, rule entry, pending item or log entry; ids win over the name
+function chatEntryOf(item) {
+  if (typeof item === 'string') return item;
+  const src = AAM.sourceOf(item?.chat !== undefined && item.name === undefined ? { ...item, name: item.chat } : item);
+  if (!src) return null;
+  const name = (src.threadId && local.museChatNames?.[src.threadId]) || src.name;
+  if (!src.threadId && !src.scheduleId) return name || null;
+  return { name, ...(src.threadId && { threadId: src.threadId }), ...(src.scheduleId && { scheduleId: src.scheduleId }) };
+}
+
+function uniqueChats(entries) {
+  return entries.filter((e, i) => entries.findIndex(o => AAM.sameSource(o, e)) === i);
+}
+
+const chatLabel = entry => AAM.sourceName(entry) || t('fromUnknown');
+const chatList = chats => chats.map(chatLabel).join(sep());
 
 function currentPage() {
   const page = location.hash.slice(1);
@@ -108,7 +135,7 @@ function updateSite(id, patch) {
 }
 
 function siteScopeText(site) {
-  const scope = site.chats.length ? t('onlyChats', site.chats.join(sep())) : t('anyChat');
+  const scope = site.chats.length ? t('onlyChats', chatList(site.chats)) : t('anyChat');
   return site.sub ? `${t('subShort')}・${scope}` : scope;
 }
 
@@ -131,14 +158,15 @@ function siteStats(site) {
 }
 
 // 「任何聊天室／只限這些聊天室」加聊天室勾選；chats 是空陣列就代表任何聊天室
+// Entries already in the rule are kept as stored; a chat picked from the known list is added with its ids
 function chatScopeFields(selected, onChange) {
-  const options = [...new Set([...selected, ...knownChats()])];
+  const options = uniqueChats([...selected, ...knownChats()]);
   let only = selected.length > 0;
   const pick = el('div', { className: 'chat-pick', hidden: !only });
   if (!options.length) pick.append(el('small', { className: 'muted', textContent: t('chatPickEmpty') }));
-  for (const name of options) {
-    pick.append(check('checkbox', selected.includes(name), name, on => {
-      selected = on ? [...selected, name] : selected.filter(n => n !== name);
+  for (const entry of options) {
+    pick.append(check('checkbox', selected.some(c => AAM.sameSource(c, entry)), chatLabel(entry), on => {
+      selected = on ? [...selected, entry] : selected.filter(c => !AAM.sameSource(c, entry));
       onChange(selected);
     }));
   }
@@ -206,7 +234,7 @@ function renderSites(force) {
 function chatEntry(chat) {
   const entry = el('div', { className: `entry${chat.id === selectedChat ? ' on' : ''}${chat.on ? '' : ' off'}` },
     glyph(BUBBLE),
-    el('div', {}, el('b', { textContent: chat.name }), el('small', { textContent: t('chatAllSites') })),
+    el('div', {}, el('b', { textContent: chatLabel(chat) }), el('small', { textContent: t('chatAllSites') })),
     toggle(chat.on, on => saveSettings({ chats: settings.chats.map(c => (c.id === chat.id ? { ...c, on } : c)) })));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
@@ -218,14 +246,14 @@ function chatEntry(chat) {
 
 function chatDetail(chat) {
   const seen = new Map();
-  for (const e of local.log) if (e.chat === chat.name && e.host && !seen.has(e.host)) seen.set(e.host, e.ts);
+  for (const e of local.log) if (AAM.sourceMatches(chat, e) && e.host && !seen.has(e.host)) seen.set(e.host, e.ts);
   const recent = [...seen].slice(0, 8).map(([host, ts]) => `${host}・${I18N.clock(ts)}`);
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
   remove.addEventListener('click', () => { saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) }); renderChats(true); });
   const list = el('div', { className: 'recent-sites' });
   recent.forEach((line, i) => { if (i) list.append(el('br')); list.append(line); });
   return [
-    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: chat.name })),
+    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: chatLabel(chat) })),
     el('p', { className: 'warn', textContent: t('chatDetailWarn') }),
     el('label', { className: 'field-label', textContent: t('chatRecentSites') }),
     recent.length ? list : el('p', { className: 'muted', textContent: t('chatRecentSitesEmpty') }),
@@ -233,9 +261,13 @@ function chatDetail(chat) {
   ];
 }
 
-function addChat(name) {
-  const chats = AAM.addChatRule(settings.chats, name);
-  selectedChat = chats.find(c => c.name === name).id;
+// entry is a typed name or a known chat entry, with ids when it has them
+function addChat(entry) {
+  const src = AAM.sourceOf(entry);
+  const ids = { ...(src.threadId && { threadId: src.threadId }), ...(src.scheduleId && { scheduleId: src.scheduleId }) };
+  const chats = AAM.addChatRule(settings.chats, src.name, ids);
+  const added = Object.keys(ids).length ? c => AAM.sameSource(c, { name: src.name, ...ids }) : c => c.name === src.name;
+  selectedChat = chats.find(added).id;
   saveSettings({ chats });
   renderChats(true);
 }
@@ -244,10 +276,10 @@ function newChatForm() {
   const input = el('input', { className: 'text-input', placeholder: t('chatNamePlaceholder') });
   const create = el('button', { className: 'btn primary', textContent: t('create') });
   create.addEventListener('click', () => { const name = input.value.trim(); if (name) addChat(name); });
-  const addable = knownChats().filter(n => !settings.chats.some(c => c.name === n));
-  const links = el('div', { className: 'links' }, ...addable.map(name => {
-    const link = el('a', { textContent: `＋ ${name}` });
-    link.addEventListener('click', () => addChat(name));
+  const addable = knownChats().filter(e => !settings.chats.some(c => AAM.sameSource(c, e)));
+  const links = el('div', { className: 'links' }, ...addable.map(entry => {
+    const link = el('a', { textContent: `＋ ${chatLabel(entry)}` });
+    link.addEventListener('click', () => addChat(entry));
     return link;
   }));
   return [
@@ -274,7 +306,7 @@ function updateAction(id, patch) {
 }
 
 function actionEntry(action) {
-  const chatScope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const chatScope = action.chats.length ? t('onlyChats', chatList(action.chats)) : t('anyChat');
   const scope = action.site && action.sub ? `${t('subShort')}・${chatScope}` : chatScope;
   const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
@@ -326,7 +358,7 @@ function actionStatsText(action) {
 let actionPanel = null;
 
 // What the chat checkboxes were built from: the rule's chats and every chat that can be picked
-const chatPickKey = action => JSON.stringify([action.chats, [...new Set([...action.chats, ...knownChats()])].sort()]);
+const chatPickKey = action => JSON.stringify([action.chats, uniqueChats([...action.chats, ...knownChats()]).map(e => JSON.stringify(e)).sort()]);
 
 function actionDetail(action) {
   const current = () => settings.actions.find(a => a.id === action.id) || action;
@@ -402,7 +434,7 @@ function renderLog() {
   $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
     el('td', { textContent: I18N.clock(e.ts) }),
     el('td', { textContent: AAM.cardLabel(e, t) }),
-    el('td', { textContent: e.chat || t('fromUnknown') }),
+    el('td', { textContent: (e.threadId && local.museChatNames?.[e.threadId]) || e.chat || t('fromUnknown') }),
     el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
   $('#log-empty').hidden = entries.length > 0;
 }
