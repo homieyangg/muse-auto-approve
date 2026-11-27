@@ -460,5 +460,14 @@
   },
   "cancel": {
     "message": "Cancel"
+  },
+  "unreadableNoticeOne": {
+    "message": "1 approval card could not be read; matched by card text instead."
+  },
+  "unreadableNotice": {
+    "message": "$1 approval cards could not be read; matched by card text instead."
+  },
+  "unreadableReport": {
+    "message": "Report"
   }
 }

@@ -127,7 +127,7 @@ Email, combined, side chat, scheduled task, and website cards have been tested o
 - "Allow everything" approves every website card, including browser uploads, plus action cards if you turn that option on.
 - Actions match by muse's permission type. Rules saved by older versions only store the card title and pick up the permission type the next time that card appears. Trusting "post to Threads" covers every post, regardless of text or account.
 - Cards shown inside the chat that started the task often do not state which chat they came from, so "only from this chat" is not offered for them.
-- A muse.ai redesign can break matching, especially button labels, review banner markup, or page approval data. Without that data, it falls back to card text, which handles combined and duplicate cards less reliably.
+- A muse.ai redesign can break matching, especially button labels, review banner markup, or page approval data. Without that data, it falls back to card text, which handles combined and duplicate cards less reliably. When a chat card stays unreadable, the popup shows a notice with a link to report it.
 
 ## Running it around the clock
 

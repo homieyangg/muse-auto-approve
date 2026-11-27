@@ -10,6 +10,7 @@ const URLS = {
 };
 const RATE_MIN_APPROVALS = 20;
 const RATE_MIN_MS = 3 * 24 * 60 * 60 * 1000;
+const UNREADABLE_RECENT_MS = 10 * 60 * 1000;
 const SCOPE_TEXT = { site: 'scopeSite', siteChat: 'scopeSiteChat', action: 'scopeAction', actionChat: 'scopeActionChat', chat: 'scopeChat', once: 'scopeOnce' };
 const RESULT_TEXT = { allowed: 'resultAllowed', pending: 'resultPending', skipped: 'resultSkipped', handled: 'resultHandled' };
 
@@ -53,9 +54,32 @@ function showRate() {
   return !local.ratingDismissed && local.approvals >= RATE_MIN_APPROVALS && local.installedAt > 0 && Date.now() - local.installedAt >= RATE_MIN_MS;
 }
 
+function showUnreadable() {
+  const u = local.unreadable;
+  return !!u && u.count > 0 && u.lastSeen > 0 && Date.now() - u.lastSeen <= UNREADABLE_RECENT_MS;
+}
+
+function unreadableIssueUrl(unreadable) {
+  const version = chrome.runtime.getManifest().version;
+  const browserLang = chrome.i18n?.getUILanguage?.() || 'unknown';
+  const museLang = unreadable?.lang || 'unknown';
+  const count = unreadable?.count || 0;
+  const params = new URLSearchParams({
+    title: 'Chat approval card could not be read',
+    body: [
+      `Extension version: ${version}`,
+      `Browser UI language: ${browserLang}`,
+      `Muse UI language: ${museLang}`,
+      `Unreadable chat cards: ${count}`,
+    ].join('\n'),
+  });
+  return `${AAM.REPO_URL}/issues/new?${params.toString()}`;
+}
+
 function renderHome() {
   const pending = pendingItems();
   const today = todayAllowed();
+  const unreadableVisible = showUnreadable();
   $('#enabled').checked = settings.enabled;
   $('#status').textContent = settings.enabled ? t('statusOn', today) : t('statusPaused');
   $('#home-body').classList.toggle('dim', !settings.enabled);
@@ -63,6 +87,12 @@ function renderHome() {
   $('#alert-n').textContent = pending.length;
   $('#alert-title').textContent = t('pendingAlert', pending.length);
   $('#alert-sites').textContent = pending.map(label).join(sep());
+  $('#unreadable').hidden = !unreadableVisible;
+  if (unreadableVisible) {
+    const n = local.unreadable.count;
+    $('#unreadable-text').textContent = n === 1 ? t('unreadableNoticeOne') : t('unreadableNotice', n);
+    $('#unreadable-report').href = unreadableIssueUrl(local.unreadable);
+  }
   $('#mode').value = settings.mode;
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
   $('#sites-n').textContent = settings.sites.length;
@@ -280,6 +310,10 @@ function bind() {
   $('#rate-go').addEventListener('click', async () => {
     await chrome.storage.local.set({ ratingDismissed: true });
     openUrl(URLS.rate);
+  });
+  $('#unreadable-report').addEventListener('click', e => {
+    e.preventDefault();
+    openUrl(unreadableIssueUrl(local.unreadable));
   });
 }
 
