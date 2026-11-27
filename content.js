@@ -153,14 +153,12 @@ function contextAlive() {
 }
 
 // 側邊欄打開時記下副聊天室名稱給信任清單挑；收起來時整串不在 DOM，保留上次記的
-// A row bridge.js found the thread id of is only recorded by id, so its name is never offered as a plain name
 function recordChats() {
-  const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)]
-    .map(row => [row, AAM.cleanText(row.querySelector('[title]')?.getAttribute('title'))])
-    .filter(([, name]) => name);
-  const names = rows.filter(([row]) => !AAM.sourceId(row.getAttribute(THREAD_ATTR))).map(([, name]) => name);
+  const names = [...document.querySelectorAll(CHAT_ROW_SELECTOR)]
+    .map(row => AAM.cleanText(row.querySelector('[title]')?.getAttribute('title')))
+    .filter(Boolean);
   const json = JSON.stringify([...new Set(names)]);
-  if (rows.length && json !== lastChats) {
+  if (names.length && json !== lastChats) {
     lastChats = json;
     chrome.storage.local.set({ museChats: JSON.parse(json) }).catch(() => {});
   }
@@ -248,17 +246,19 @@ function purchaseState(node, body) {
 }
 
 // Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data.
-// Source ids are only taken from a mark that answered this request, so stale ids never reach the trust check
+// Source ids are only taken from a mark that answered this request, so stale ids never reach the trust check. Ids that
+// can't be read give no ids and mark the card badIds, so the popup never offers to trust it by name
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  const ids = buttons.muse && freshlyMarked(node) ? AAM.cardPair({ threadId: attr(THREAD_ATTR), scheduleId: attr(SCHEDULE_ATTR) }) : {};
+  const marked = buttons.muse && freshlyMarked(node) ? { threadId: attr(THREAD_ATTR), scheduleId: attr(SCHEDULE_ATTR) } : {};
+  const ids = AAM.readPair(marked, true) ? AAM.cardPair(marked) : { badIds: true };
   return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), ...sourceFields(ids), purchase };
 }
 
 // Only the ids a card has, so cards without them stay shaped as on main
 function sourceFields(card) {
-  return { ...(card.threadId && { threadId: card.threadId }), ...(card.scheduleId && { scheduleId: card.scheduleId }) };
+  return { ...(card.threadId && { threadId: card.threadId }), ...(card.scheduleId && { scheduleId: card.scheduleId }), ...(card.badIds && { badIds: true }) };
 }
 
 function pendingItem(card, key) {

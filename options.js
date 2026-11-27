@@ -71,15 +71,33 @@ const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const sameHost = (a, b) => AAM.hostMatches({ host: a, sub: false }, b);
 
 // 可挑的聊天室：muse 側邊欄記下的，加上信任清單、網站限定的聊天室、紀錄和等你決定裡的
-// Chats seen with ids are offered by their pair (see AAM.chatChoices); named is for rule limits, which keep names
-function knownChats(named = false) {
+function knownChats() {
+  const names = [
+    ...local.museChats,
+    ...settings.chats.map(c => c.name),
+    ...settings.sites.flatMap(s => s.chats),
+    ...settings.actions.flatMap(a => a.chats),
+    ...AAM.mergePending(pendingByTab).map(i => i.chat),
+    ...local.log.map(e => e.chat),
+  ].filter(Boolean);
+  return [...new Set(names)];
+}
+
+// Chats the trusted chat list can add; chats seen with ids are offered by their pair (see AAM.chatChoices)
+function chatChoices() {
+  const names = [...local.museChats, ...settings.sites.flatMap(s => s.chats), ...settings.actions.flatMap(a => a.chats)];
   const items = [...AAM.mergePending(pendingByTab), ...local.log];
-  return AAM.chatChoices({ museChats: local.museChats, museChatNames: local.museChatNames, settings, items, named });
+  return AAM.chatChoices({ names, museChatNames: local.museChatNames, chats: allChats(), items });
 }
 
 // Display only: the sidebar name of a chat known by thread id
 const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
 const chatLabel = choice => choice.name || sidebarName(choice.threadId) || t('fromUnknown');
+// A trusted chat's label within the whole list, so two chats of one name can be told apart
+function listedLabel(chat) {
+  const chats = allChats();
+  return AAM.chatLabels(chats, chatLabel)[chats.findIndex(c => c.id === chat.id)] || chatLabel(chat);
+}
 
 function currentPage() {
   const page = location.hash.slice(1);
@@ -108,10 +126,6 @@ function updateSite(id, patch) {
   return saveSettings({ sites: settings.sites.map(s => (s.id === id ? { ...s, ...patch } : s)) });
 }
 
-function updateSiteLimit(id, limit) {
-  return saveSettings({ sites: settings.sites.map(s => (s.id === id ? AAM.setLimit(s, limit) : s)) });
-}
-
 function siteScopeText(site) {
   const scope = site.chats.length ? t('onlyChats', site.chats.join(sep())) : t('anyChat');
   return site.sub ? `${t('subShort')}・${scope}` : scope;
@@ -136,23 +150,20 @@ function siteStats(site) {
 }
 
 // 「任何聊天室／只限這些聊天室」加聊天室勾選；chats 是空陣列就代表任何聊天室
-// rule holds chats and sources; onChange gets the new { chats, sources } (see AAM.toggleLimit)
-function chatScopeFields(rule, onChange) {
-  let limit = { chats: rule.chats, sources: rule.sources };
-  const options = AAM.limitOptions(limit, knownChats(true));
-  const held = AAM.limitChoices(limit);
-  let only = limit.chats.length > 0;
+function chatScopeFields(selected, onChange) {
+  const options = [...new Set([...selected, ...knownChats()])];
+  let only = selected.length > 0;
   const pick = el('div', { className: 'chat-pick', hidden: !only });
   if (!options.length) pick.append(el('small', { className: 'muted', textContent: t('chatPickEmpty') }));
-  for (const choice of options) {
-    pick.append(check('checkbox', held.some(c => AAM.sameChoice(c, choice)), chatLabel(choice), on => {
-      limit = AAM.toggleLimit(limit, choice, on);
-      onChange(limit);
+  for (const name of options) {
+    pick.append(check('checkbox', selected.includes(name), name, on => {
+      selected = on ? [...selected, name] : selected.filter(n => n !== name);
+      onChange(selected);
     }));
   }
   if (options.length) pick.append(el('small', { className: 'muted', textContent: t('chatPickHint') }));
   const group = `scope-${Math.random().toString(36).slice(2)}`;
-  const any = check('radio', !only, t('anyChat'), () => { only = false; pick.hidden = true; onChange({ chats: [], sources: [] }); }, group);
+  const any = check('radio', !only, t('anyChat'), () => { only = false; pick.hidden = true; onChange([]); }, group);
   const onlyRadio = check('radio', only, t('onlyTheseChats'), () => { only = true; pick.hidden = false; }, group);
   return [el('label', { className: 'field-label', textContent: t('scopeLabel') }), any, onlyRadio, pick];
 }
@@ -171,14 +182,14 @@ function siteDetail(site) {
     el('div', { className: 'detail-head' }, glyph(GLOBE), el('b', { textContent: site.host })),
     el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error,
     check('checkbox', site.sub, t('includeSub'), sub => updateSite(site.id, { sub })),
-    ...chatScopeFields(site, limit => updateSiteLimit(site.id, limit)),
+    ...chatScopeFields(site.chats, chats => updateSite(site.id, { chats })),
     el('p', { className: 'stats', textContent: siteStats(site) }),
     el('div', { className: 'detail-foot' }, el('span'), remove),
   ];
 }
 
 function newSiteForm() {
-  let limit = { chats: [], sources: [] };
+  let chats = [];
   let sub = false;
   const input = el('input', { className: 'text-input', placeholder: t('sitePlaceholder') });
   const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
@@ -189,7 +200,7 @@ function newSiteForm() {
     if (!host) return;
     const existing = settings.sites.find(s => sameHost(s.host, host));
     selectedSite = existing ? existing.id : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
-    const rule = AAM.setLimit({ id: selectedSite, host, sub: sub || !!existing?.sub, chats: [], on: true }, limit);
+    const rule = { id: selectedSite, host, sub: sub || !!existing?.sub, chats, on: true };
     saveSettings({ sites: existing ? settings.sites.map(s => (s.id === existing.id ? rule : s)) : [...settings.sites, rule] });
     renderSites(true);
   });
@@ -197,7 +208,7 @@ function newSiteForm() {
     el('div', { className: 'detail-head' }, glyph(GLOBE), el('b', { textContent: t('newSite') })),
     el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error,
     check('checkbox', false, t('includeSub'), v => { sub = v; }),
-    ...chatScopeFields({ chats: [] }, v => { limit = v; }),
+    ...chatScopeFields([], v => { chats = v; }),
     el('div', { className: 'detail-foot' }, el('span'), create),
   ];
 }
@@ -214,7 +225,7 @@ function renderSites(force) {
 function chatEntry(chat) {
   const entry = el('div', { className: `entry${chat.id === selectedChat ? ' on' : ''}${chat.on ? '' : ' off'}` },
     glyph(BUBBLE),
-    el('div', {}, el('b', { textContent: chatLabel(chat) }), el('small', { textContent: t('chatAllSites') })),
+    el('div', {}, el('b', { textContent: listedLabel(chat) }), el('small', { textContent: t('chatAllSites') })),
     toggle(chat.on, on => saveChats(allChats().map(c => (c.id === chat.id ? { ...c, on } : c)))));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
@@ -233,7 +244,7 @@ function chatDetail(chat) {
   const list = el('div', { className: 'recent-sites' });
   recent.forEach((line, i) => { if (i) list.append(el('br')); list.append(line); });
   return [
-    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: chatLabel(chat) })),
+    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: listedLabel(chat) })),
     el('p', { className: 'warn', textContent: t('chatDetailWarn') }),
     el('label', { className: 'field-label', textContent: t('chatRecentSites') }),
     recent.length ? list : el('p', { className: 'muted', textContent: t('chatRecentSitesEmpty') }),
@@ -255,9 +266,10 @@ function newChatForm() {
   const input = el('input', { className: 'text-input', placeholder: t('chatNamePlaceholder') });
   const create = el('button', { className: 'btn primary', textContent: t('create') });
   create.addEventListener('click', () => { const name = input.value.trim(); if (name) addChat({ name }); });
-  const addable = knownChats().filter(choice => !AAM.listsChat(allChats(), choice));
-  const links = el('div', { className: 'links' }, ...addable.map(choice => {
-    const link = el('a', { textContent: `＋ ${chatLabel(choice)}` });
+  const addable = chatChoices().filter(choice => !AAM.listsChat(allChats(), choice));
+  const labels = AAM.chatLabels([...allChats(), ...addable], chatLabel).slice(allChats().length);
+  const links = el('div', { className: 'links' }, ...addable.map((choice, i) => {
+    const link = el('a', { textContent: `＋ ${labels[i]}` });
     link.addEventListener('click', () => addChat(choice));
     return link;
   }));
@@ -283,10 +295,6 @@ function renderChats(force) {
 
 function updateAction(id, patch) {
   return saveSettings({ actions: settings.actions.map(a => (a.id === id ? { ...a, ...patch } : a)) });
-}
-
-function updateActionLimit(id, limit) {
-  return saveSettings({ actions: settings.actions.map(a => (a.id === id ? AAM.setLimit(a, limit) : a)) });
 }
 
 function actionEntry(action) {
@@ -342,7 +350,7 @@ function actionStatsText(action) {
 let actionPanel = null;
 
 // What the chat checkboxes were built from: the rule's chats and every chat that can be picked
-const chatPickKey = action => JSON.stringify([AAM.limitChoices(action), AAM.limitOptions(action, knownChats(true)).map(c => JSON.stringify(c)).sort()]);
+const chatPickKey = action => JSON.stringify([action.chats, [...new Set([...action.chats, ...knownChats()])].sort()]);
 
 function actionDetail(action) {
   const current = () => settings.actions.find(a => a.id === action.id) || action;
@@ -364,7 +372,7 @@ function actionDetail(action) {
   return [
     el('div', { className: 'detail-head' }, glyph(BOLT), heading),
     ...(site ? site.nodes : []),
-    ...chatScopeFields(action, limit => updateActionLimit(action.id, limit)),
+    ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
     stats,
     el('div', { className: 'detail-foot' }, el('span'), remove),
   ];

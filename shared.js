@@ -208,63 +208,34 @@ const AAM = (() => {
     return !!card.chat && entry.name === card.chat;
   }
 
-  // A site or action rule keeps main's chat limit: rule.chats holds names. rule.sources binds some of those names to the
-  // pairs they were saved from; versions without ids ignore it and match the names. null when it can't be read
-  function ruleSources(rule) {
-    if (rule.sources === undefined) return [];
-    if (!Array.isArray(rule.sources)) return null;
-    const out = [];
-    for (const src of rule.sources) {
-      const pair = src && typeof src === 'object' ? readPair(src) : null;
-      if (!pair || !hasIds(pair) || typeof src.name !== 'string' || !src.name) return null;
-      out.push({ name: src.name, ...pickIds(pair) });
-    }
-    return out;
-  }
-
-  // A name bound to pairs matches a card with ids only on one of them. A card without ids, or a name without pairs, is
-  // main's rule.chats.includes(card.chat)
-  function limitMatches(rule, card) {
-    if (!rule.chats.length) return true;
-    const sources = ruleSources(rule);
-    if (!sources) return false;
-    const ids = cardPair(card);
-    return rule.chats.some(name => {
-      const bound = sources.filter(src => src.name === name);
-      return bound.length && hasIds(ids) ? bound.some(src => samePair(src, ids)) : name === card.chat;
-    });
-  }
-
   // The same chat choice: the same name and the same pair (none for a plain name)
   function sameChoice(a, b) {
     const x = readPair(a, true), y = readPair(b, true);
     return !!x && !!y && a.name === b.name && samePair(x, y);
   }
 
-  // Chats the popup and settings can offer, as { name, threadId?, scheduleId? }. A chat seen with ids is offered by its
-  // pair with the name read from its card, or '' (a sidebar name is only for display). A name seen with ids anywhere is
-  // never offered plain: that rule would trust every chat of the name. named leaves out choices without a name, for rule
-  // limits; fromRules: false still learns names from site and action rules but doesn't offer them
-  function chatChoices({ museChats = [], museChatNames = {}, settings, items = [], named = false, fromRules = true }) {
+  // Chats the popup and settings offer for the trusted chat list, as { name, threadId?, scheduleId? }. names are the plain
+  // candidates (sidebar, rule limits); chats is trustedChats(settings); items are pending cards and log entries. A chat seen
+  // with ids is offered by its pair with the name read from its card, or '' (a sidebar name is only for display). A name
+  // seen with ids, or on a card whose ids couldn't be read, is never offered plain: that would trust every chat of the name
+  function chatChoices({ names = [], museChatNames = {}, chats = [], items = [] }) {
     const offered = [];
     const byId = new Set(Object.values(museChatNames || {}));
-    const add = (name, pair, offer = true) => {
+    const add = (name, pair) => {
       const choice = { name: typeof name === 'string' ? name : '', ...pickIds(pair) };
       if (hasIds(pair)) byId.add(choice.name);
-      if (offer) offered.push(choice);
+      offered.push(choice);
     };
     for (const id of Object.keys(museChatNames || {})) if (sourceId(id)) add('', { threadId: id });
-    for (const name of museChats) add(name, NO_PAIR);
-    for (const c of trustedChats(settings)) if (readPair(c)) add(c.name, readPair(c));
-    for (const rule of [...settings.sites, ...settings.actions]) {
-      const sources = ruleSources(rule) || [];
-      for (const src of sources) add(src.name, src, fromRules);
-      for (const name of rule.chats) if (!sources.some(src => src.name === name)) add(name, NO_PAIR, fromRules);
+    for (const name of names) add(name, NO_PAIR);
+    for (const c of chats) if (readPair(c)) add(c.name, readPair(c));
+    for (const item of items) {
+      if (item.badIds) byId.add(item.chat);
+      else add(item.chat, cardPair(item));
     }
-    for (const item of items) add(item.chat, cardPair(item));
     const pairKey = c => `${c.threadId || ''}\n${c.scheduleId || ''}`;
     const namedPairs = new Set(offered.filter(c => hasIds(c) && c.name).map(pairKey));
-    const all = offered.filter(c => (hasIds(c) ? c.name || (!named && !namedPairs.has(pairKey(c))) : c.name && !byId.has(c.name)));
+    const all = offered.filter(c => (hasIds(c) ? c.name || !namedPairs.has(pairKey(c)) : c.name && !byId.has(c.name)));
     return all.filter((c, i) => all.findIndex(o => sameChoice(o, c)) === i);
   }
 
@@ -278,60 +249,21 @@ const AAM = (() => {
     });
   }
 
-  // A rule's chat limit as choices: each bound name by its pairs, each other name plain
-  function limitChoices(limit) {
-    const sources = ruleSources(limit) || [];
-    return limit.chats.flatMap(name => {
-      const bound = sources.filter(src => src.name === name);
-      return bound.length ? bound : [{ name }];
+  // Labels for chats shown together. Chats that would share a label get the end of each of their ids, so two chats of one
+  // name can be told apart without showing whole ids
+  function chatLabels(list, labelOf) {
+    const base = list.map(labelOf);
+    return list.map((c, i) => {
+      const suffix = SOURCE_TYPES.map(type => c[type]).filter(Boolean).map(id => id.slice(-6)).join('/');
+      return suffix && base.filter(b => b === base[i]).length > 1 ? `${base[i]} · ${suffix}` : base[i];
     });
-  }
-
-  // What a rule's chat picker shows: the limit's own choices, then the other named choices. A pair is left out when the
-  // limit holds its name without one, since that name already covers it
-  function limitOptions(limit, choices) {
-    const current = limitChoices(limit);
-    const plainNames = new Set(current.filter(c => !hasIds(c)).map(c => c.name));
-    const rest = choices.filter(c => c.name && !current.some(o => sameChoice(o, c)) && !(hasIds(c) && plainNames.has(c.name)));
-    return [...current, ...rest];
-  }
-
-  // Ticks or unticks a choice in a rule's chat limit. Unticking a name's last pair also removes the name: left without
-  // pairs it would trust every chat of that name
-  function toggleLimit(limit, choice, on) {
-    const sources = ruleSources(limit) || [];
-    const pair = readPair(choice, true);
-    const name = choice.name;
-    if (!name || !pair) return { chats: limit.chats, sources };
-    const withName = limit.chats.includes(name) ? limit.chats : [...limit.chats, name];
-    const bound = sources.some(src => src.name === name);
-    if (!hasIds(pair)) {
-      if (on) return { chats: withName, sources };
-      return { chats: limit.chats.filter(n => n !== name), sources: sources.filter(src => src.name !== name) };
-    }
-    if (on) {
-      if ((limit.chats.includes(name) && !bound) || sources.some(src => sameChoice(src, choice))) return { chats: limit.chats, sources };
-      return { chats: withName, sources: [...sources, { name, ...pickIds(pair) }] };
-    }
-    const left = sources.filter(src => !sameChoice(src, choice));
-    const stillBound = left.some(src => src.name === name);
-    return { chats: bound && !stillBound ? limit.chats.filter(n => n !== name) : limit.chats, sources: left };
-  }
-
-  function withoutSources(rule) {
-    const { sources, ...rest } = rule;
-    return rest;
-  }
-
-  // A rule with a new chat limit; sources is left out when there are none, so the rule stays shaped as on main
-  function setLimit(rule, limit) {
-    return { ...withoutSources(rule), chats: limit.chats, ...(limit.sources?.length && { sources: limit.sources }) };
   }
 
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
   function isTrusted(settings, card) {
-    if (trustedChats(settings).some(c => c.on && chatMatches(c, card))) return true;
-    const scoped = rule => rule.on && limitMatches(rule, card);
+    if (card.chat && settings.chats.some(c => c.on && c.name === card.chat)) return true;
+    if ((Array.isArray(settings.chatSources) ? settings.chatSources : []).some(c => c.on && hasIds(readPair(c)) && chatMatches(c, card))) return true;
+    const scoped = rule => rule.on && (!rule.chats.length || rule.chats.includes(card.chat));
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
     const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
@@ -351,46 +283,26 @@ const AAM = (() => {
   }
 
   // 加網站規則；同一個網站已經有規則時合併，不重複新增
-  // chat is '' for any chat or the name read from the card; ids is the card's pair. A chat limit needs a name, so ids
-  // without one, or ids that can't be read, change nothing
-  function addSiteRule(sites, host, { sub = false, chat = '', ids = {} } = {}) {
-    const pair = readPair(ids, true);
-    if (!pair || (!chat && hasIds(pair))) return sites;
+  function addSiteRule(sites, host, { sub = false, chat = '' } = {}) {
     const next = sites.map(s => ({ ...s, chats: [...s.chats] }));
     const found = next.find(s => bareHost(s.host) === bareHost(host));
-    if (!found) return [...next, { id: newId(), host, sub, ...newLimit(chat, pair), on: true }];
+    if (!found) return [...next, { id: newId(), host, sub, chats: chat ? [chat] : [], on: true }];
     found.on = true;
     found.sub = found.sub || sub;
-    return next.map(s => (s === found ? mergeLimit(s, chat, pair) : s));
+    if (!chat) found.chats = [];
+    else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
+    return next;
   }
 
-  function addActionRule(actions, title, { chat = '', ids = {}, policy = '', site = '' } = {}) {
-    const pair = readPair(ids, true);
-    if (!pair || (!chat && hasIds(pair))) return actions;
+  function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
     const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
-    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), ...newLimit(chat, pair), on: true }];
+    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
-    return next.map(a => (a === found ? mergeLimit(a, chat, pair) : a));
-  }
-
-  function newLimit(chat, pair) {
-    return { chats: chat ? [chat] : [], ...(chat && hasIds(pair) && { sources: [{ name: chat, ...pickIds(pair) }] }) };
-  }
-
-  // main's merge of a chat into a rule's limit, plus the card's pair for a name the limit gains or already binds to pairs.
-  // A name the limit had without pairs is left as it is: it already covers the chat
-  function mergeLimit(rule, chat, pair) {
-    if (!chat) return { ...withoutSources(rule), chats: [] };
-    if (!rule.chats.length) return rule;
-    const known = rule.chats.includes(chat);
-    const chats = known ? rule.chats : [...rule.chats, chat];
-    const sources = ruleSources(rule);
-    if (!hasIds(pair) || !sources) return { ...rule, chats };
-    const bound = sources.filter(src => src.name === chat);
-    if ((known && !bound.length) || bound.some(src => samePair(src, pair))) return { ...rule, chats };
-    return { ...rule, chats, sources: [...sources, { name: chat, ...pickIds(pair) }] };
+    if (!chat) found.chats = [];
+    else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
+    return next;
   }
 
   // Without ids this is main's, over the entries without ids: the one of that name is turned on, or one is added. With ids
@@ -425,19 +337,6 @@ const AAM = (() => {
     return [];
   }
 
-  // A rule's chat limit on import: main's name strings, plus the pairs of names it still has. null drops the whole rule:
-  // a limit that is not a list, holds anything but names, loses every name, or has pairs that can't be read must never
-  // turn into "any chat"
-  function sanitizeLimit(rule) {
-    if (rule.chats === undefined) return { chats: [] };
-    if (!Array.isArray(rule.chats) || rule.chats.some(c => typeof c !== 'string')) return null;
-    const chats = rule.chats.filter(Boolean);
-    const sources = ruleSources(rule);
-    if ((rule.chats.length && !chats.length) || !sources) return null;
-    const kept = sources.filter(src => chats.includes(src.name));
-    return { chats, ...(kept.length && { sources: kept }) };
-  }
-
   // 匯入的設定只留認得的欄位，型別不對就用預設值
   function sanitizeSettings(raw) {
     const out = { ...SETTINGS_DEFAULTS };
@@ -447,11 +346,8 @@ const AAM = (() => {
     if (raw.lang === 'auto' || supportedLangs().includes(raw.lang)) out.lang = raw.lang;
     if (Array.isArray(raw.sites)) {
       out.sites = raw.sites
-        .map(s => {
-          const limit = sanitizeLimit(s);
-          return limit && { id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, ...limit };
-        })
-        .filter(s => s && s.host);
+        .map(s => ({ id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, chats: Array.isArray(s.chats) ? s.chats.filter(c => typeof c === 'string' && c) : [] }))
+        .filter(s => s.host);
     }
     if (Array.isArray(raw.chats)) {
       out.chats = raw.chats.filter(c => c && typeof c.name === 'string' && c.name).map(c => ({ id: String(c.id || newId()), name: c.name, on: c.on !== false }));
@@ -459,18 +355,14 @@ const AAM = (() => {
     if (Array.isArray(raw.actions)) {
       out.actions = raw.actions
         .filter(a => a && typeof a.title === 'string' && a.title)
-        .map(a => {
-          const limit = sanitizeLimit(a);
-          return limit && {
-            id: String(a.id || newId()),
-            title: a.title.slice(0, 120),
-            ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
-            ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
-            on: a.on !== false,
-            ...limit,
-          };
-        })
-        .filter(Boolean);
+        .map(a => ({
+          id: String(a.id || newId()),
+          title: a.title.slice(0, 120),
+          ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
+          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
+          on: a.on !== false,
+          chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
+        }));
     }
     // Every entry needs a pair it can read; one without a name is matched by the pair alone
     if (Array.isArray(raw.chatSources)) {
@@ -481,7 +373,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, cardPair, hasIds, trustedChats, splitChats, chatMatches, sameChoice, chatChoices, listsChat, limitChoices, limitOptions, toggleLimit, setLimit, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, readPair, cardPair, hasIds, trustedChats, splitChats, chatMatches, sameChoice, chatChoices, listsChat, chatLabels, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

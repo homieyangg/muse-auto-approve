@@ -92,10 +92,12 @@ function scopeOptions(item) {
   if (AAM.isPurchase(item)) return ['once'];
   const scopes = [];
   if (item.host) scopes.push('site');
-  if (item.host && item.chat) scopes.push('siteChat');
+  // A card whose ids couldn't be read is never trusted by its name: the name might be another chat's
+  const named = item.chat && !item.badIds;
+  if (item.host && named) scopes.push('siteChat');
   if (!item.host && item.action) scopes.push('action');
-  if (!item.host && item.action && item.chat) scopes.push('actionChat');
-  if (item.chat || hasIds(item)) scopes.push('chat');
+  if (!item.host && item.action && named) scopes.push('actionChat');
+  if (named || hasIds(item)) scopes.push('chat');
   scopes.push('once');
   return scopes;
 }
@@ -136,11 +138,9 @@ function renderPending() {
 }
 
 // 依選的範圍加進信任清單；「只允許這一次」交給 content script 按掉那張卡，但不記住
-// A card with source ids makes rules that store them; one without stays main's name-only rule. A chat limit needs the
-// chat's name, and a chat rule a name or ids, otherwise the rule would cover every chat
+// Only the chat rule stores ids; site and action limits are main's names. Every scope here is one scopeOptions offered
 async function allowPending(item, scope) {
-  if (['siteChat', 'actionChat'].includes(scope) && !item.chat) return;
-  if (scope === 'chat' && !item.chat && !hasIds(item)) return;
+  if (!scopeOptions(item).includes(scope)) return;
   resolved.add(item.key);
   const ids = AAM.cardPair(item);
   if (scope === 'once') {
@@ -149,10 +149,9 @@ async function allowPending(item, scope) {
   } else if (scope === 'chat') {
     await saveChats(AAM.addChatRule(AAM.trustedChats(settings), item.chat || '', ids));
   } else if (scope === 'action' || scope === 'actionChat') {
-    const limit = scope === 'actionChat' ? { chat: item.chat, ids } : {};
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { ...limit, policy: item.policy, site: item.site }) });
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy, site: item.site }) });
   } else {
-    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, scope === 'siteChat' ? { chat: item.chat, ids } : {}) });
+    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? item.chat : '' }) });
   }
 }
 
@@ -202,20 +201,22 @@ function renderActions() {
 // Chats seen with ids are offered by their pair (see AAM.chatChoices)
 function recentChats() {
   const items = [...pendingItems(), ...local.log];
-  return AAM.chatChoices({ museChats: local.museChats, museChatNames: local.museChatNames, settings, items, fromRules: false }).slice(0, 20);
+  return AAM.chatChoices({ names: local.museChats, museChatNames: local.museChatNames, chats: AAM.trustedChats(settings), items }).slice(0, 20);
 }
 
 function renderChats() {
   const chats = AAM.trustedChats(settings);
-  const rows = chats.map(chat => row(chatLabel(chat), t('chatAllSites'), !chat.on,
+  const labels = AAM.chatLabels(chats, chatLabel);
+  const rows = chats.map((chat, i) => row(labels[i], t('chatAllSites'), !chat.on,
     () => saveChats(chats.filter(c => c.id !== chat.id))));
   $('#chat-list').replaceChildren(...rows);
   $('#chat-list').hidden = !rows.length;
   $('#chats-empty').hidden = rows.length > 0;
   const recent = recentChats();
   const addable = recent.filter(choice => !AAM.listsChat(chats, choice));
-  $('#recent-chats').replaceChildren(...addable.map(choice => {
-    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${chatLabel(choice)}` });
+  const addLabels = AAM.chatLabels([...chats, ...addable], chatLabel).slice(chats.length);
+  $('#recent-chats').replaceChildren(...addable.map((choice, i) => {
+    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${addLabels[i]}` });
     link.addEventListener('click', () => saveChats(AAM.addChatRule(chats, choice.name, choice)));
     return link;
   }));
