@@ -418,7 +418,7 @@ test('a chat trusted by id approves its card even under another name; the same n
   assert.deepEqual((await runSource(byId, { ids: T1 })).clicks, [0, 1, 0]);
   const sameName = await runSource({ chats: [{ id: 'chat-test-1', name: 'Research', ...T1, on: true }] }, { ids: T2 });
   assert.deepEqual(sameName.clicks, [0, 0, 0]);
-  assert.deepEqual(sameName.pending, ['example.com|Research|t:thread-test-2']);
+  assert.deepEqual(sameName.pending, ['example.com|Research\nt:thread-test-2\ns:']);
   assert.deepEqual(sameName.items[0].threadId, 'thread-test-2');
   // A site limited to the chat by id
   const site = { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: [{ name: 'Old name', ...T1 }] }] };

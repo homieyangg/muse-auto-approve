@@ -137,11 +137,14 @@ const AAM = (() => {
     return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '', site: uploadSite };
   }
 
-  // Cards without source ids keep main's key; ids make it narrower, so another chat of the same name is a different card
+  // Cards without source ids keep main's key. With ids the key ends in "\nt:<thread>\ns:<schedule>": card.chat went through
+  // cleanText, so a key without ids has a "|" after its last newline, and ids (SOURCE_ID_RE) never contain "|" or a newline.
+  // So a key with ids never equals one without, and two keys with ids are equal only for the same main key and pair
   function cardKey(card) {
     const subject = card.host || card.policy || card.action || '';
-    const ids = `${card.threadId ? `|t:${card.threadId}` : ''}${card.scheduleId ? `|s:${card.scheduleId}` : ''}`;
-    return `${card.site ? `${subject}@${card.site}` : subject}|${card.chat}${ids}`;
+    const key = `${card.site ? `${subject}@${card.site}` : subject}|${card.chat}`;
+    const pair = cardPair(card);
+    return hasIds(pair) ? `${key}\nt:${pair.threadId}\ns:${pair.scheduleId}` : key;
   }
 
   // Name shown in the popup and settings for a card, log entry, or action rule
@@ -150,7 +153,7 @@ const AAM = (() => {
     return item.host || item.action || item.title || '';
   }
 
-  // Source ids come from muse's approval data through bridge.js; anything that doesn't look like an id is treated as absent
+  // Source ids come from muse's approval data through bridge.js
   const SOURCE_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
   const SOURCE_TYPES = ['threadId', 'scheduleId'];
 
@@ -158,41 +161,48 @@ const AAM = (() => {
     return typeof value === 'string' && SOURCE_ID_RE.test(value) ? value : '';
   }
 
-  // A chat entry in a trust list: a legacy name string, or { name, threadId?, scheduleId? }. Returns null for anything else
+  // A card's ids as a full pair, '' for a type it does not have; an id that doesn't look like one is absent
+  function cardPair(card) {
+    return { threadId: sourceId(card?.threadId), scheduleId: sourceId(card?.scheduleId) };
+  }
+
+  // A chat entry in a trust list: a legacy name string, or { name, threadId?, scheduleId? }. Returns null for anything else,
+  // including an entry whose id field is present but not a valid id: it is unreadable, never read as name-only
   function sourceOf(entry) {
     if (typeof entry === 'string') return { name: entry };
     if (!entry || typeof entry !== 'object') return null;
     const out = { name: typeof entry.name === 'string' ? entry.name : '' };
-    for (const type of SOURCE_TYPES) if (sourceId(entry[type])) out[type] = entry[type];
+    for (const type of SOURCE_TYPES) {
+      if (entry[type] === undefined) continue;
+      if (!sourceId(entry[type])) return null;
+      out[type] = entry[type];
+    }
     return out;
   }
 
   const hasIds = src => !!src && SOURCE_TYPES.some(type => src[type]);
 
-  // Ids of the types both sides carry must all be equal, and there must be at least one; null when either side has none
-  function idsMatch(a, b) {
-    if (!hasIds(a) || !hasIds(b)) return null;
-    const shared = SOURCE_TYPES.filter(type => a[type] && b[type]);
-    return shared.length > 0 && shared.every(type => a[type] === b[type]);
-  }
+  // Ids are compared as the full (threadId, scheduleId) pair: a thread-only entry never matches a card that also has a
+  // schedule, and the other way round
+  const samePair = (a, b) => SOURCE_TYPES.every(type => (a[type] || '') === (b[type] || ''));
 
-  // An entry with ids matches a card with ids on the ids alone, so a renamed chat still matches and another chat of the
-  // same name does not. Without ids on either side it is main's name match: a legacy string exactly as rule.chats.includes,
-  // an object only on a non-empty name
+  // An entry with ids matches a card with ids on the exact pair alone, so a renamed chat still matches and another chat of
+  // the same name does not. Without ids on either side it is main's name match: a legacy string exactly as
+  // rule.chats.includes, an object only on a non-empty name
   function sourceMatches(entry, card) {
     const src = sourceOf(entry);
     if (!src) return false;
-    const byId = idsMatch(src, { threadId: sourceId(card.threadId), scheduleId: sourceId(card.scheduleId) });
-    if (byId !== null) return byId;
+    const pair = cardPair(card);
+    if (hasIds(src) && hasIds(pair)) return samePair(src, pair);
     if (typeof entry === 'string') return entry === card.chat;
     return !!src.name && src.name === card.chat;
   }
 
-  // The same chat for de-duplicating a list: same ids when either has ids, otherwise the same name
+  // The same entry in a list: the same pair when either has ids, otherwise the same name
   function sameSource(a, b) {
     const x = sourceOf(a), y = sourceOf(b);
     if (!x || !y) return false;
-    if (hasIds(x) || hasIds(y)) return !!idsMatch(x, y);
+    if (hasIds(x) || hasIds(y)) return hasIds(x) && hasIds(y) && samePair(x, y);
     return x.name === y.name;
   }
 
@@ -202,24 +212,55 @@ const AAM = (() => {
 
   // Stored form of a rule's chat limit: main's plain name string unless there are ids
   function sourceEntry(src) {
-    const s = sourceOf(src);
-    if (!s) return '';
-    return hasIds(s) ? s : s.name;
+    return hasIds(src) ? { name: src.name, ...pickIds(src) } : src.name;
   }
 
-  const emptySource = chat => { const s = sourceOf(chat); return !s || (!s.name && !hasIds(s)); };
+  function pickIds(src) {
+    return Object.fromEntries(SOURCE_TYPES.filter(type => src?.[type]).map(type => [type, src[type]]));
+  }
 
-  // Adds a chat to a rule's chat limit. An entry with the same ids gets the better name; a name-only entry of the same
-  // name gets the ids attached; a name-only chat already covered by an entry of that name is not added again
-  function addSource(list, chat) {
-    if (emptySource(chat)) return list;
+  // A chat to limit a rule to: null when none was given (any chat), false when one was given but can't be used
+  function chatLimit(chat) {
+    if (chat === '' || chat == null) return null;
     const src = sourceOf(chat);
-    if (!hasIds(src)) return list.some(e => sourceName(e) === src.name) ? list : [...list, src.name];
-    const same = list.findIndex(e => idsMatch(sourceOf(e), src));
-    if (same >= 0) return list.map((e, i) => (i === same ? { ...sourceOf(e), ...src, name: src.name || sourceName(e) } : e));
-    const legacy = src.name ? list.findIndex(e => !hasIds(sourceOf(e)) && sourceName(e) === src.name) : -1;
+    return src && (src.name || hasIds(src)) ? src : false;
+  }
+
+  // Adds a chat to a rule's chat limit. A name-only chat is added as main does, next to any entry with ids. A chat with ids
+  // is kept if the exact pair is there, replaces a name-only entry of the same name (attaching the ids), or is appended.
+  // Entries with another pair are never touched
+  function addSource(list, src) {
+    if (!hasIds(src)) return list.some(e => typeof e === 'string' && e === src.name) ? list : [...list, src.name];
+    if (list.some(e => sameSource(e, src))) return list.map(e => (sameSource(e, src) && !sourceName(e) && src.name ? sourceEntry(src) : e));
+    const legacy = src.name ? list.findIndex(e => typeof e === 'string' && e === src.name) : -1;
     if (legacy >= 0) return list.map((e, i) => (i === legacy ? sourceEntry(src) : e));
     return [...list, sourceEntry(src)];
+  }
+
+  // The chat a new rule gets from a pending card: its pair with the name read from the card (never the sidebar's), or main's
+  // plain name; null when the card names no usable chat
+  function ruleChatOf(item) {
+    const pair = cardPair(item);
+    if (hasIds(pair)) return { name: item.chat || '', ...pickIds(pair) };
+    return item.chat || null;
+  }
+
+  // Chats offered for a rule's chat limit: pairs for chats seen with ids (pending, log, rules, sidebar rows), plain names for
+  // the rest. A chat seen with ids is never offered as its plain name, which would trust every chat of that name
+  function pickableChats({ museChats = [], museChatNames = {}, settings, items = [] }) {
+    const ruleChats = [...settings.chats, ...settings.sites.flatMap(s => s.chats), ...settings.actions.flatMap(a => a.chats)].map(sourceOf).filter(Boolean);
+    const pairs = [
+      ...items.map(ruleChatOf).filter(c => c && typeof c === 'object'),
+      ...ruleChats.filter(hasIds).map(sourceEntry),
+      ...Object.keys(museChatNames || {}).map(sourceId).filter(Boolean).map(threadId => ({ name: '', threadId })),
+    ];
+    const names = [
+      ...museChats,
+      ...ruleChats.filter(src => !hasIds(src)).map(src => src.name),
+      ...items.map(ruleChatOf).filter(c => typeof c === 'string'),
+    ].filter(n => typeof n === 'string' && n);
+    const all = [...pairs, ...names];
+    return all.filter((e, i) => all.findIndex(o => sameSource(o, e)) === i);
   }
 
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
@@ -245,44 +286,49 @@ const AAM = (() => {
   }
 
   // 加網站規則；同一個網站已經有規則時合併，不重複新增
-  // chat is a name string or { name, threadId?, scheduleId? }
+  // chat is '' for any chat, a name string, or { name, threadId?, scheduleId? }; a chat that can't be used adds nothing
   function addSiteRule(sites, host, { sub = false, chat = '' } = {}) {
+    const limit = chatLimit(chat);
+    if (limit === false) return sites;
     const next = sites.map(s => ({ ...s, chats: [...s.chats] }));
     const found = next.find(s => bareHost(s.host) === bareHost(host));
-    if (!found) return [...next, { id: newId(), host, sub, chats: addSource([], chat), on: true }];
+    if (!found) return [...next, { id: newId(), host, sub, chats: limit ? addSource([], limit) : [], on: true }];
     found.on = true;
     found.sub = found.sub || sub;
-    if (emptySource(chat)) found.chats = [];
-    else if (found.chats.length) found.chats = addSource(found.chats, chat);
+    if (!limit) found.chats = [];
+    else if (found.chats.length) found.chats = addSource(found.chats, limit);
     return next;
   }
 
   function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
+    const limit = chatLimit(chat);
+    if (limit === false) return actions;
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
     const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
-    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: addSource([], chat), on: true }];
+    if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: limit ? addSource([], limit) : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
-    if (emptySource(chat)) found.chats = [];
-    else if (found.chats.length) found.chats = addSource(found.chats, chat);
+    if (!limit) found.chats = [];
+    else if (found.chats.length) found.chats = addSource(found.chats, limit);
     return next;
   }
 
-  // Same merging as addSource: by ids when the chat has them (attaching them to a name-only rule of the same name), else by name
+  // Without ids this is main's: the name-only entry of that name is turned on, or one is added; entries with ids are never
+  // touched. With ids: the entry with the exact pair is turned on, else a name-only entry of the same name gets the ids, else
+  // one is added. The stored name is the card's name, never the sidebar's
   function addChatRule(chats, name, ids = {}) {
-    const src = sourceOf({ ...ids, name });
+    const src = chatLimit({ ...ids, name });
+    if (!src) return chats;
+    const legacy = c => !hasIds(sourceOf(c)) && c.name === src.name;
     if (!hasIds(src)) {
-      if (chats.some(c => c.name === name)) return chats.map(c => (c.name === name ? { ...c, on: true } : c));
-      return [...chats, { id: newId(), name, on: true }];
+      if (chats.some(legacy)) return chats.map(c => (legacy(c) ? { ...c, on: true } : c));
+      return [...chats, { id: newId(), name: src.name, on: true }];
     }
-    const same = chats.findIndex(c => idsMatch(sourceOf(c), src));
-    const at = same >= 0 ? same : src.name ? chats.findIndex(c => !hasIds(sourceOf(c)) && c.name === src.name) : -1;
-    if (at < 0) return [...chats, { id: newId(), name: src.name, ...pickIds(src), on: true }];
-    return chats.map((c, i) => (i === at ? { id: c.id, name: src.name || sourceName(c), ...pickIds({ ...sourceOf(c), ...pickIds(src) }), on: true } : c));
-  }
-
-  function pickIds(src) {
-    return Object.fromEntries(SOURCE_TYPES.filter(type => src?.[type]).map(type => [type, src[type]]));
+    const same = chats.findIndex(c => sameSource(c, src));
+    if (same >= 0) return chats.map((c, i) => (i === same ? { ...c, name: c.name || src.name, on: true } : c));
+    const at = src.name ? chats.findIndex(legacy) : -1;
+    if (at >= 0) return chats.map((c, i) => (i === at ? { id: c.id, name: src.name, ...pickIds(src), on: true } : c));
+    return [...chats, { id: newId(), name: src.name, ...pickIds(src), on: true }];
   }
 
   // 各分頁回報的等你決定合併成一份，同一張卡只留最早的時間
@@ -303,22 +349,22 @@ const AAM = (() => {
     return [];
   }
 
-  // A rule's chat limit on import: main's name strings as they are, objects with their name and valid ids. A limit that only
-  // held entries that can't be read is returned as null so the rule is dropped instead of widening to every chat
+  // A rule's chat limit on import: name strings as on main, objects with their name and ids. null drops the whole rule: an
+  // entry that can't be read (an invalid id, neither name nor id, not a string or object), or a limit whose entries were all
+  // dropped, must never turn into "any chat"
   function sanitizeRuleChats(chats) {
     if (!Array.isArray(chats)) return [];
     const out = [];
-    let unreadable = false;
     for (const c of chats) {
       if (typeof c === 'string') {
         if (c) out.push(c);
         continue;
       }
-      const src = c && typeof c === 'object' ? sourceOf(c) : null;
-      if (src && (src.name || hasIds(src))) out.push(sourceEntry(src));
-      else unreadable = true;
+      const src = chatLimit(c && typeof c === 'object' ? c : false);
+      if (!src) return null;
+      out.push(sourceEntry(src));
     }
-    return unreadable && !out.length ? null : out;
+    return chats.length && !out.length ? null : out;
   }
 
   // 匯入的設定只留認得的欄位，型別不對就用預設值
@@ -335,7 +381,7 @@ const AAM = (() => {
     }
     if (Array.isArray(raw.chats)) {
       out.chats = raw.chats
-        .filter(c => c && typeof c === 'object' && ((typeof c.name === 'string' && c.name) || hasIds(sourceOf(c))))
+        .filter(c => c && typeof c === 'object' && sourceOf(c) && ((typeof c.name === 'string' && c.name) || hasIds(sourceOf(c))))
         .map(c => ({ id: String(c.id || newId()), name: sourceName(c), ...pickIds(sourceOf(c)), on: c.on !== false }));
     }
     if (Array.isArray(raw.actions)) {
@@ -354,7 +400,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, sourceOf, sourceMatches, sameSource, sourceName, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, cardPair, sourceOf, sourceMatches, sameSource, sourceName, ruleChatOf, pickableChats, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

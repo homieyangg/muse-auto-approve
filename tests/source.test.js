@@ -88,9 +88,12 @@ test('an entry with an id matches a card without ids by name', () => {
 test('a thread entry never matches a schedule card, and the other way round', () => {
   assert.deepEqual(trusted({ name: 'Research', ...T1 }, 'Research', S1), all(false));
   assert.deepEqual(trusted({ name: 'Research', ...S1 }, 'Research', T1), all(false));
-  // Both types on both sides must all agree
+  // The full pair must be equal: a partial pair never matches a fuller one, either way (review item 4)
   assert.deepEqual(trusted({ name: 'Research', ...T1, ...S1 }, 'Research', { ...T1, scheduleId: 'schedule-test-2' }), all(false));
-  assert.deepEqual(trusted({ name: 'Research', ...T1, ...S1 }, 'Research', T1), all(true));
+  assert.deepEqual(trusted({ name: 'Research', ...T1, ...S1 }, 'Research', T1), all(false));
+  assert.deepEqual(trusted({ name: 'Research', ...T1, ...S1 }, 'Research', S1), all(false));
+  assert.deepEqual(trusted({ name: 'Research', ...T1 }, 'Research', { ...T1, ...S1 }), all(false));
+  assert.deepEqual(trusted({ name: 'Research', ...T1, ...S1 }, 'Other', { ...T1, ...S1 }), all(true));
 });
 
 test('a card id that is not a valid id is ignored: the name decides', () => {
@@ -118,18 +121,83 @@ test('re-saving from a card with ids attaches them to a legacy entry of the same
   assert.equal(AAM.addChatRule(chats, 'Elsewhere', T1).length, 2);
 });
 
-test('an entry with the same id gets the better name and is not duplicated', () => {
+test('an entry with the same pair is kept as stored and not duplicated', () => {
   const sites = [site([{ name: 'Old name', ...T1 }])];
-  assert.deepEqual(AAM.addSiteRule(sites, 'example.com', { chat: { name: 'New name', ...T1 } })[0].chats, [{ name: 'New name', ...T1 }]);
-  assert.deepEqual(AAM.addSiteRule(sites, 'example.com', { chat: { name: '', ...T1 } })[0].chats, [{ name: 'Old name', ...T1 }]);
+  assert.deepEqual(AAM.addSiteRule(sites, 'example.com', { chat: { name: 'New name', ...T1 } })[0].chats, [{ name: 'Old name', ...T1 }]);
+  assert.deepEqual(AAM.addSiteRule([site([{ name: '', ...T1 }])], 'example.com', { chat: { name: 'Research', ...T1 } })[0].chats, [{ name: 'Research', ...T1 }]);
   // Another chat with the same name is added next to it
   assert.equal(AAM.addSiteRule(sites, 'example.com', { chat: { name: 'Old name', ...T2 } })[0].chats.length, 2);
-  // A name-only add is already covered by the entry of that name
-  assert.deepEqual(AAM.addSiteRule(sites, 'example.com', { chat: 'Old name' })[0].chats, [{ name: 'Old name', ...T1 }]);
   const chats = [chat('Old name', T1)];
-  assert.deepEqual(AAM.addChatRule(chats, 'New name', T1), [{ id: 'chat-test-Old name', name: 'New name', ...T1, on: true }]);
-  assert.deepEqual(AAM.addChatRule(chats, '', T1), [{ id: 'chat-test-Old name', name: 'Old name', ...T1, on: true }]);
+  assert.deepEqual(AAM.addChatRule(chats, 'New name', T1), [{ id: 'chat-test-Old name', name: 'Old name', ...T1, on: true }]);
   assert.equal(AAM.addChatRule(chats, 'Old name', T2).length, 2);
+});
+
+// Review item 1: a rule takes the name read from the card, never the sidebar's, so a card without ids is matched as on main
+test('a new rule stores the card\'s own name with its pair, and a plain name for a card without ids', () => {
+  assert.deepEqual(AAM.ruleChatOf({ chat: 'Research', ...T1 }), { name: 'Research', ...T1 });
+  assert.deepEqual(AAM.ruleChatOf({ chat: '', ...T1, ...S1 }), { name: '', ...T1, ...S1 });
+  assert.equal(AAM.ruleChatOf({ chat: 'Research' }), 'Research');
+  assert.equal(AAM.ruleChatOf({ chat: 'Research', threadId: 'bad id' }), 'Research');
+  // Review item 6: nothing usable gives no chat
+  assert.equal(AAM.ruleChatOf({ chat: '', threadId: 'bad id' }), null);
+  // A rule saved from an unnamed card with ids never trusts a card without ids by a sidebar name
+  const sites = AAM.addSiteRule([], 'example.com', { chat: AAM.ruleChatOf({ chat: '', ...T1 }) });
+  assert.equal(AAM.isTrusted(settingsWith({ sites }), hostCard('Sidebar name')), false);
+  assert.equal(AAM.isTrusted(settingsWith({ sites }), hostCard('', T1)), true);
+});
+
+// Review item 5: options lists key on the full pair and never offer a chat seen with ids as its plain name
+test('pickable chats keep every pair apart and offer chats seen with ids only by their pair', () => {
+  const settings = settingsWith({ sites: [site([{ name: 'Ops', ...T1, ...S1 }, 'Legacy'])] });
+  const items = [{ chat: 'Research', ...T1 }, { chat: 'Research', ...T1, scheduleId: 'schedule-test-2' }, { chat: 'Plain' }, { chat: 'Research', ...T1 }];
+  const picks = AAM.pickableChats({ museChats: ['Sidebar only'], museChatNames: { 'thread-test-1': 'Sidebar title', 'bad id': 'x' }, settings, items });
+  assert.deepEqual(picks, [
+    { name: 'Research', ...T1 },
+    { name: 'Research', ...T1, scheduleId: 'schedule-test-2' },
+    { name: 'Ops', ...T1, ...S1 },
+    'Sidebar only',
+    'Legacy',
+    'Plain',
+  ]);
+  // A sidebar row known only by id is offered unnamed, by its thread
+  assert.deepEqual(AAM.pickableChats({ museChatNames: { 'thread-test-3': 'Sidebar title' }, settings: settingsWith({}) }), [{ name: '', threadId: 'thread-test-3' }]);
+});
+
+// Review item 4: an id rule is never turned on or changed from a card without ids or with another pair
+test('rules with ids are only turned on or changed by the exact pair', () => {
+  const off = [chat('Research', { ...T1, ...S1, on: false })];
+  const noIds = AAM.addChatRule(off, 'Research');
+  assert.deepEqual(noIds[0], off[0]);
+  assert.deepEqual(noIds.slice(1).map(({ id, ...c }) => c), [{ name: 'Research', on: true }]);
+  const threadOnly = AAM.addChatRule(off, 'Research', T1);
+  assert.deepEqual(threadOnly[0], off[0]);
+  assert.deepEqual(threadOnly.slice(1).map(({ id, ...c }) => c), [{ name: 'Research', ...T1, on: true }]);
+  // Neither added rule lets a schedule-only card through, and the disabled pair rule stays off
+  for (const chats of [noIds, threadOnly]) assert.equal(AAM.isTrusted(settingsWith({ chats }), hostCard('Other', S1)), false);
+  assert.equal(AAM.addChatRule(off, 'Research', { ...T1, ...S1 })[0].on, true);
+  // Rule chat limits: a name-only add sits next to the id entry, which stays as it was
+  const sites = [site([{ name: 'Research', ...T1 }])];
+  assert.deepEqual(AAM.addSiteRule(sites, 'example.com', { chat: 'Research' })[0].chats, [{ name: 'Research', ...T1 }, 'Research']);
+});
+
+// Review item 6: a chat limit that can't be used adds nothing, never a rule for every chat
+test('an unusable chat limit adds no rule', () => {
+  for (const chat of [{ name: '', threadId: 'bad id' }, { name: '' }, { threadId: 'bad id' }, 42]) {
+    assert.deepEqual(AAM.addSiteRule([], 'example.com', { chat }), [], JSON.stringify(chat));
+    assert.deepEqual(AAM.addActionRule([], 'Send email', { chat }), [], JSON.stringify(chat));
+    const existing = [site(['Research'])];
+    assert.equal(AAM.addSiteRule(existing, 'example.com', { chat }), existing);
+  }
+  assert.deepEqual(AAM.addChatRule([], '', { threadId: 'bad id' }), []);
+  assert.deepEqual(AAM.addChatRule([], ''), []);
+});
+
+// Review item 7: a stored entry with an id field that isn't a valid id is unreadable, never a name rule
+test('an entry with an invalid id never matches, not even by name', () => {
+  for (const id of ['bad id', '', 42, null]) {
+    assert.deepEqual(trusted({ name: 'Research', threadId: id }, 'Research'), all(false), JSON.stringify(id));
+    assert.deepEqual(trusted({ name: 'Research', threadId: id }, 'Research', T1), all(false), JSON.stringify(id));
+  }
 });
 
 test('trusting a site from any chat still clears the chat limit', () => {
@@ -154,18 +222,21 @@ const OLD_EXPORT = {
 test('an old export imports byte-identically to main', needsMain, () => {
   assert.equal(JSON.stringify(AAM.sanitizeSettings(OLD_EXPORT)), JSON.stringify(MAIN.sanitizeSettings(OLD_EXPORT)));
   // Main's own edge cases on strings, kept as they were
-  const odd = { sites: [site(['', 'Research'])], actions: [action([''])], chats: [{ id: 'c', name: 'x', on: 'yes' }] };
+  const odd = { sites: [site(['', 'Research'])], chats: [{ id: 'c', name: 'x', on: 'yes' }] };
   assert.equal(JSON.stringify(AAM.sanitizeSettings(odd)), JSON.stringify(MAIN.sanitizeSettings(odd)));
+  // Where main would widen a limit of only empty names to every chat, the rule is dropped instead
+  assert.deepEqual(MAIN.sanitizeSettings({ actions: [action([''])] }).actions[0].chats, []);
+  assert.deepEqual(AAM.sanitizeSettings({ actions: [action([''])] }).actions, []);
 });
 
 test('the new format imports with its ids', () => {
   const raw = {
-    sites: [site(['Research', { name: 'Ops', ...T1 }, { name: '', ...S1 }, { name: 'Named only' }])],
+    sites: [site(['Research', { name: 'Ops', ...T1 }, { name: '', ...S1 }, { name: 'Named only' }, { name: 'Pair', ...T1, ...S1 }])],
     chats: [chat('Research', T1), chat('', S1), chat('Plain')],
     actions: [action([{ name: 'Ops', ...T1, extra: 'dropped' }])],
   };
   const clean = AAM.sanitizeSettings(raw);
-  assert.deepEqual(clean.sites[0].chats, ['Research', { name: 'Ops', ...T1 }, { name: '', ...S1 }, 'Named only']);
+  assert.deepEqual(clean.sites[0].chats, ['Research', { name: 'Ops', ...T1 }, { name: '', ...S1 }, 'Named only', { name: 'Pair', ...T1, ...S1 }]);
   assert.deepEqual(clean.chats, [
     { id: 'chat-test-Research', name: 'Research', ...T1, on: true },
     { id: 'chat-test-unnamed', name: '', ...S1, on: true },
@@ -174,23 +245,28 @@ test('the new format imports with its ids', () => {
   assert.deepEqual(clean.actions[0].chats, [{ name: 'Ops', ...T1 }]);
 });
 
-test('invalid ids are dropped without dropping the name', () => {
+// Review item 7: an id that is present but invalid drops the entry (and a rule's whole chat limit), never leaves a name rule
+test('an imported entry with an invalid id is dropped, not downgraded to its name', () => {
   const bad = ['', 'has space', 'x'.repeat(129), 'quote"', 'ünïcode', 42, { id: 1 }, null];
   for (const id of bad) {
-    const clean = AAM.sanitizeSettings({ sites: [site([{ name: 'Research', threadId: id }])], chats: [chat('Research', { threadId: id, scheduleId: id })] });
-    assert.deepEqual(clean.sites[0].chats, ['Research'], JSON.stringify(id));
-    assert.deepEqual(clean.chats, [{ id: 'chat-test-Research', name: 'Research', on: true }], JSON.stringify(id));
+    const clean = AAM.sanitizeSettings({
+      sites: [site([{ name: 'Research', threadId: id }, 'Other'])],
+      actions: [action([{ name: 'Research', ...T1, scheduleId: id }])],
+      chats: [chat('Research', { threadId: id }), chat('Kept', T1)],
+    });
+    assert.deepEqual(clean.sites, [], JSON.stringify(id));
+    assert.deepEqual(clean.actions, [], JSON.stringify(id));
+    assert.deepEqual(clean.chats.map(c => c.name), ['Kept'], JSON.stringify(id));
   }
-  assert.deepEqual(AAM.sanitizeSettings({ chats: [chat('Research', { threadId: 'thread-test-1', scheduleId: 'bad id' })] }).chats[0].scheduleId, undefined);
 });
 
-test('an entry with neither a name nor a valid id is dropped, and never widens a rule to every chat', () => {
+test('an unreadable chat limit entry drops its rule, never widening it to every chat', () => {
   const clean = AAM.sanitizeSettings({
-    sites: [site([{ name: '', threadId: 'bad id' }]), site([{ threadId: 'bad id' }, 'Research'], { id: 'site-test-2', host: 'other.example' })],
-    chats: [chat('', { threadId: 'bad id' })],
-    actions: [action([7])],
+    sites: [site([{ name: '' }]), site([7, 'Research'], { id: 'site-test-2', host: 'other.example' }), site(['Research'], { id: 'site-test-3', host: 'kept.example' })],
+    chats: [chat(''), { id: 'chat-test-x', on: true }],
+    actions: [action([null])],
   });
-  assert.deepEqual(clean.sites.map(s => [s.host, s.chats]), [['other.example', ['Research']]]);
+  assert.deepEqual(clean.sites.map(s => [s.host, s.chats]), [['kept.example', ['Research']]]);
   assert.deepEqual(clean.chats, []);
   assert.deepEqual(clean.actions, []);
 });
@@ -233,10 +309,24 @@ test('cards without ids are trusted exactly as on main', needsMain, () => {
   assert.ok(checked > 100);
 });
 
-test('a card key carries its ids, so two chats of one name are different cards', () => {
+test('a card key carries its full pair, so two chats of one name are different cards', () => {
   assert.equal(AAM.cardKey(hostCard('Research')), 'example.com|Research');
-  assert.equal(AAM.cardKey(hostCard('Research', T1)), 'example.com|Research|t:thread-test-1');
+  assert.equal(AAM.cardKey(hostCard('Research', T1)), 'example.com|Research\nt:thread-test-1\ns:');
   assert.notEqual(AAM.cardKey(hostCard('Research', T1)), AAM.cardKey(hostCard('Research', T2)));
+  assert.notEqual(AAM.cardKey(hostCard('Research', T1)), AAM.cardKey(hostCard('Research', { ...T1, ...S1 })));
+});
+
+// Review item 2: names are cleaned (no newline), so no name or title of a card without ids can rebuild a key with ids
+test('a key with ids never equals the key of a card without ids', () => {
+  const withIds = [hostCard('Research', T1), hostCard('Research', S1), hostCard('', { ...T1, ...S1 }), actionCard('A|t:x', T1)];
+  const keys = new Set(withIds.map(AAM.cardKey));
+  assert.equal(keys.size, withIds.length);
+  const names = ['Research|t:thread-test-1', 'Research\nt:thread-test-1\ns:', 'Research nt:thread-test-1 s:', '|t:thread-test-1'];
+  for (const name of names) {
+    const card = AAM.parseCard(`Access example.com? This task is from ${name}.`);
+    assert.ok(!keys.has(AAM.cardKey(card)), JSON.stringify(card.chat));
+    assert.ok(!keys.has(AAM.cardKey({ ...card, ...actionCard(card.chat), action: `Send email\nt:thread-test-1`, policy: '' })));
+  }
 });
 
 // bridge.js: the same fabricated tree as tests/options.test.js
@@ -336,6 +426,15 @@ test('bridge: a chat card gets the id attributes; a panel card and a card withou
   const panelEl = fakeEl(row, { buttons: hosts.map(h => fakeEl(h)), surface: 'panel' });
   markItem(panelEl, undefined, () => null);
   assert.equal(panelEl.attrs['data-maa-thread-id'], undefined);
+  // Review item 3: a button keyed to another approval makes the card anomalous, so no ids even beside a confirmed once
+  const foreign = cardTree(appr);
+  foreign.hosts[2].return.key = 'appr-test-other-cta-2-deny';
+  const foreignButtons = foreign.hosts.map(h => fakeEl(h));
+  const foreignEl = fakeEl(foreign.row, { buttons: foreignButtons });
+  markItem(foreignEl, undefined, () => null);
+  assert.equal(foreignEl.attrs['data-maa-state'], 'anomalous');
+  assert.equal(foreignButtons[0].attrs['data-maa-option-kind'], 'allow_once');
+  assert.equal(foreignEl.attrs['data-maa-thread-id'], undefined);
   // The same card read again after its pending entry disagrees loses the ids
   markItem(chatEl, undefined, pendingOf(approval('appr-test-88', T2)));
   assert.equal(chatEl.attrs['data-maa-thread-id'], undefined);

@@ -33,7 +33,7 @@ const OPTION_KIND_ATTR = 'data-maa-option-kind';
 const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const STATE_ATTR = 'data-maa-state';
-// Set by bridge.js on a chat card or item, from the approval's scope, when every source agrees; and on sidebar rows
+// Set by bridge.js on a clean chat card or item, from the approval's scope, when every source agrees; and on sidebar rows
 const THREAD_ATTR = 'data-maa-thread-id';
 const SCHEDULE_ATTR = 'data-maa-schedule-id';
 const THREAD_ROW_SELECTOR = '[data-testid="hatch-thread-row"]';

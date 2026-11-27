@@ -68,43 +68,25 @@ const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const sameHost = (a, b) => AAM.hostMatches({ host: a, sub: false }, b);
 
 // 可挑的聊天室：muse 側邊欄記下的，加上信任清單、網站限定的聊天室、紀錄和等你決定裡的
-// Entries are rule-chat entries: a name string, or { name, threadId?, scheduleId? } for a chat known by id. A name also
-// known by id is only offered by id
+// Entries are rule-chat entries: a name string, or { name, threadId?, scheduleId? } (see AAM.pickableChats)
 function knownChats() {
-  const withIds = [
-    ...Object.entries(local.museChatNames || {}).map(([threadId, name]) => ({ name, threadId })),
-    ...settings.chats,
-    ...settings.sites.flatMap(s => s.chats),
-    ...settings.actions.flatMap(a => a.chats),
-    ...AAM.mergePending(pendingByTab),
-    ...local.log,
-  ].map(chatEntryOf).filter(e => e && typeof e === 'object');
-  const names = [
-    ...local.museChats,
-    ...settings.chats.map(c => c.name),
-    ...settings.sites.flatMap(s => s.chats),
-    ...settings.actions.flatMap(a => a.chats),
-    ...AAM.mergePending(pendingByTab).map(i => i.chat),
-    ...local.log.map(e => e.chat),
-  ].filter(n => typeof n === 'string' && n && !withIds.some(e => e.name === n));
-  return uniqueChats([...withIds, ...names]);
+  return AAM.pickableChats({ museChats: local.museChats, museChatNames: local.museChatNames, settings, items: [...AAM.mergePending(pendingByTab), ...local.log] });
 }
 
-// A chat entry for a trust rule from a settings entry, rule entry, pending item or log entry; ids win over the name
-function chatEntryOf(item) {
-  if (typeof item === 'string') return item;
-  const src = AAM.sourceOf(item?.chat !== undefined && item.name === undefined ? { ...item, name: item.chat } : item);
-  if (!src) return null;
-  const name = (src.threadId && local.museChatNames?.[src.threadId]) || src.name;
-  if (!src.threadId && !src.scheduleId) return name || null;
-  return { name, ...(src.threadId && { threadId: src.threadId }), ...(src.scheduleId && { scheduleId: src.scheduleId }) };
+function idsOf(item) {
+  const pair = AAM.cardPair(item);
+  return { ...(pair.threadId && { threadId: pair.threadId }), ...(pair.scheduleId && { scheduleId: pair.scheduleId }) };
 }
+
+const hasIds = item => Object.keys(idsOf(item)).length > 0;
 
 function uniqueChats(entries) {
   return entries.filter((e, i) => entries.findIndex(o => AAM.sameSource(o, e)) === i);
 }
 
-const chatLabel = entry => AAM.sourceName(entry) || t('fromUnknown');
+// Display only: the sidebar name of a chat known by thread id
+const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
+const chatLabel = entry => AAM.sourceName(entry) || sidebarName(AAM.sourceOf(entry)?.threadId) || t('fromUnknown');
 const chatList = chats => chats.map(chatLabel).join(sep());
 
 function currentPage() {
@@ -264,10 +246,12 @@ function chatDetail(chat) {
 // entry is a typed name or a known chat entry, with ids when it has them
 function addChat(entry) {
   const src = AAM.sourceOf(entry);
-  const ids = { ...(src.threadId && { threadId: src.threadId }), ...(src.scheduleId && { scheduleId: src.scheduleId }) };
+  if (!src) return;
+  const ids = idsOf(src);
   const chats = AAM.addChatRule(settings.chats, src.name, ids);
-  const added = Object.keys(ids).length ? c => AAM.sameSource(c, { name: src.name, ...ids }) : c => c.name === src.name;
-  selectedChat = chats.find(added).id;
+  const added = chats.find(c => AAM.sameSource(c, hasIds(src) ? { name: src.name, ...ids } : src.name));
+  if (!added) return;
+  selectedChat = added.id;
   saveSettings({ chats });
   renderChats(true);
 }
@@ -434,7 +418,7 @@ function renderLog() {
   $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
     el('td', { textContent: I18N.clock(e.ts) }),
     el('td', { textContent: AAM.cardLabel(e, t) }),
-    el('td', { textContent: (e.threadId && local.museChatNames?.[e.threadId]) || e.chat || t('fromUnknown') }),
+    el('td', { textContent: e.chat || sidebarName(AAM.cardPair(e).threadId) || t('fromUnknown') }),
     el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
   $('#log-empty').hidden = entries.length > 0;
 }

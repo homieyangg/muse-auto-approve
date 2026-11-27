@@ -38,10 +38,16 @@ function saveSettings(patch) {
 const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
-const hasSource = item => !!(item.chat || item.threadId || item.scheduleId);
-// The sidebar name for a thread id, else the name read from the card
-const chatName = item => (item.threadId && local.museChatNames?.[item.threadId]) || item.chat || '';
-const chatLabel = entry => AAM.sourceName(entry) || t('fromUnknown');
+const idsOf = item => {
+  const pair = AAM.cardPair(item);
+  return { ...(pair.threadId && { threadId: pair.threadId }), ...(pair.scheduleId && { scheduleId: pair.scheduleId }) };
+};
+const hasIds = item => Object.keys(idsOf(item)).length > 0;
+const hasSource = item => !!item.chat || hasIds(item);
+// Display only: rules always store the name read from the card, never the sidebar's
+const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
+const chatName = item => item.chat || sidebarName(AAM.cardPair(item).threadId);
+const chatLabel = entry => AAM.sourceName(entry) || sidebarName(AAM.sourceOf(entry)?.threadId) || t('fromUnknown');
 const chatList = chats => chats.map(chatLabel).join(sep());
 
 function pendingItems() {
@@ -134,20 +140,22 @@ function renderPending() {
 }
 
 // 依選的範圍加進信任清單；「只允許這一次」交給 content script 按掉那張卡，但不記住
-// A card with source ids makes rules that store them; one without stays main's name-only rule
+// A card with source ids makes rules that store them; one without stays main's name-only rule. A chat scope needs a usable
+// source, otherwise the rule would cover every chat
 async function allowPending(item, scope) {
+  if (['chat', 'siteChat', 'actionChat'].includes(scope) && !hasSource(item)) return;
   resolved.add(item.key);
-  const ids = { ...(item.threadId && { threadId: item.threadId }), ...(item.scheduleId && { scheduleId: item.scheduleId }) };
-  const chat = Object.keys(ids).length ? { name: chatName(item), ...ids } : item.chat;
+  const ids = idsOf(item);
+  const chat = AAM.ruleChatOf(item);
   if (scope === 'once') {
     render();
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
-    await saveSettings({ chats: AAM.addChatRule(settings.chats, chatName(item), ids) });
+    await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat || '', ids) });
   } else if (scope === 'action' || scope === 'actionChat') {
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? chat : '', policy: item.policy, site: item.site }) });
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? chat || false : '', policy: item.policy, site: item.site }) });
   } else {
-    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? chat : '' }) });
+    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? chat || false : '' }) });
   }
 }
 
@@ -195,7 +203,9 @@ function renderActions() {
 }
 
 function recentChats() {
-  const names = [...local.museChats, ...pendingItems().map(i => i.chat), ...local.log.map(e => e.chat)].filter(Boolean);
+  // A chat seen with ids is not offered as a plain name: that rule would trust every chat of the name
+  const plain = items => items.filter(i => !hasIds(i)).map(i => i.chat);
+  const names = [...local.museChats, ...plain(pendingItems()), ...plain(local.log)].filter(Boolean);
   return [...new Set(names)].slice(0, 20);
 }
 
@@ -206,7 +216,7 @@ function renderChats() {
   $('#chat-list').hidden = !rows.length;
   $('#chats-empty').hidden = rows.length > 0;
   const recent = recentChats();
-  const addable = recent.filter(name => !settings.chats.some(c => c.name === name));
+  const addable = recent.filter(name => !settings.chats.some(c => AAM.sameSource(c, name)));
   $('#recent-chats').replaceChildren(...addable.map(name => {
     const link = Object.assign(document.createElement('a'), { textContent: `＋ ${name}` });
     link.addEventListener('click', () => saveSettings({ chats: AAM.addChatRule(settings.chats, name) }));

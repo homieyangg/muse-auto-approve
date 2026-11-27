@@ -25,7 +25,7 @@
   const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
   const DATA_PATH_ATTR = 'data-maa-data-path';
   const STATE_ATTR = 'data-maa-state';
-  // Which chat or schedule asked, from the approval's scope; written only when every source of the card agrees
+  // Which chat or schedule asked, from the approval's scope; written only on a clean card whose sources all agree
   const THREAD_ATTR = 'data-maa-thread-id';
   const SCHEDULE_ATTR = 'data-maa-schedule-id';
   // Sidebar rows: the row's [title] element has the thread id in actionAnalyticsMetadata a few dozen fibers up (23 seen live),
@@ -251,7 +251,8 @@
     if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
     setAttr(el, STATE_ATTR, result.state);
     setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
-    writeSource(el, result.state ? result.source : null);
+    // Only a clean read carries ids: any foreign key, foreign or failed walk, or disagreement on the card leaves none
+    writeSource(el, result.state === 'clean' ? result.source : null);
   }
 
   function writeSource(el, source) {
