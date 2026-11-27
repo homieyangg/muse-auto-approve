@@ -3,7 +3,7 @@
     "message": "Auto Approve for Muse"
   },
   "extDescription": {
-    "message": "muse.ai 跳出審批卡時自動按允許，可以只允許你信任的網站、動作和聊天室。非官方工具，與 Meta 無關。"
+    "message": "muse.ai 跳出審批卡時自動按允許，任務和排程不卡住；可只放行信任的網站、動作和聊天室。非官方工具，與 Meta 無關。"
   },
   "statusOn": {
     "message": "運作中・今天已自動允許 $1 次"

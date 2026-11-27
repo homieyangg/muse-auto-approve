@@ -3,7 +3,7 @@
     "message": "Auto Approve for Muse"
   },
   "extDescription": {
-    "message": "Clicks Allow on muse.ai approval cards. Trust only the sites, actions, and chats you pick. Unofficial, not affiliated with Meta."
+    "message": "Clicks Allow on muse.ai approval cards so tasks keep running. Trust only what you pick. Unofficial, not affiliated with Meta."
   },
   "statusOn": {
     "message": "On · $1 approved today"
