@@ -111,7 +111,7 @@ function loadContent(sync = {}) {
     runtime: { id: 'test', sendMessage(msg) { reports.push(msg); return Promise.resolve(); } },
     storage: { sync: area('sync'), local: area('local'), onChanged: { addListener() {} } },
   };
-  class Ev { constructor(type) { this.type = type; } }
+  class Ev { constructor(type, init = {}) { Object.assign(this, init); this.type = type; } }
   const ctx = {
     AAM, AAG, chrome, document: doc, console: { info() {}, warn() {} },
     MutationObserver: class { observe() {} disconnect() {} },
@@ -267,14 +267,15 @@ const DOMAIN_OPTIONS = [SAFE_OPTIONS[0], { ...SAFE_OPTIONS[1], scope: 'destinati
 const menuItemAttrs = scope => ({ 'data-maa-option-approval': 'appr-test-50', ...optAttrs('allow_always', 'allow_always_scoped', scope) });
 
 // A panel card: keyless primary, a "more allow options" menu holding one always item, and deny. marked false leaves the
-// card's buttons unmarked; itemAttrs is what bridge.js wrote on the menu item
-function panelCard(options, { marked = true, itemAttrs = {} } = {}) {
+// card's buttons unmarked; itemAttrs is what bridge.js wrote on the menu item; bare leaves out every bridge.js attribute
+function panelCard(options, { marked = true, itemAttrs = {}, bare = false } = {}) {
   const item = new El('div', { role: 'menuitem', ...itemAttrs }, [], 'Always allow this site');
   doc.body.append(new El('div', { id: 'menu-test-1', role: 'menu' }, [item]));
-  const primary = new El('button', { 'data-hatch-approval-primary-action': 'true', ...(marked ? optAttrs('allow_once', 'allow_once') : {}) }, [], 'Allow once');
+  const primary = new El('button', { 'data-hatch-approval-primary-action': 'true', ...(marked && !bare ? optAttrs('allow_once', 'allow_once') : {}) }, [], 'Allow once');
   const menu = new El('button', { 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': 'menu-test-1' }, [], 'More allow options');
-  const deny = new El('button', marked ? optAttrs('deny', 'deny_for_this_task') : {}, [], 'Deny');
-  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel', 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options) };
+  const deny = new El('button', marked && !bare ? optAttrs('deny', 'deny_for_this_task') : {}, [], 'Deny');
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel' };
+  if (!bare) Object.assign(attrs, { 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options) });
   doc.body.append(new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, [primary, menu, deny])]));
   return { primary, deny, item };
 }
@@ -304,4 +305,52 @@ test('a menu item refused because the card and the pending list disagree falls b
   ctx.scan();
   await menuWait();
   assert.deepEqual([primary.clicks, item.clicks, deny.clicks], [1, 0, 0]);
+});
+
+// Codex re-review 2, P1
+test('a button flagged foreign is never clicked; without a confirmed once nothing is', async () => {
+  const foreignAlways = [SAFE_BUTTONS[0], [SAFE_BUTTONS[1][0], SAFE_BUTTONS[1][1], { 'data-maa-foreign': '1' }], SAFE_BUTTONS[2]];
+  for (const [marked, clicks] of [[true, [1, 0, 0]], [false, [0, 0, 0]]]) {
+    makeDocument();
+    fakeBridge();
+    const { buttons } = accessCard(foreignAlways, { options: SAFE_OPTIONS, marked });
+    const { ctx, pending } = loadContent({ mode: 'all' });
+    ctx.scan();
+    await tick();
+    assert.deepEqual(buttons.map(b => b.clicks), clicks, `marked=${marked}`);
+    if (!marked) assert.deepEqual(pending(), ['example.com|']);
+  }
+});
+
+// Codex re-review 2, P2: closing the menu re-renders the primary as a new node
+test('after a refused menu item, the once button is looked up again on the re-rendered card', async () => {
+  makeDocument();
+  fakeBridge();
+  const { primary, item } = panelCard(DOMAIN_OPTIONS, { itemAttrs: menuItemAttrs('destination') });
+  let fresh = null;
+  doc.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || fresh) return;
+    const row = primary.parent;
+    fresh = new El('button', Object.fromEntries(primary.attrs), [], 'Allow once');
+    row.children[row.children.indexOf(primary)] = fresh;
+    fresh.parent = row;
+    primary.parent = null;
+  });
+  const { ctx } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await menuWait();
+  assert.deepEqual([primary.clicks, fresh?.clicks, item.clicks], [0, 1, 0]);
+});
+
+// Codex re-review 2, P2: without data the refused menu stays main's
+test('without data, a menu item that disappears before the click leaves the card unclicked, as on main', async () => {
+  makeDocument();
+  fakeBridge();
+  const { primary, item } = panelCard(null, { bare: true });
+  let reads = 0;
+  Object.defineProperty(item, 'innerText', { get() { if (!reads++) queueMicrotask(() => { item.parent.children = []; item.parent = null; }); return 'Always allow this site'; } });
+  const { ctx } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await menuWait();
+  assert.deepEqual([primary.clicks, item.clicks], [0, 0]);
 });

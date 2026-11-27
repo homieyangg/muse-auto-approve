@@ -34,6 +34,7 @@ const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const OPTIONS_ATTR = 'data-maa-options';
 const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
+const FOREIGN_ATTR = 'data-maa-foreign';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -69,7 +70,8 @@ function isClickable(el) {
 // Picks by the option attributes bridge.js wrote when the scope is a marked muse card with marked buttons;
 // otherwise by button text as before
 function findAllowButtons(scope) {
-  const candidates = [...scope.querySelectorAll(BUTTON_SELECTOR)].filter(isClickable).map(b => ({
+  const all = [...scope.querySelectorAll(BUTTON_SELECTOR)];
+  const candidates = all.filter(b => isClickable(b) && !b.hasAttribute(FOREIGN_ATTR)).map(b => ({
     el: b,
     text: labelOf(b),
     primary: b.matches(PRIMARY_SELECTOR),
@@ -80,7 +82,7 @@ function findAllowButtons(scope) {
   }));
   const marked = !!scope.closest(CARD_SELECTOR) && !!scope.getAttribute(ID_ATTR);
   const byData = marked && candidates.some(c => c.kind && !c.menu);
-  return AAM.pickAllowButtons(candidates, byData, marked ? optionsOf(scope) : null);
+  return AAM.pickAllowButtons(candidates, byData, marked ? optionsOf(scope) : null, all.some(b => b.hasAttribute(FOREIGN_ATTR)));
 }
 
 // A muse card whose approval options were read but offer nothing that may be clicked; it is still listed as waiting
@@ -371,6 +373,7 @@ async function clickAllow(node, buttons, preferAlways, allowed) {
   if (!allowed()) return null;
   const useMenu = preferAlways && !always && once && menu && isClickable(menu) && alwaysInMenu;
   const picked = useMenu ? await openAlwaysItem(menu, approvalId, known) : null;
+  let target = AAM.clickTarget(buttons, preferAlways), check = target;
   if (picked) {
     const { item } = picked;
     const inPlace = node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item);
@@ -378,12 +381,16 @@ async function clickAllow(node, buttons, preferAlways, allowed) {
       item.click();
       return 'always';
     }
-    // A refused item (e.g. card and pending list disagree on its scope) settles for allow once, re-checked below,
-    // instead of reopening the menu on every scan
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Without read options this stays main's: nothing is clicked. An item refused on its mark (e.g. card and pending list
+    // disagree on its scope) settles for allow once instead of reopening the menu every scan; closing the menu re-renders
+    // the card, so its once button is looked up again
+    if (!picked.data) return null;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    target = node.isConnected ? findAllowButtons(node)?.once || null : null;
+    check = target && { fallback: target };
   }
-  const target = picked ? once : AAM.clickTarget(buttons, preferAlways);
-  if (!target || !target.isConnected || !node.contains(target) || !allowed(target)) return null;
+  if (!target || !target.isConnected || !node.contains(target) || !allowed(check)) return null;
   target.click();
   return target === always ? 'always' : 'once';
 }

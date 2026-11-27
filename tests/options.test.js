@@ -64,11 +64,13 @@ function cardTree(appr, keys) {
 const asButtons = (hosts, primaryAt = -1) => hosts.map((fiber, i) => ({ fiber, primary: i === primaryAt }));
 const core = p => p && { always: p.always, once: p.once, data: p.data };
 
-// Mirrors content.js: candidates from the attributes bridge.js would write; data path when any button got one, and the
-// option list passed along whenever bridge.js read it
+// Mirrors content.js: candidates from the attributes bridge.js would write, leaving out buttons flagged foreign; data path
+// when any button got a mark, and the option list passed along whenever bridge.js read it
 function pick(result, texts = TEXTS, primaryAt = 0) {
-  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === primaryAt, menu: false, kind: '', labelKind: '', scope: '', ...m }));
-  return AAM.pickAllowButtons(candidates, candidates.some(c => c.kind), result.options);
+  const foreign = result.foreign || [];
+  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === primaryAt, menu: false, kind: '', labelKind: '', scope: '', ...m }))
+    .filter((c, i) => !foreign[i]);
+  return AAM.pickAllowButtons(candidates, candidates.some(c => c.kind), result.options, foreign.some(Boolean));
 }
 
 function read(id, options, keys = keysFor(id, options), primaryAt = -1) {
@@ -173,10 +175,9 @@ test('no allow once option and a non-whitelisted always: nothing is picked', () 
 
 test('a key mismatch leaves every button unmarked but keeps the option list', () => {
   const options = [ONCE, SCOPED, DENY];
-  const wrongId = keysFor('appr-test-8', options).map((k, i) => (i === 1 ? k.replace('appr-test-8', 'appr-other') : k));
   const wrongKind = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-1-deny', 'appr-test-8-cta-2-deny'];
   const wrongIndex = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-7-allow_always', 'appr-test-8-cta-2-deny'];
-  for (const keys of [wrongId, wrongKind, wrongIndex]) {
+  for (const keys of [wrongKind, wrongIndex]) {
     const result = read('appr-test-8', options, keys);
     assert.equal(result.missing, true);
     assert.deepEqual(result.options, markList(options));
@@ -191,7 +192,7 @@ test('a key mismatch leaves every button unmarked but keeps the option list', ()
 // Review P1-a, second case
 test('a key mismatch never hands a broad option to the text rules', () => {
   const options = [ONCE, BROAD, DENY];
-  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-other-cta-2-deny'];
+  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-test-41-cta-2-allow_once'];
   const result = read('appr-test-41', options, keys);
   assert.deepEqual(result.marks, [null, null, null]);
   const p = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
@@ -199,6 +200,29 @@ test('a key mismatch never hands a broad option to the text rules', () => {
   assert.equal(p.alwaysInMenu, false);
   const fresh = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
   assert.equal(AAM.samePick(p, fresh, 'button-1'), false);
+});
+
+// Codex re-review 2, P1: this card's safe options must never authorise another approval's button
+test('a button keyed to another approval is flagged foreign: never clicked, and only a confirmed once is picked', () => {
+  const options = [ONCE, SCOPED, DENY];
+  const texts = ['Allow once', 'Always allow uploads to this site', 'Deny'];
+  const foreignAlways = ['appr-test-46-cta-0-allow_once', 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny'];
+  const result = read('appr-test-46', options, foreignAlways);
+  assert.deepEqual(result.foreign, [false, true, false]);
+  assert.deepEqual(result.marks.map(m => m?.kind ?? null), ['allow_once', null, 'deny']);
+  const p = pick(result, texts);
+  assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
+  assert.equal(p.alwaysInMenu, false);
+  // This card's own buttons are not confirmed (keyless once, bad own key): nothing is picked, not even by text
+  for (const keys of [[null, 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny'], ['appr-test-46-cta-0-deny', 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny']]) {
+    const unconfirmed = read('appr-test-46', options, keys);
+    assert.equal(unconfirmed.foreign[1], true);
+    assert.equal(pick(unconfirmed, texts), null, JSON.stringify(keys));
+  }
+  // A fresh read that lost or gained the foreign flag does not back the earlier pick
+  const clean = pick(read('appr-test-46', options), texts);
+  assert.equal(AAM.samePick(p, clean, 'button-0'), false);
+  assert.equal(AAM.samePick(clean, p, 'button-0'), false);
 });
 
 // Review P1-a, first case
@@ -250,14 +274,16 @@ test('the key is searched upward below the approval component, not at a fixed de
   assert.deepEqual([above.missing, above.marks], [true, [null]]);
 });
 
-test('a button whose own walk reaches another approval leaves every button unmarked', () => {
+test('a button whose own walk reaches another approval is flagged foreign and left unmarked', () => {
   const options = [ONCE, DENY];
   const appr = approval('appr-test-12', options);
   const other = cardTree(approval('appr-test-13', options), keysFor('appr-test-12', options));
   const own = cardTree(appr, keysFor('appr-test-12', options));
   const result = optionMarks(appr, asButtons([own.hosts[0], other.hosts[1]]));
-  assert.equal(result.missing, true);
-  assert.deepEqual(result.marks, [null, null]);
+  assert.deepEqual(result.foreign, [false, true]);
+  assert.deepEqual(result.marks.map(m => m?.kind ?? null), ['allow_once', null]);
+  const keyless = optionMarks(appr, asButtons([other.hosts[0]], 0));
+  assert.deepEqual([keyless.foreign, keyless.marks], [[true], [null]]);
 });
 
 test('a stale fiber gives no attributes and is not reported missing', () => {

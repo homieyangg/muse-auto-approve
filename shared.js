@@ -91,15 +91,17 @@ const AAM = (() => {
 
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
   // byData picks from the option attributes only; otherwise the text rules apply as before, within the veto when there is one.
-  // options is the approval's option list when it was read. Returns null when nothing can be clicked
-  function pickAllowButtons(candidates, byData, options = null) {
+  // options is the approval's option list when it was read. foreign tells a button of another approval sits in the scope
+  // (left out of candidates): then only this approval's confirmed once button may be picked. Returns null when nothing can be clicked
+  function pickAllowButtons(candidates, byData, options = null, foreign = false) {
+    if (foreign && !byData) return null;
     const veto = byData ? null : textVeto(options);
     let always = null, once = null;
     for (const c of candidates) {
       if (byData) {
         if (c.menu || !c.kind) continue;
         const role = optionRole(c);
-        if (!always && role === 'always') always = c.el;
+        if (!always && role === 'always' && !foreign) always = c.el;
         else if (!once && role === 'once') once = c.el;
       } else if (!always && ALWAYS_RE.test(c.text)) {
         if (!veto || veto.always) always = c.el;
@@ -109,8 +111,8 @@ const AAM = (() => {
     }
     if (!always && !once) return null;
     const known = !!byData || !!veto;
-    const alwaysInMenu = byData ? Array.isArray(options) && options.some(o => optionRole(o) === 'always') : !veto || veto.always;
-    return { always, once, data: !!byData, known, alwaysInMenu, options: known ? options : null };
+    const alwaysInMenu = !foreign && (byData ? Array.isArray(options) && options.some(o => optionRole(o) === 'always') : !veto || veto.always);
+    return { always, once, data: !!byData, known, alwaysInMenu, foreign: !!foreign, options: known ? options : null };
   }
 
   // The button to click for the setting. Once data has been read, "once" never falls back to an always button
@@ -122,9 +124,11 @@ const AAM = (() => {
 
   // Right before a click, the pick made on fresh attributes must match the earlier one: same path (data or text) and the
   // target still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now;
-  // data tells it was picked by that mark, which then must still be a whitelisted always among the card's fresh options
+  // data tells it was picked by that mark, which then must still be a whitelisted always among the card's fresh options.
+  // { fallback: el } is the once button looked up again after a refused menu: it must be the fresh pick's once
   function samePick(before, after, target) {
-    if (!after || after.data !== before.data || after.known !== before.known) return false;
+    if (!after || after.data !== before.data || after.known !== before.known || !!after.foreign !== !!before.foreign) return false;
+    if (target?.fallback) return !!before.once && after.once === target.fallback;
     if (target?.menu) {
       if (after.always || !after.once || !after.alwaysInMenu || target.data !== after.known) return false;
       if (!target.data) return true;

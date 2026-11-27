@@ -25,6 +25,7 @@
   const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
   const OPTIONS_ATTR = 'data-maa-options';
   const DATA_PATH_ATTR = 'data-maa-data-path';
+  const FOREIGN_ATTR = 'data-maa-foreign';
   let timer = null;
   let queryClient = null;
 
@@ -161,8 +162,9 @@
     return first?.kind === 'allow_once' ? first : null;
   }
 
-  // Maps each button of one approval to its decisionOptions entry. All or nothing: a key that does not match the approval or
-  // the option it points at, or a button whose own walk reaches another approval, leaves every button unmarked. A keyless
+  // Maps each button of one approval to its decisionOptions entry. A button keyed to, or sitting under, another approval is
+  // flagged foreign and left unmarked; content.js never clicks it and then allows only this approval's confirmed once button.
+  // Otherwise all or nothing: a key that does not match the option it points at leaves every button unmarked. A keyless
   // button never fails the item: the panel's primary is marked only when the data confirms it and at least one keyed button
   // sits next to it, otherwise it stays unmarked and so is never clicked on the data path.
   // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
@@ -170,29 +172,24 @@
     const options = approval?.serverPresentation?.decisionOptions;
     // The option list is kept even when no button can be marked: content.js uses it to veto the text rules
     const list = Array.isArray(options) ? options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) })) : null;
-    const none = missing => ({ missing, options: list, marks: buttons.map(() => null) });
-    if (!list) return none(true);
-    const marks = [];
-    let keyed = 0;
+    const marks = [], foreign = [];
+    let keyed = 0, failed = !list;
     for (const { fiber, primary } of buttons) {
       const key = decisionKeyOf(fiber, walk);
-      if (key === undefined) return none(false);
-      const own = approvalsOfFiber(fiber, walk);
-      if (!own) return none(false);
-      if (key === null) {
-        const option = primary && own.length === 1 && own[0].approvalId === approval.approvalId ? primaryOption(options) : null;
-        marks.push(option ? markOf(option) : null);
-        continue;
-      }
-      const m = key.match(DECISION_KEY_RE);
-      if (!m || m[1] !== approval.approvalId || own.length !== 1 || own[0].approvalId !== approval.approvalId) return none(true);
-      const option = optionForKey(options, m[2], Number(m[3]), m[4]);
-      if (!option) return none(true);
-      keyed++;
-      marks.push(markOf(option));
+      const own = key === undefined ? null : approvalsOfFiber(fiber, walk);
+      if (!own) return { missing: false, options: list, marks: buttons.map(() => null), foreign: buttons.map(() => false) };
+      const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
+      const other = (!!m && m[1] !== approval.approvalId) || own.some(a => a.approvalId !== approval.approvalId);
+      foreign.push(other);
+      let option = null;
+      if (other || !list) option = null;
+      else if (key === null) option = primary && own.length === 1 ? primaryOption(options) : null;
+      else if (!m || own.length !== 1 || !(option = optionForKey(options, m[2], Number(m[3]), m[4]))) failed = true;
+      else keyed++;
+      marks.push(option ? markOf(option) : null);
     }
-    if (!keyed) return none(buttons.length > 0);
-    return { missing: false, options: list, marks };
+    if (failed || !keyed) return { missing: failed || buttons.length > 0, options: list, marks: buttons.map(() => null), foreign };
+    return { missing: false, options: list, marks, foreign };
   }
 
   // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
@@ -240,7 +237,12 @@
       // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
       result = { missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
     }
-    if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
+    if (result.marks) {
+      buttons.forEach((b, i) => {
+        writeOption(b, result.marks[i]);
+        setAttr(b, FOREIGN_ATTR, result.foreign?.[i] ? '1' : '');
+      });
+    }
     setAttr(el, OPTIONS_ATTR, result.options ? JSON.stringify(result.options) : '');
     setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
   }
