@@ -222,15 +222,16 @@ function purchaseState(node, body) {
   return AAG.combinePurchase(body === node ? [freshPurchase(node)] : [freshPurchase(node), freshPurchase(body)]);
 }
 
-// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data
+// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data.
+// approvalPolicy is muse's policy type as read, kept for the log even when parseCard reads the card as a website
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase };
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, approvalPolicy: attr(POLICY_ATTR) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, approvalPolicy: card.approvalPolicy };
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -278,7 +279,8 @@ function reviewPreviews(previews, now, waiting, canExpand) {
   let trusted = 0;
   for (const preview of previews) {
     const purchase = purchaseState(preview, preview);
-    const card = { ...AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || ''), purchase };
+    const policy = preview.getAttribute(POLICY_ATTR) || '';
+    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, approvalPolicy: policy };
     const key = AAM.cardKey(card);
     if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
       if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));
@@ -303,7 +305,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.approvalPolicy, site: card.site, purchase: card.purchase, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -399,7 +401,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, policy: w.policy, site: w.site, purchase: w.purchase, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, policy: w.approvalPolicy, site: w.site, purchase: w.purchase, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

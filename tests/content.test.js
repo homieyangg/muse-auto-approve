@@ -416,3 +416,37 @@ test('log entries store the policy and purchase state of waiting and approved ca
   const [allowedEntry] = trusted.store.local.log;
   assert.deepEqual([allowedEntry.result, allowedEntry.policy, allowedEntry.purchase], ['allowed', 'connector.example.post.create', false]);
 });
+
+// Card -> parseCard -> log entry -> Trust offer: a website row may only come from a card whose policy type is a website one
+async function loggedRow(text, policy) {
+  makeDocument();
+  fakeBridge();
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-80', 'data-maa-state': 'clean', ...(policy && { 'data-maa-policy': policy }) };
+  const buttons = [
+    new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow'),
+    new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny'),
+  ];
+  doc.body.append(new El('div', attrs, [new El('p', {}, [], text), new El('div', {}, buttons)]));
+  const { ctx, store } = loadContent();
+  ctx.scan();
+  for (let i = 0; i < 4; i++) await tick();
+  return store.local.log[0];
+}
+
+test('a card titled "open <host>" whose policy is an upload is logged with that policy and offers no Trust', async () => {
+  const AAT = require('../trust.js');
+  const entry = await loggedRow('Open a.example to upload a file? This task is from Chat A.', 'connector.browser.page.upload');
+  assert.deepEqual([entry.host, entry.policy, entry.result], ['a.example', 'connector.browser.page.upload', 'pending']);
+  assert.equal(AAM.parseCard('Open a.example to upload a file?', '', 'connector.browser.page.upload', 'a.example').policy, '');
+  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size, 0);
+});
+
+test('a website row with an unknown policy type offers no Trust; one without a policy does', async () => {
+  const AAT = require('../trust.js');
+  const unknown = await loggedRow('Access a.example? This task is from Chat A.', 'connector.example.unknown');
+  assert.deepEqual([unknown.host, unknown.policy], ['a.example', 'connector.example.unknown']);
+  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [unknown]).size, 0);
+  const plain = await loggedRow('Access a.example? This task is from Chat A.', '');
+  assert.deepEqual([plain.host, plain.policy, plain.chat], ['a.example', '', 'Chat A']);
+  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [plain]).size, 1);
+});

@@ -9,7 +9,12 @@ const AAT = (() => {
   // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
+  // muse policy types that mean "open this website". parseCard reads any card whose title says open plus a hostname as a
+  // website, so a row whose stored policy is anything else (an upload, an action, or a type not listed here) gets no Trust
+  const SITE_POLICIES = [];
+
   function trustable(entry) {
+    if (entry.policy && !SITE_POLICIES.includes(entry.policy)) return false;
     return !!entry.host && !!aam.normalizeHost(entry.host) && !aam.isPurchase(entry);
   }
 

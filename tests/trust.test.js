@@ -86,6 +86,14 @@ test('website rows written before the log stored purchase still offer Trust', ()
   assert.deepEqual(offered(settingsWith(), [old]), [true]);
 });
 
+test('a website row whose stored policy is an upload, an action or unknown offers no Trust', () => {
+  for (const policy of [UPLOAD, POLICY, 'connector.example.unknown']) {
+    const entry = siteEntry('a.example', 'Chat A', 'handled', { policy });
+    assert.deepEqual(offered(settingsWith(), [entry]), [false], policy);
+    assert.equal(AAT.planTrust(settingsWith(), entry, 'any'), null, policy);
+  }
+});
+
 test('action and upload rows never offer Trust and keep main\'s label', () => {
   const rows = [actionEntry('Post', 'Chat A'), actionEntry('Post', 'Chat B', 'pending'), uploadEntry('upload.example', 'Chat A'), uploadEntry('', 'Chat A')];
   for (const settings of [settingsWith(), settingsWith({ mode: 'all' }), settingsWith({ mode: 'all', includeActions: true })]) {
