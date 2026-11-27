@@ -77,6 +77,16 @@ const AAM = (() => {
     return always || once ? { always, once, data: !!state, state } : null;
   }
 
+  // The chat copy of muse's task-wide web-access card ("always ask" network default) takes the text rules its panel copy
+  // takes, as 1.4.0 did on both. Only when bridge.js read it 'clean' as one tool.web_fetch approval, it has no menu, and every
+  // button is marked: exactly one allow_once of all web access for the task, no scope, and the rest deny. buttons are the
+  // card's buttons as { kind, labelKind, scope }, kind '' when unmarked
+  function takesTextRules({ state, policy, menu, buttons }) {
+    if (state !== 'clean' || policy !== 'tool.web_fetch' || menu || !buttons.length) return false;
+    const grants = buttons.filter(b => b.kind === 'allow_once' && b.labelKind === 'allow_all_web_access_for_this_task' && !b.scope);
+    return grants.length === 1 && buttons.every(b => grants.includes(b) || optionRole(b) === 'deny');
+  }
+
   // The button to click for the setting. Once data has been read, "once" never falls back to an always button
   function clickTarget(buttons, preferAlways) {
     if (!buttons) return null;
@@ -259,7 +269,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
+  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;
