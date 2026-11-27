@@ -97,7 +97,7 @@ Settings has the full lists. You can limit a site to certain chats, turn an entr
 - When "Always allow" is tucked into the "More allow options" menu (side panel, combined cards), the extension opens the menu to click it.
 - It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the cards it opened aren't trusted, it leaves the same set of approvals alone for 10 minutes instead of opening them again and again.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're recognized from the checkout and payment fields in muse's approval data, which doesn't depend on language, with the card wording as a fallback.
 
 ## Limitations
 

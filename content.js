@@ -22,6 +22,8 @@ const REVIEW_RETRY_MS = 10000;
 const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 // bridge.js 從 React 內部讀出來標在 DOM 上的審批 ID、權限種類和全部待審 ID
 const ID_ATTR = 'data-maa-approval-id';
+// Set by bridge.js when muse's data marks the approval as a checkout or purchase
+const PURCHASE_ATTR = 'data-maa-purchase';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
@@ -102,7 +104,9 @@ function approvalCards() {
       const buttons = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
-      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', policy: node.getAttribute(POLICY_ATTR) || '', site: node.getAttribute(SITE_ATTR) || '' });
+      // A purchase anywhere in a combined card holds back its other items too
+      const purchase = node.hasAttribute(PURCHASE_ATTR) || card.hasAttribute(PURCHASE_ATTR);
+      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', policy: node.getAttribute(POLICY_ATTR) || '', site: node.getAttribute(SITE_ATTR) || '', purchase });
     }
   }
   for (const deny of document.querySelectorAll(BUTTON_SELECTOR)) {
@@ -150,7 +154,7 @@ function scan() {
   const busyCards = new Set();
   let trusted = 0;
   for (const [node, buttons] of cards) {
-    const card = AAM.parseCard(labelOf(buttons.body), buttons.heading, buttons.policy, buttons.site);
+    const card = { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, buttons.policy, buttons.site), purchase: !!buttons.purchase };
     const key = AAM.cardKey(card);
     linkActionPolicy(card);
     if (handledElsewhere(buttons, key, now)) {
@@ -194,7 +198,7 @@ function shouldAllow(card, onceOnly) {
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -241,7 +245,7 @@ function panelPreviews() {
 function reviewPreviews(previews, now, waiting, canExpand) {
   let trusted = 0;
   for (const preview of previews) {
-    const card = AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || '');
+    const card = { ...AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || ''), purchase: preview.hasAttribute(PURCHASE_ATTR) };
     const key = AAM.cardKey(card);
     if (!shouldAllow(card, allowOnce.includes(key))) {
       if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));

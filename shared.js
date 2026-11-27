@@ -87,7 +87,9 @@ const AAM = (() => {
   }
 
   // 結帳、下單、購買的卡會花到錢，不管信任設定都不自動按，只接受使用者在 popup 按的「只允許這一次」
+  // card.purchase comes from muse's approval data (bridge.js) and holds in any language; the wording is only a fallback
   function isPurchase(card) {
+    if (card.purchase) return true;
     return !card.host && PURCHASE_RE.test(card.title || card.action || '');
   }
 
