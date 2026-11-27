@@ -158,13 +158,19 @@ const AAM = (() => {
     return [...map.values()].filter(i => !dismissed.includes(i.key)).sort((a, b) => b.ts - a.ts);
   }
 
+  function supportedLangs() {
+    if (typeof I18N !== 'undefined' && Array.isArray(I18N.LANGUAGES)) return I18N.LANGUAGES.map(l => l.code);
+    if (typeof require === 'function') return require('./i18n.js').LANGUAGES.map(l => l.code);
+    return [];
+  }
+
   // 匯入的設定只留認得的欄位，型別不對就用預設值
   function sanitizeSettings(raw) {
     const out = { ...SETTINGS_DEFAULTS };
     if (!raw || typeof raw !== 'object') return out;
     for (const key of ['enabled', 'preferAlways', 'openBackground', 'includeActions']) if (typeof raw[key] === 'boolean') out[key] = raw[key];
     if (['all', 'trusted'].includes(raw.mode)) out.mode = raw.mode;
-    if (['auto', 'zh_TW', 'ja', 'en'].includes(raw.lang)) out.lang = raw.lang;
+    if (raw.lang === 'auto' || supportedLangs().includes(raw.lang)) out.lang = raw.lang;
     if (Array.isArray(raw.sites)) {
       out.sites = raw.sites
         .map(s => ({ id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, chats: Array.isArray(s.chats) ? s.chats.filter(c => typeof c === 'string' && c) : [] }))

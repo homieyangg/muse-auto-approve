@@ -447,6 +447,7 @@ function bind() {
   $('#prefer-always').addEventListener('change', e => saveSettings({ preferAlways: e.target.checked }));
   $('#open-background').addEventListener('change', e => saveSettings({ openBackground: e.target.checked }));
   $('#include-actions').addEventListener('change', e => saveSettings({ includeActions: e.target.checked }));
+  $('#lang').append(...I18N.LANGUAGES.map(l => el('option', { value: l.code, textContent: l.label })));
   $('#lang').addEventListener('change', async e => { await saveSettings({ lang: e.target.value }); location.reload(); });
   $('#site-new').addEventListener('click', () => { selectedSite = 'new'; renderSites(true); });
   $('#chat-new').addEventListener('click', () => { selectedChat = 'new'; renderChats(true); });
