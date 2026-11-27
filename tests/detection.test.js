@@ -16,7 +16,10 @@ test('Japanese allow labels are recognized', () => {
   assert.match('example.comに対して常に許可', AAM.ALWAYS_RE);
   assert.match('このコネクターを常に許可', AAM.ALWAYS_RE);
   assert.match('このサイトで常に許可', AAM.ALWAYS_RE);
-  assert.match('すべてを常に許可', AAM.ALWAYS_RE);
+  // コネクター全体を許可する広い操作は、英語・中国語と同じく自動では選ばない
+  assert.doesNotMatch('すべてを常に許可', AAM.ALWAYS_RE);
+  assert.doesNotMatch('すべてを常に許可する', AAM.ALWAYS_RE);
+  assert.doesNotMatch('GitHubのすべてのメソッドを常に許可', AAM.ALWAYS_RE);
 });
 
 test('Japanese deny labels never read as allow', () => {
