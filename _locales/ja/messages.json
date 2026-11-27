@@ -445,5 +445,14 @@
   },
   "uploadToWithSub": {
     "message": "$1 とサブドメインへのアップロード"
+  },
+  "unreadableNoticeOne": {
+    "message": "1 件の承認カードを読み取れなかったため、カード本文で判定します。"
+  },
+  "unreadableNotice": {
+    "message": "$1 件の承認カードを読み取れなかったため、カード本文で判定します。"
+  },
+  "unreadableReport": {
+    "message": "報告"
   }
 }
