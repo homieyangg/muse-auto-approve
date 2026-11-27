@@ -162,7 +162,8 @@
 
   // Maps each button of one approval to its decisionOptions entry. All or nothing: a key that does not match the approval or
   // the option it points at, or a button whose own walk reaches another approval, leaves every button unmarked. A keyless
-  // primary button is marked only when the data confirms it and at least one keyed button sits next to it.
+  // button never fails the item: the panel's primary is marked only when the data confirms it and at least one keyed button
+  // sits next to it, otherwise it stays unmarked and so is never clicked on the data path.
   // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
   function optionMarks(approval, buttons, walk = newWalk()) {
     const none = missing => ({ missing, options: null, marks: buttons.map(() => null) });
@@ -175,11 +176,9 @@
       if (key === undefined) return none(false);
       const own = approvalsOfFiber(fiber, walk);
       if (!own) return none(false);
-      if (key === null && !primary) { marks.push(null); continue; }
       if (key === null) {
-        const option = own.length === 1 && own[0].approvalId === approval.approvalId ? primaryOption(options) : null;
-        if (!option) return none(true);
-        marks.push(markOf(option));
+        const option = primary && own.length === 1 && own[0].approvalId === approval.approvalId ? primaryOption(options) : null;
+        marks.push(option ? markOf(option) : null);
         continue;
       }
       const m = key.match(DECISION_KEY_RE);
@@ -194,17 +193,16 @@
     return { missing: false, options: list, marks };
   }
 
-  // A "more allow options" item is drawn in a portal, so its approval comes from the key's id: the approval found walking up
-  // when there is one, else the pending list. Returns { approvalId, kind, labelKind, scope }, or null when it can't be matched
+  // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
+  // Returns { approvalId, kind, labelKind, scope }, or null when it can't be matched
   function menuItemMark(start, walk = newWalk(), pendingById = () => null) {
     const key = decisionKeyOf(start, walk);
     const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
     if (!m || m[2] !== 'compact-allow') return null;
-    // Walks past the key, where the approval component would sit if the portal's React parents reach it
+    // Only a consistency check: if the portal's React parents do reach an approval, it must be the key's one
     const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
-    if (!own) return null;
-    if (own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
-    const approval = own[0] || pendingById(m[1]);
+    if (!own || own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
+    const approval = pendingById(m[1]);
     const options = approval?.serverPresentation?.decisionOptions;
     if (!Array.isArray(options)) return null;
     const option = optionForKey(options, m[2], Number(m[3]), m[4]);

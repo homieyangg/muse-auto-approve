@@ -274,10 +274,12 @@ test('panel surface: the keyless primary is allow once when it is the first allo
   assert.deepEqual(pick(result, PANEL_TEXTS), { always: null, once: 'button-0', data: true, alwaysInMenu: true, menuTextOk: true });
 });
 
-test('panel surface: a keyless primary the data does not confirm leaves the item to the text rules', () => {
+test('panel surface: a keyless primary the data does not confirm stays unmarked without failing the item', () => {
   const firstAlways = read('appr-test-21', [SCOPED, ONCE, DENY], [null, 'appr-test-21-compact-deny-0-deny'], 0);
-  assert.deepEqual([firstAlways.missing, firstAlways.marks], [true, [null, null]]);
-  assert.deepEqual(core(pick(firstAlways, PANEL_TEXTS)), { always: null, once: 'button-0', data: false });
+  assert.equal(firstAlways.missing, false);
+  assert.deepEqual(firstAlways.marks, [null, { kind: 'deny', labelKind: 'deny_for_this_task', scope: '' }]);
+  // Data path: the unconfirmed primary is not clicked by its primary attribute, so nothing is picked
+  assert.equal(pick(firstAlways, PANEL_TEXTS), null);
   // Without a keyed button next to it, the keyless primary alone is not trusted either
   const alone = read('appr-test-21', [ONCE, DENY], [null], 0);
   assert.deepEqual([alone.missing, alone.marks], [true, [null]]);
@@ -319,9 +321,9 @@ test('a menu item maps to its option through the compact-allow key and the pendi
   assert.deepEqual(mark, { approvalId: 'appr-test-23', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' });
   assert.equal(AAM.menuItemAlways(mark, 'appr-test-23'), true);
   assert.equal(AAM.menuItemAlways(mark, 'appr-other'), false);
-  // The approval reached by walking up is used when present
-  const above = menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, () => null);
-  assert.equal(above.scope, 'destination');
+  // The approval comes from the pending list; an ancestor holding the same approval is only a consistency check
+  assert.equal(menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, () => null), null);
+  assert.equal(menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, pendingOf(appr)).scope, 'destination');
 });
 
 test('menu items for broad or unknown options are marked but never picked as always', () => {
@@ -380,4 +382,38 @@ test('the pre-click re-check for a menu item uses the fresh mark of that item', 
   const text = { menu: true, data: false, approvalId: 'appr-test-29', option: null };
   assert.equal(AAM.samePick(before, before, text), true);
   assert.equal(AAM.samePick(before, { ...before, menuTextOk: false }, text), false);
+});
+
+test('panel surface end to end: keyless primary, compact-deny and a compact-allow menu item', () => {
+  const appr = approval('appr-test-30', [ONCE, SCOPED, DENY]);
+  const { hosts } = cardTree(appr, [null, 'appr-test-30-compact-deny-0-deny']);
+  const buttons = optionMarks(appr, asButtons(hosts, 0));
+  const picked = pick(buttons, PANEL_TEXTS);
+  assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
+  assert.equal(picked.alwaysInMenu, true);
+  // The menu item's approval is only in the pending list
+  const option = menuItemMark(menuTree('appr-test-30-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+  const menuItem = AAM.pickMenuItem([{ el: 'm0', text: 'Toujours autoriser', option }], 'appr-test-30', picked.data, picked.menuTextOk);
+  assert.deepEqual(menuItem, { item: 'm0', data: true });
+  assert.equal(AAM.samePick(picked, picked, { menu: true, data: true, approvalId: 'appr-test-30', option }), true);
+});
+
+test('panel surface: a compact-allow item with a broad scope is never picked, Allow once is clicked instead', () => {
+  const appr = approval('appr-test-31', [ONCE, opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), DENY]);
+  const picked = pick(read('appr-test-31', appr.serverPresentation.decisionOptions, [null, 'appr-test-31-compact-deny-0-deny'], 0), PANEL_TEXTS);
+  assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
+  // The menu is not even opened: the approval has no whitelisted always option
+  assert.equal(picked.alwaysInMenu, false);
+  const option = menuItemMark(menuTree('appr-test-31-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow all actions', option }], 'appr-test-31', true, picked.menuTextOk), null);
+});
+
+test('an unknown kind in a compact key: matched when the data has it but never picked, refused when it does not', () => {
+  const appr = approval('appr-test-32', [ONCE, opt('allow_forever', 'allow_forever'), DENY]);
+  const option = menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_forever'), undefined, pendingOf(appr));
+  assert.equal(option.kind, 'allow_forever');
+  assert.equal(AAM.menuItemAlways(option, 'appr-test-32'), false);
+  assert.equal(menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_later'), undefined, pendingOf(appr)), null);
+  const deny = read('appr-test-32', [ONCE, DENY], [null, 'appr-test-32-compact-deny-0-deny_later'], 0);
+  assert.deepEqual([deny.missing, deny.marks], [true, [null, null]]);
 });
