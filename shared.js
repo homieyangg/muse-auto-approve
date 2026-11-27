@@ -59,25 +59,11 @@ const AAM = (() => {
     return '';
   }
 
-  const sameOption = (a, b) => !!a && !!b && a.kind === b.kind && a.labelKind === b.labelKind && a.scope === b.scope;
-
-  // option is the fresh mark bridge.js wrote on a menu item: { approvalId, kind, labelKind, scope }
-  function menuItemAlways(option, approvalId) {
-    return !!approvalId && option?.approvalId === approvalId && optionRole(option) === 'always';
-  }
-
-  // items: [{ el, text, option }] of the open menu. With data, only an item freshly marked as a whitelisted always for this
-  // approval is picked, never by text. Returns { item, data } or null
-  function pickMenuItem(items, approvalId, data) {
-    const found = data ? items.find(i => menuItemAlways(i.option, approvalId)) : items.find(i => ALWAYS_RE.test(i.text));
-    return found ? { item: found.el, data: !!data } : null;
-  }
-
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
-  // state is bridge.js's read of the card: 'clean' picks by the whitelist; 'anomalous' (options read, but a button belongs to
-  // another approval, a key does not map or a fiber can't be confirmed) picks only a confirmed once button; '' means no data
-  // and main's text rules. options is the card's option list. Returns null when nothing can be clicked
-  function pickAllowButtons(candidates, state = '', options = null) {
+  // state is bridge.js's read of a chat card: 'clean' picks by the whitelist; 'anomalous' (options read, but a button belongs
+  // to another approval, a key does not map, the sources disagree or a fiber can't be confirmed) picks only a confirmed once
+  // button; '' means no data and main's text rules. Returns null when nothing can be clicked
+  function pickAllowButtons(candidates, state = '') {
     let always = null, once = null;
     for (const c of candidates) {
       if (state) {
@@ -88,9 +74,7 @@ const AAM = (() => {
       } else if (!always && ALWAYS_RE.test(c.text)) always = c.el;
       else if (!once && (ONCE_RE.test(c.text) || c.primary)) once = c.el;
     }
-    if (!always && !once) return null;
-    const alwaysInMenu = state ? state === 'clean' && Array.isArray(options) && options.some(o => optionRole(o) === 'always') : true;
-    return { always, once, data: !!state, state, alwaysInMenu, options: state ? options : null };
+    return always || once ? { always, once, data: !!state, state } : null;
   }
 
   // The button to click for the setting. Once data has been read, "once" never falls back to an always button
@@ -101,17 +85,9 @@ const AAM = (() => {
   }
 
   // Right before a click, the pick made on fresh attributes must match the earlier one: same card state and the target
-  // still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now; when
-  // picked by that mark it must still be a whitelisted always among the card's fresh options.
-  // { fallback: el } is the once button looked up again after the menu closed: it must be the fresh pick's once
+  // still in the same role
   function samePick(before, after, target) {
     if (!after || after.state !== before.state) return false;
-    if (target?.fallback) return !!before.once && after.once === target.fallback;
-    if (target?.menu) {
-      if (after.always || !after.once || !after.alwaysInMenu || target.data !== after.data) return false;
-      if (!target.data) return true;
-      return menuItemAlways(target.option, target.approvalId) && after.options.some(o => sameOption(o, target.option));
-    }
     const role = b => (target === b.always ? 'always' : target === b.once ? 'once' : '');
     return !!role(before) && role(before) === role(after);
   }
@@ -270,7 +246,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, menuItemAlways, pickMenuItem, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

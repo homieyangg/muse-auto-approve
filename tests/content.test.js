@@ -7,10 +7,22 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { execFileSync } = require('node:child_process');
 const AAM = require('../shared.js');
 const AAG = require('../guard.js');
 
-const CONTENT = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
+const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+const CONTENT = read('content.js');
+// main before this change, to check that the panel surface still behaves exactly as there
+const MAIN_COMMIT = '3720d1f';
+function mainSources() {
+  try {
+    const show = file => execFileSync('git', ['show', `${MAIN_COMMIT}:${file}`], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return ['shared.js', 'guard.js', 'content.js'].map(show);
+  } catch {
+    return null;
+  }
+}
 
 // Selectors content.js uses: comma lists, descendant combinators, tag, [attr], [attr="v"] and :not(...)
 function parseCompound(sel) {
@@ -95,8 +107,9 @@ function makeDocument() {
   return doc;
 }
 
-// Loads content.js with the given stored settings; returns the context and what it reported to the background
-function loadContent(sync = {}) {
+// Loads content.js with the given stored settings; returns the context and what it reported to the background.
+// sources replaces shared.js, guard.js and content.js with other versions of them
+function loadContent(sync = {}, sources = null) {
   const reports = [];
   const store = { sync: { ...AAM.SETTINGS_DEFAULTS, ...sync }, local: { allowOnce: [] } };
   const area = name => ({
@@ -113,24 +126,24 @@ function loadContent(sync = {}) {
   };
   class Ev { constructor(type, init = {}) { Object.assign(this, init); this.type = type; } }
   const ctx = {
-    AAM, AAG, chrome, document: doc, console: { info() {}, warn() {} },
+    ...(sources ? {} : { AAM, AAG }), chrome, document: doc, console: { info() {}, warn() {} },
     MutationObserver: class { observe() {} disconnect() {} },
     CustomEvent: Ev, KeyboardEvent: Ev, PointerEvent: Ev,
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
   };
   vm.createContext(ctx);
-  vm.runInContext(CONTENT, ctx);
+  for (const source of sources || [CONTENT]) vm.runInContext(source, ctx);
   return { ctx, reports, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
 }
 
-// Stand-in for bridge.js: answers maa-mark for cards holding an approval id and for marked menu items. onMark may change
-// attributes first, or return false to leave the request unanswered while the old attributes stay
+// Stand-in for bridge.js: answers maa-mark for cards holding an approval id. onMark may change attributes first, or return
+// false to leave the request unanswered while the old attributes stay
 function fakeBridge(onMark = () => {}) {
   doc.addEventListener('maa-mark', e => {
     const el = e.target;
     el.removeAttribute('data-maa-marked');
     if (onMark(el) === false) return;
-    if (el.hasAttribute('data-maa-approval-id') || el.hasAttribute('data-maa-option-approval')) el.setAttribute('data-maa-marked', el.getAttribute('data-maa-mark-request'));
+    if (el.hasAttribute('data-maa-approval-id')) el.setAttribute('data-maa-marked', el.getAttribute('data-maa-mark-request'));
   });
 }
 
@@ -140,7 +153,7 @@ const optAttrs = (kind, labelKind, scope = '') => ({ 'data-maa-option-kind': kin
 // the card state bridge.js wrote and marked false leaves the buttons unmarked, as when none of them could be confirmed
 function accessCard(buttons, { withData = true, options = null, state = 'clean', marked = withData } = {}) {
   const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-50' };
-  if (withData && options) Object.assign(attrs, { 'data-maa-options': JSON.stringify(options), 'data-maa-state': state });
+  if (withData && options) attrs['data-maa-state'] = state;
   const els = buttons.map(([text, option, extra = {}]) => new El('button', { ...(marked ? option : {}), ...extra }, [], text));
   const card = new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, els)]);
   doc.body.append(card);
@@ -278,98 +291,28 @@ test('an anomalous card clicks only its confirmed once button, and only on a fre
   assert.deepEqual(pending(), ['example.com|']);
 });
 
-const DOMAIN_OPTIONS = [SAFE_OPTIONS[0], { ...SAFE_OPTIONS[1], scope: 'destination_domain' }, SAFE_OPTIONS[2]];
-const menuItemAttrs = scope => ({ 'data-maa-option-approval': 'appr-test-50', ...optAttrs('allow_always', 'allow_always_scoped', scope) });
-
-// A panel card: keyless primary, a "more allow options" menu holding one always item, and deny. marked false leaves the
-// card's buttons unmarked; itemAttrs is what bridge.js wrote on the menu item; bare leaves out every bridge.js attribute
-function panelCard(options, { state = 'clean', marked = true, itemAttrs = {}, bare = false } = {}) {
-  const item = new El('div', { role: 'menuitem', ...itemAttrs }, [], 'Always allow this site');
+// A panel card as bridge.js leaves it: the approval id, but no state and no option marks. A primary, a "more allow
+// options" menu holding one item, and deny. bare leaves out the approval id too; surface 'chat' makes it a chat card
+// whose options were not read
+function panelCard({ itemText = 'Always allow this site', primaryText = 'Allow once', bare = false, surface = 'panel' } = {}) {
+  const item = new El('div', { role: 'menuitem' }, [], itemText);
   doc.body.append(new El('div', { id: 'menu-test-1', role: 'menu' }, [item]));
-  const primary = new El('button', { 'data-hatch-approval-primary-action': 'true', ...(marked && !bare ? optAttrs('allow_once', 'allow_once') : {}) }, [], 'Allow once');
+  const primary = new El('button', { 'data-hatch-approval-primary-action': 'true' }, [], primaryText);
   const menu = new El('button', { 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': 'menu-test-1' }, [], 'More allow options');
-  const deny = new El('button', marked && !bare ? optAttrs('deny', 'deny_for_this_task') : {}, [], 'Deny');
-  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel' };
-  if (!bare) Object.assign(attrs, { 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options), 'data-maa-state': state });
+  const deny = new El('button', {}, [], 'Deny');
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': surface };
+  if (!bare) attrs['data-maa-approval-id'] = 'appr-test-50';
   const card = new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, [primary, menu, deny])]);
   doc.body.append(card);
   return { card, primary, deny, item };
 }
 const menuWait = () => new Promise(resolve => setTimeout(resolve, 300));
 
-// Closing the menu re-renders the card: on Escape the primary is swapped for a new node, and onSwap may change the card.
-// Returns a getter for the new node
-function swapPrimaryOnEscape(card, primary, onSwap = () => {}) {
-  let fresh = null;
-  doc.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || fresh) return;
-    const row = primary.parent;
-    fresh = new El('button', Object.fromEntries(primary.attrs), [], 'Allow once');
-    row.children[row.children.indexOf(primary)] = fresh;
-    fresh.parent = row;
-    primary.parent = null;
-    onSwap(card);
-  });
-  return () => fresh;
-}
-
-// Codex re-review P1-2
-test('a clean card picks the menu item only by its fresh mark; an anomalous card never opens the menu', async () => {
-  const cases = [
-    ['clean, unmarked item', 'clean', {}, [1, 0]],
-    ['clean, broad item', 'clean', menuItemAttrs('connector_all_actions'), [1, 0]],
-    ['clean, single-site item', 'clean', menuItemAttrs('destination'), [0, 1]],
-    ['anomalous, single-site item', 'anomalous', menuItemAttrs('destination'), [1, 0]],
-  ];
-  for (const [name, state, itemAttrs, clicks] of cases) {
-    makeDocument();
-    fakeBridge();
-    const { primary, item } = panelCard(SAFE_OPTIONS, { state, itemAttrs });
-    const { ctx } = loadContent({ mode: 'all' });
-    ctx.scan();
-    await menuWait();
-    assert.deepEqual([primary.clicks, item.clicks], clicks, name);
-  }
-});
-
-// Codex re-review P2
-test('a menu item refused because the card and the pending list disagree falls back to allow once', async () => {
-  makeDocument();
-  fakeBridge();
-  const { primary, deny, item } = panelCard(DOMAIN_OPTIONS, { itemAttrs: menuItemAttrs('destination') });
-  const { ctx } = loadContent({ mode: 'all' });
-  ctx.scan();
-  await menuWait();
-  ctx.scan();
-  await menuWait();
-  assert.deepEqual([primary.clicks, item.clicks, deny.clicks], [1, 0, 0]);
-});
-
-// Codex re-review 2, P2 and 3, P2: closing the menu re-renders the primary as a new node, whether the item was refused or
-// no item was usable; the new node is clicked only while the card still holds the same approval
-test('after the menu closes, the once button is looked up again and tied to the same approval', async () => {
-  const cases = [
-    ['refused item', DOMAIN_OPTIONS, menuItemAttrs('destination'), () => {}, 1],
-    ['no usable item', SAFE_OPTIONS, {}, () => {}, 1],
-    ['card switched approval', DOMAIN_OPTIONS, menuItemAttrs('destination'), card => card.setAttribute('data-maa-approval-id', 'appr-test-51'), 0],
-  ];
-  for (const [name, options, itemAttrs, onSwap, freshClicks] of cases) {
-    makeDocument();
-    fakeBridge();
-    const { card, primary, item } = panelCard(options, { itemAttrs });
-    const fresh = swapPrimaryOnEscape(card, primary, onSwap);
-    const { ctx } = loadContent({ mode: 'all' });
-    ctx.scan();
-    await menuWait();
-    assert.deepEqual([primary.clicks, fresh()?.clicks, item.clicks], [0, freshClicks, 0], name);
-  }
-});
-
 // Codex re-review 2, P2: without data the refused menu stays main's
 test('without data, a menu item that disappears before the click leaves the card unclicked, as on main', async () => {
   makeDocument();
   fakeBridge();
-  const { primary, item } = panelCard(null, { bare: true });
+  const { primary, item } = panelCard({ bare: true });
   let reads = 0;
   Object.defineProperty(item, 'innerText', { get() { if (!reads++) queueMicrotask(() => { item.parent.children = []; item.parent = null; }); return 'Always allow this site'; } });
   const { ctx } = loadContent({ mode: 'all' });
@@ -378,8 +321,8 @@ test('without data, a menu item that disappears before the click leaves the card
   assert.deepEqual([primary.clicks, item.clicks], [0, 0]);
 });
 
-// Codex re-review 4, P2: on a card without data the pre-click check is main's, so a primary disabled while the menu is open
-// does not stop the menu item; data turning up meanwhile sends the card back to the next scan instead
+// Codex re-review 4, P2: on a chat card without data the pre-click check is main's, so a primary disabled while the menu is
+// open does not stop the menu item; data turning up meanwhile sends the card back to the next scan instead
 test('without data, the pre-click check is main\'s: a menu item is clicked though the primary is disabled meanwhile', async () => {
   for (const [name, dataAppears, clicks] of [['no data', false, 1], ['data turned up', true, 0]]) {
     makeDocument();
@@ -390,11 +333,54 @@ test('without data, the pre-click check is main\'s: a menu item is clicked thoug
         el.setAttribute('data-maa-state', 'clean');
       }
     });
-    const { primary, item } = panelCard(null, { bare: true });
+    const { primary, item } = panelCard({ bare: true, surface: 'chat' });
     const { ctx } = loadContent({ mode: 'all' });
     ctx.scan();
     primary.setAttribute('disabled', '');
     await menuWait();
     assert.deepEqual([primary.clicks, item.clicks], [0, clicks], name);
   }
+});
+
+// Scope cut: the panel and its menu are not read from data; every panel case must click exactly what main clicks
+test('a panel card behaves exactly as on main', { skip: !mainSources() && `${MAIN_COMMIT} is not in this clone` }, async () => {
+  const fixtures = {
+    'always item in the menu': {},
+    'no always item in the menu': { itemText: 'Allow once' },
+    'broad always item in the menu': { itemText: 'Always allow all actions' },
+    'text-only primary': { primaryText: 'Send', itemText: 'Other' },
+    'without approval id': { bare: true },
+  };
+  const settings = { 'prefer always': { mode: 'all' }, 'just once': { mode: 'all', preferAlways: false }, untrusted: {} };
+  const run = async (spec, sync, sources) => {
+    makeDocument();
+    fakeBridge();
+    const { primary, deny, item } = panelCard(spec);
+    const { ctx, pending } = loadContent(sync, sources);
+    ctx.scan();
+    await menuWait();
+    return { clicks: [primary.clicks, deny.clicks, item.clicks], pending: pending() };
+  };
+  const main = mainSources();
+  for (const [name, spec] of Object.entries(fixtures)) {
+    for (const [mode, sync] of Object.entries(settings)) {
+      const expected = await run(spec, sync, main);
+      assert.deepEqual(await run(spec, sync, null), expected, `${name}, ${mode}`);
+    }
+  }
+  // A sanity check that the fixture exercises the menu at all
+  assert.deepEqual((await run({}, { mode: 'all' }, main)).clicks, [0, 0, 1]);
+});
+
+test('a chat card read from data never opens a menu: it clicks its once button instead', async () => {
+  makeDocument();
+  fakeBridge();
+  const { card, buttons } = accessCard([SAFE_BUTTONS[0], SAFE_BUTTONS[2]], { options: SAFE_OPTIONS });
+  const item = new El('div', { role: 'menuitem' }, [], 'Always allow this site');
+  doc.body.append(new El('div', { id: 'menu-test-2', role: 'menu' }, [item]));
+  card.children[1].append(new El('button', { 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': 'menu-test-2' }, [], 'More allow options'));
+  const { ctx } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await menuWait();
+  assert.deepEqual([...buttons.map(b => b.clicks), item.clicks], [1, 0, 0]);
 });

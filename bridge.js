@@ -12,18 +12,17 @@
   const MARK_EVENT = 'maa-mark';
   const MARK_REQUEST_ATTR = 'data-maa-mark-request';
   const MARKED_ATTR = 'data-maa-marked';
+  // Only chat-surface cards are read from approval data; the approvals panel and its "more allow options" menu keep main's
+  // text rules
+  const CHAT_CARD_SELECTOR = `${CARD_SELECTOR}[data-hatch-approval-surface="chat"]`;
   const BACKGROUND_SELECTOR = '[data-hatch-background-approval-surface="true"]';
   const MENU_SELECTOR = '[aria-haspopup="menu"]';
-  const PRIMARY_SELECTOR = '[data-hatch-approval-primary-action="true"]';
-  const MENU_ITEM_SELECTOR = '[role="menuitem"]';
-  // Decision keys seen on muse's components a few fibers above the element: `<approvalId>-cta-<index>-<kind>` in the chat
-  // layout, `-compact-deny-` / `-compact-allow-` in the approvals panel. Searched upward, never at a fixed depth
-  const DECISION_KEY_RE = /^(.+)-(cta|compact-deny|compact-allow)-(\d+)-([a-z_]+)$/;
-  const DECISION_KEY_HINT = /-(?:cta|compact-deny|compact-allow)-/;
+  // The decision key seen on the chat layout's button components a few fibers above each <button>:
+  // `<approvalId>-cta-<index>-<kind>`. Searched upward, never at a fixed depth
+  const DECISION_KEY_RE = /^(.+)-cta-(\d+)-([a-z_]+)$/;
+  const DECISION_KEY_HINT = /-cta-/;
   const KEY_UP = 24;
   const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
-  const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
-  const OPTIONS_ATTR = 'data-maa-options';
   const DATA_PATH_ATTR = 'data-maa-data-path';
   const STATE_ATTR = 'data-maa-state';
   let timer = null;
@@ -73,10 +72,10 @@
   }
 
   // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established
-  function approvalsOfFiber(start, walk = newWalk(), maxUp = MAX_UP) {
+  function approvalsOfFiber(start, walk = newWalk()) {
     let f = currentOf(start, walk);
     if (!f) return null;
-    for (let i = 0; i < maxUp; i++) {
+    for (let i = 0; i < MAX_UP; i++) {
       const approvals = approvalsInProps(f);
       if (approvals) return approvals;
       if (!f.return) return [];
@@ -123,7 +122,7 @@
     return PURCHASE_RE.test(String(p.payloadType ?? '')) || p.paymentProvider != null || p.purchasePreapproval != null;
   }
 
-  // undefined: the fiber is not current; null: no decision key below the approval component within KEY_UP fibers
+  // undefined: the fiber is not current; null: no cta key below the approval component within KEY_UP fibers
   function decisionKeyOf(start, walk) {
     let f = currentOf(start, walk);
     if (!f) return undefined;
@@ -138,41 +137,13 @@
 
   // A value that is not a string (an object scope, say) is unknown, never "no scope": it must not pass the whitelist as empty
   const optionText = v => (v == null || v === '' ? '' : typeof v === 'string' ? v : '?');
-  const isAllowKind = kind => typeof kind === 'string' && kind.startsWith('allow');
-  const isDenyKind = kind => typeof kind === 'string' && kind.startsWith('deny');
   const markOf = option => ({ kind: optionText(option.kind), labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
 
-  // The option a decision key points at, or null. cta indexes decisionOptions; compact-deny indexes the deny options and
-  // compact-allow the allow options after the primary one. Compact keys carry only the kind, so when that kind appears more
-  // than once with different labels or scopes the key can't tell them apart and nothing is returned
-  function optionForKey(options, form, index, kind) {
-    let group = options;
-    if (form === 'compact-deny') group = options.filter(o => isDenyKind(o?.kind));
-    else if (form === 'compact-allow') group = options.filter(o => isAllowKind(o?.kind)).slice(1);
-    const option = group[index];
-    if (!option || typeof option.kind !== 'string' || option.kind !== kind) return null;
-    if (form === 'cta') return option;
-    const same = group.filter(o => o.kind === kind).map(o => JSON.stringify(markOf(o)));
-    return new Set(same).size === 1 ? option : null;
-  }
-
-  // The panel's primary button has no key: it is allow once only when that is the first allow option in the data
-  function primaryOption(options) {
-    const first = options.find(o => isAllowKind(o?.kind));
-    return first?.kind === 'allow_once' ? first : null;
-  }
-
-  // The mark of the option a parsed decision key points at in one approval's data, or null
+  // The mark of decisionOptions[i] in one approval's data for a parsed cta key, or null when the kind does not match
   function keyMark(approval, m) {
     const options = approval?.serverPresentation?.decisionOptions;
-    const option = Array.isArray(options) ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
-    return option ? markOf(option) : null;
-  }
-
-  function primaryMark(approval) {
-    const options = approval?.serverPresentation?.decisionOptions;
-    const option = Array.isArray(options) ? primaryOption(options) : null;
-    return option ? markOf(option) : null;
+    const option = Array.isArray(options) ? options[Number(m[2])] : null;
+    return option && typeof option.kind === 'string' && option.kind === m[3] ? markOf(option) : null;
   }
 
   const sameMarks = marks => marks.every(mark => JSON.stringify(mark) === JSON.stringify(marks[0]));
@@ -180,67 +151,44 @@
   // A source with no decisionOptions field has no data and is skipped; [] or different options is a veto
   const hasData = approval => Array.isArray(approval?.serverPresentation?.decisionOptions);
 
-  // Reads one approval's buttons in a single pass into { state, missing, options, marks }. Sources are the card's approval,
-  // every button's nearest approval and the pending list's entry for the same id; only the ones with data count, and every
-  // button is checked against all of them, so a veto from any source ([] or a different option) applies to the whole card.
-  // '': no source has data, main's text rules. 'clean': card-side data exists (the card's or a button's own approval), at
-  // least one button is keyed, and every keyed button carries this approval's key and maps to the same option in every
-  // source. 'anomalous': anything else; nothing later in the pass resets it. Every keyed button the sources agree on is
-  // marked; content.js clicks only a confirmed once on an anomalous card. With the cache as the only data, only a button
-  // with its own key can be marked. The keyless primary has no key: it is marked allow once only when card-side data exists,
-  // every source says the first allow option is allow once, and a keyed button of this approval exists
+  // Reads one approval's buttons in a single pass into { state, missing, marks }. Sources are the card's approval, every
+  // button's nearest approval and the pending list's entry for the same id; only the ones with data count, and every button
+  // is checked against all of them, so a veto from any source ([] or a different option) applies to the whole card.
+  // '': no source has data, or every button reads without a cta key (not the chat layout): main's text rules. 'clean': card-side
+  // data exists (the card's or a button's own approval), at least one button is keyed, and every keyed button carries this
+  // approval's key and maps to the same option in every source. 'anomalous': anything else; nothing later in the pass
+  // resets it. Every keyed button the sources agree on is marked; keyless buttons never are. content.js clicks only a
+  // confirmed once on an anomalous card
   function optionMarks(approval, buttons, walk = newWalk(), pendingById = () => null) {
     const id = approval?.approvalId;
-    const cached = pendingById(id);
-    const reads = buttons.map(({ fiber, primary }) => {
+    const none = { state: '', missing: true, marks: buttons.map(() => null) };
+    const reads = buttons.map(({ fiber }) => {
       const key = decisionKeyOf(fiber, walk);
-      return { key, primary, own: key === undefined ? null : approvalsOfFiber(fiber, walk) };
+      return { key, own: key === undefined ? null : approvalsOfFiber(fiber, walk) };
     });
+    if (reads.every(r => r.key === null)) return none;
+    const cached = pendingById(id);
     const cardSide = [...new Set([approval, ...reads.flatMap(r => r.own || [])])].filter(a => a?.approvalId === id && hasData(a));
     const sources = [...cardSide, ...(hasData(cached) ? [cached] : [])];
-    if (!sources.length) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
+    if (!sources.length) return none;
     let anomalous = !cardSide.length, keyed = 0;
-    const found = reads.map(({ key, primary, own }) => {
+    const marks = reads.map(({ key, own }) => {
       const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
       if (!own || own.some(a => a.approvalId !== id) || (m && m[1] !== id)) {
         anomalous = true;
         return null;
       }
-      if (key === null) return primary && own.length === 1 ? 'primary' : null;
-      const marks = m && own.length === 1 ? sources.map(a => keyMark(a, m)) : [null];
-      if (!marks[0] || !sameMarks(marks)) {
+      if (key === null) return null;
+      const found = m && own.length === 1 ? sources.map(a => keyMark(a, m)) : [null];
+      if (!found[0] || !sameMarks(found)) {
         anomalous = true;
         return null;
       }
       keyed++;
-      return marks[0];
+      return found[0];
     });
-    if (!keyed && buttons.length) anomalous = true;
-    const primaries = sources.map(primaryMark);
-    if (found.includes('primary') && !sameMarks(primaries)) anomalous = true;
-    const primaryMarked = keyed && cardSide.length && sameMarks(primaries) ? primaries[0] : null;
-    const marks = found.map(f => (f === 'primary' ? primaryMarked : f));
-    const list = sources[0].serverPresentation.decisionOptions.map(o => markOf(o || {}));
-    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: list, marks };
-  }
-
-  // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
-  // The same key must point at the same option in every source with data: the cards showing that approval (cardsById), the
-  // portal's own approval ancestor if it has one, and the pending entry. At least one card side must have data, so the
-  // cache alone never marks an item. Any difference (one source may say broad) leaves the item unmarked.
-  // Returns { approvalId, kind, labelKind, scope }, or null
-  function menuItemMark(start, walk = newWalk(), pendingById = () => null, cardsById = () => []) {
-    const key = decisionKeyOf(start, walk);
-    const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
-    if (!m || m[2] !== 'compact-allow') return null;
-    const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
-    if (!own || own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
-    const cards = [...own, ...cardsById(m[1], walk)].filter(hasData);
-    const pending = pendingById(m[1]);
-    if (!pending || !cards.length) return null;
-    const marks = [...cards, ...(hasData(pending) ? [pending] : [])].map(a => keyMark(a, m));
-    if (!marks[0] || !sameMarks(marks)) return null;
-    return { approvalId: m[1], ...marks[0] };
+    if (!keyed) anomalous = true;
+    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, marks };
   }
 
   function setAttr(el, name, value) {
@@ -252,24 +200,27 @@
     for (const [field, name] of Object.entries(OPTION_ATTRS)) setAttr(button, name, mark?.[field]);
   }
 
-  // Marks the decision buttons of a card or combined-card item from the same walk as the item itself. A combined card
-  // holds several approvals and leaves its buttons to its items
+  function onChatCard(el) {
+    return !!el.closest(CHAT_CARD_SELECTOR) && !el.closest(BACKGROUND_SELECTOR);
+  }
+
+  // Marks the decision buttons of a chat-surface card or combined-card item from the same walk as the item itself. Other
+  // surfaces get no state, and a combined card holding several approvals leaves its buttons to its items
   function markOptions(el, approvals, walk, pendingById) {
-    if (!el.closest(CARD_SELECTOR) || el.closest(BACKGROUND_SELECTOR)) return;
     const buttons = [...el.querySelectorAll('button')].filter(b => !b.matches(MENU_SELECTOR));
     let result;
-    if (approvals?.length > 1) {
-      const missing = approvals.some(a => !Array.isArray(a.serverPresentation?.decisionOptions));
-      result = { state: '', missing, options: null, marks: null };
+    if (!onChatCard(el)) {
+      result = { state: '', missing: false, marks: buttons.map(() => null) };
+    } else if (approvals?.length > 1) {
+      result = { state: '', missing: approvals.some(a => !hasData(a)), marks: null };
     } else if (approvals?.length === 1) {
-      result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b), primary: b.matches(PRIMARY_SELECTOR) })), walk, pendingById);
+      result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b) })), walk, pendingById);
     } else {
       // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
-      result = { state: '', missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
+      result = { state: '', missing: !!approvals || !fiberOf(el), marks: buttons.map(() => null) };
     }
     if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
     setAttr(el, STATE_ATTR, result.state);
-    setAttr(el, OPTIONS_ATTR, result.options ? JSON.stringify(result.options) : '');
     setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
   }
 
@@ -291,11 +242,11 @@
       markOptions(el, approvals, walk, pendingById);
     } catch (err) {
       console.warn('[MAA] bridge option read failed', err);
-      // A failed read may have hidden data, so the card must not fall back to main's text rules
+      // A failed read may have hidden data, so a chat card must not fall back to main's text rules
       for (const b of el.querySelectorAll('button')) writeOption(b, null);
-      el.removeAttribute(OPTIONS_ATTR);
-      setAttr(el, STATE_ATTR, 'anomalous');
-      setAttr(el, DATA_PATH_ATTR, 'missing');
+      const chat = onChatCard(el);
+      setAttr(el, STATE_ATTR, chat ? 'anomalous' : '');
+      setAttr(el, DATA_PATH_ATTR, chat ? 'missing' : '');
     }
     return !!marks?.found;
   }
@@ -314,27 +265,6 @@
     return id => pending.find(a => isApproval(a) && a.approvalId === id && !a.decidedAtMs) || null;
   }
 
-  // The approvals read now from the card nodes marked with this id; a node whose fresh walk holds anything else is skipped
-  function cardApprovals(id, walk) {
-    return [...document.querySelectorAll(ITEM_SELECTOR)]
-      .filter(el => el.getAttribute('data-maa-approval-id') === id)
-      .map(el => approvalsOfFiber(fiberOf(el), walk))
-      .filter(a => a?.length === 1 && a[0].approvalId === id)
-      .map(a => a[0]);
-  }
-
-  function markMenuItem(el) {
-    let mark = null;
-    try {
-      mark = menuItemMark(fiberOf(el), newWalk(), pendingLookup(), cardApprovals);
-    } catch (err) {
-      console.warn('[MAA] bridge menu read failed', err);
-    }
-    writeOption(el, mark);
-    setAttr(el, OPTION_APPROVAL_ATTR, mark?.approvalId);
-    return !!mark;
-  }
-
   // content.js asks for a fresh mark right before it clicks. Listeners run inside its dispatchEvent, so the answer is
   // there when dispatchEvent returns; echoing its token proves this run read approval data for this node
   function markOnRequest(e) {
@@ -342,8 +272,7 @@
     if (!(el instanceof Element)) return;
     el.removeAttribute(MARKED_ATTR);
     try {
-      const marked = el.matches(MENU_ITEM_SELECTOR) ? markMenuItem(el) : markItem(el);
-      if (marked) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
+      if (markItem(el)) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
     } catch (err) {
       console.warn('[MAA] bridge mark failed', err);
     }
@@ -397,7 +326,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor, optionMarks, menuItemMark, markItem };
+    module.exports = { isPurchaseApproval, marksFor, optionMarks, markItem };
     return;
   }
 
