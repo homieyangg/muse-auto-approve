@@ -446,6 +446,12 @@
   "uploadToWithSub": {
     "message": "上传到 $1 及子域名"
   },
+  "taskWebAccessFrom": {
+    "message": "这个任务的网络访问（从 $1）"
+  },
+  "taskWebAccess": {
+    "message": "这个任务的网络访问"
+  },
   "unreadableNoticeOne": {
     "message": "有 1 张审批卡无法读取数据，已改看卡片文字。"
   },

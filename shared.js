@@ -43,7 +43,8 @@ const AAM = (() => {
   // Button options read by bridge.js from muse's decisionOptions. Always-allow is a whitelist: anything muse adds later,
   // or anything wider than one site, is never picked as always
   const ALWAYS_SCOPES = ['destination', 'destination_domain'];
-  const BROAD_LABEL_KINDS = ['allow_all_web_access_for_this_task'];
+  const TASK_WEB_LABEL_KIND = 'allow_all_web_access_for_this_task';
+  const BROAD_LABEL_KINDS = [TASK_WEB_LABEL_KIND];
   const BROAD_SCOPES = ['connector_all_actions'];
 
   // Returns 'always', 'once', 'deny', or '' for an option nobody may auto-pick
@@ -59,22 +60,33 @@ const AAM = (() => {
     return '';
   }
 
+  // Set by bridge.js on a single-approval card whose only allow option grants web access for the whole task
+  const TASK_WEB_GRANT = 'task-web';
+
+  // The one exception to the broad-label veto: on a clean chat card bridge.js marked as a task-wide web grant, its allow
+  // option counts as once, so the card is clicked only through the usual trust decision for an action card, as in 1.4.0
+  function grantRole({ kind, labelKind, scope } = {}, state, grant) {
+    const taskWeb = state === 'clean' && grant === TASK_WEB_GRANT && kind === 'allow_once' && labelKind === TASK_WEB_LABEL_KIND && !scope;
+    return taskWeb ? 'once' : '';
+  }
+
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
   // state is bridge.js's read of a chat card: 'clean' picks by the whitelist; 'anomalous' (options read, but a button belongs
   // to another approval, a key does not map, the sources disagree or a fiber can't be confirmed) picks only a confirmed once
-  // button; '' means no data and main's text rules. Returns null when nothing can be clicked
-  function pickAllowButtons(candidates, state = '') {
+  // button; '' means no data and main's text rules. grant is the chat card's task-wide web grant mark, or ''.
+  // Returns null when nothing can be clicked
+  function pickAllowButtons(candidates, state = '', grant = '') {
     let always = null, once = null;
     for (const c of candidates) {
       if (state) {
         if (c.menu || !c.kind) continue;
-        const role = optionRole(c);
+        const role = optionRole(c) || grantRole(c, state, grant);
         if (!always && role === 'always' && state === 'clean') always = c.el;
         else if (!once && role === 'once') once = c.el;
       } else if (!always && ALWAYS_RE.test(c.text)) always = c.el;
       else if (!once && (ONCE_RE.test(c.text) || c.primary)) once = c.el;
     }
-    return always || once ? { always, once, data: !!state, state } : null;
+    return always || once ? { always, once, data: !!state, state, grant } : null;
   }
 
   // The button to click for the setting. Once data has been read, "once" never falls back to an always button
@@ -84,10 +96,10 @@ const AAM = (() => {
     return buttons.once || (buttons.data ? null : buttons.always);
   }
 
-  // Right before a click, the pick made on fresh attributes must match the earlier one: same card state and the target
-  // still in the same role
+  // Right before a click, the pick made on fresh attributes must match the earlier one: same card state, same grant mark and
+  // the target still in the same role
   function samePick(before, after, target) {
-    if (!after || after.state !== before.state) return false;
+    if (!after || after.state !== before.state || (after.grant || '') !== (before.grant || '')) return false;
     const role = b => (target === b.always ? 'always' : target === b.once ? 'once' : '');
     return !!role(before) && role(before) === role(after);
   }
@@ -144,6 +156,7 @@ const AAM = (() => {
 
   // Name shown in the popup and settings for a card, log entry, or action rule
   function cardLabel(item, t) {
+    if (item.grant === TASK_WEB_GRANT) return item.grantHost ? t('taskWebAccessFrom', item.grantHost) : t('taskWebAccess');
     if (item.site) return t(item.sub ? 'uploadToWithSub' : 'uploadTo', item.site);
     return item.host || item.action || item.title || '';
   }
@@ -246,7 +259,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, TASK_WEB_GRANT, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

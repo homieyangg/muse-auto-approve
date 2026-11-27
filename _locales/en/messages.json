@@ -446,6 +446,12 @@
   "uploadToWithSub": {
     "message": "Upload to $1 and subdomains"
   },
+  "taskWebAccessFrom": {
+    "message": "Web access for this task (from $1)"
+  },
+  "taskWebAccess": {
+    "message": "Web access for this task"
+  },
   "unreadableNoticeOne": {
     "message": "1 approval card could not be read; matched by card text instead."
   },

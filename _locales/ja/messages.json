@@ -446,6 +446,12 @@
   "uploadToWithSub": {
     "message": "$1 とサブドメインへのアップロード"
   },
+  "taskWebAccessFrom": {
+    "message": "このタスクのネットワークアクセス（$1 から）"
+  },
+  "taskWebAccess": {
+    "message": "このタスクのネットワークアクセス"
+  },
   "unreadableNoticeOne": {
     "message": "1 件の承認カードを読み取れなかったため、カード本文で判定します。"
   },

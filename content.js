@@ -38,6 +38,9 @@ const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const STATE_ATTR = 'data-maa-state';
 const DATA_PATH_ATTR = 'data-maa-data-path';
+// Set by bridge.js on a single-approval card that grants web access for the whole task; the host is a label only
+const GRANT_ATTR = 'data-maa-grant';
+const GRANT_HOST_ATTR = 'data-maa-grant-host';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -83,7 +86,12 @@ function findAllowButtons(scope) {
     labelKind: b.getAttribute(LABEL_KIND_ATTR) || '',
     scope: b.getAttribute(SCOPE_ATTR) || '',
   }));
-  return AAM.pickAllowButtons(candidates, cardState(scope));
+  return AAM.pickAllowButtons(candidates, cardState(scope), chatGrant(scope));
+}
+
+// The grant mark counts for picking only on a chat-surface card; the panel keeps main's text rules
+function chatGrant(scope) {
+  return scope.closest(CHAT_CARD_SELECTOR) && scope.getAttribute(GRANT_ATTR) === AAM.TASK_WEB_GRANT ? AAM.TASK_WEB_GRANT : '';
 }
 
 // 'clean' or 'anomalous' when bridge.js read this card's options, '' otherwise
@@ -238,11 +246,17 @@ function purchaseState(node, body) {
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase };
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, ...grantLabel(attr) };
+}
+
+// Label fields only: the grant host never reaches card.host or card.site, so no site rule can match this card
+function grantLabel(attr) {
+  if (attr(GRANT_ATTR) !== AAM.TASK_WEB_GRANT) return { grant: '', grantHost: '' };
+  return { grant: AAM.TASK_WEB_GRANT, grantHost: AAM.normalizeHost(attr(GRANT_HOST_ATTR)) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, grant: card.grant, grantHost: card.grantHost };
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -315,7 +329,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, grant: card.grant, grantHost: card.grantHost, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -411,7 +425,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, grant: w.grant, grantHost: w.grantHost, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

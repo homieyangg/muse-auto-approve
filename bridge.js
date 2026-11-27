@@ -25,6 +25,11 @@
   const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
   const DATA_PATH_ATTR = 'data-maa-data-path';
   const STATE_ATTR = 'data-maa-state';
+  const GRANT_ATTR = 'data-maa-grant';
+  const GRANT_HOST_ATTR = 'data-maa-grant-host';
+  const TASK_WEB_GRANT = 'task-web';
+  const TASK_WEB_LABEL_KIND = 'allow_all_web_access_for_this_task';
+  const HOSTNAME_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
   let timer = null;
   let queryClient = null;
 
@@ -100,6 +105,35 @@
       purchase: approvals.some(isPurchaseApproval),
       found: approvals.length > 0,
     };
+  }
+
+  // The grant mark of a card: only a card holding exactly one approval, never a batch or combined card or one of its items
+  function grantOf(el, approvals) {
+    if (!el.matches(CARD_SELECTOR) || approvals?.length !== 1 || !isTaskWebGrant(approvals[0])) return null;
+    return { grant: TASK_WEB_GRANT, host: hostnameOf(approvals[0].host) };
+  }
+
+  const isOptionShape = o => !!o && typeof o === 'object' && typeof o.kind === 'string' && !!o.label && typeof o.label === 'object'
+    && typeof o.label.kind === 'string' && (o.label.scope == null || typeof o.label.scope === 'string');
+
+  // The card muse shows when its network default is "always ask": its only allow option grants web access for the whole
+  // task, and approval.host is only where that access starts. Anything else in the options (an always, a second or scoped
+  // allow, a field that is not a string) means it is some other card
+  function isTaskWebGrant(approval) {
+    const p = approval?.serverPresentation;
+    if (!p || typeof p !== 'object' || p.permissionQuestion?.kind !== 'network_turn_grant') return false;
+    if (approval.policySubject !== 'tool.web_fetch') return false;
+    const options = p.decisionOptions;
+    if (!Array.isArray(options) || !options.every(isOptionShape)) return false;
+    const allows = options.filter(o => o.kind !== 'deny' && o.kind !== 'deny_always');
+    return allows.length === 1 && allows[0].kind === 'allow_once' && allows[0].label.kind === TASK_WEB_LABEL_KIND && !allows[0].label.scope;
+  }
+
+  // A label only, never a trust input
+  function hostnameOf(value) {
+    if (typeof value !== 'string') return '';
+    const host = value.trim().toLowerCase().replace(/\.$/, '');
+    return HOSTNAME_RE.test(host) ? host : '';
   }
 
   // Upload approvals carry the target in payloadPreview, e.g. "Destination: https://tmpfiles.org"
@@ -226,10 +260,11 @@
 
   // Unknown removes every attribute. Returns whether the node got a verified answer from approval data
   function markItem(el, walk = newWalk(), pendingById = pendingLookup()) {
-    let approvals = null, marks = null;
+    let approvals = null, marks = null, grant = null;
     try {
       approvals = approvalsOfFiber(fiberOf(el), walk);
       marks = marksOf(approvals);
+      grant = grantOf(el, approvals);
     } catch (err) {
       approvals = null;
       console.warn('[MAA] bridge read failed', err);
@@ -238,6 +273,8 @@
     setAttr(el, 'data-maa-policy', marks?.policy);
     setAttr(el, 'data-maa-site', marks?.site);
     setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
+    setAttr(el, GRANT_ATTR, grant?.grant);
+    setAttr(el, GRANT_HOST_ATTR, grant?.host);
     try {
       markOptions(el, approvals, walk, pendingById);
     } catch (err) {
@@ -326,7 +363,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor, optionMarks, markItem };
+    module.exports = { isPurchaseApproval, isTaskWebGrant, marksFor, optionMarks, markItem };
     return;
   }
 
