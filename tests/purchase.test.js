@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const AAM = require('../shared.js');
-const { isPurchaseApproval, readApprovals } = require('../bridge.js');
+const { isPurchaseApproval, marksFor } = require('../bridge.js');
 const { canAutoApprove, combinePurchase } = require('../guard.js');
 
 const CHECKOUT_FIELDS = [
@@ -95,32 +95,69 @@ test('just this once passes whatever the purchase state', () => {
   for (const purchase of [true, false, null]) assert.equal(canAutoApprove(AAM.SETTINGS_DEFAULTS, actionCard(purchase), true), true);
 });
 
-// Fabricated React fibers: a host node fiber whose parent component holds the approval in props
-function fiberPair(current, previous) {
-  const parent = { memoizedProps: { approval: current }, return: null, alternate: previous && { memoizedProps: { approval: previous } } };
-  return { memoizedProps: { className: 'x' }, return: parent, alternate: null };
+// Fabricated React trees: root -> card (props.approval at cardProps) -> host node, each with an optional stale alternate
+function link(parent, children) {
+  parent.child = children[0] || null;
+  children.forEach((c, i) => { c.return = parent; c.sibling = children[i + 1] || null; });
 }
 
-test('readApprovals agrees when fiber and alternate hold the same approval', () => {
-  const r = readApprovals(fiberPair(ordinary(), ordinary()));
-  assert.deepEqual([r.purchase, r.agreed, r.approvals[0].approvalId], [false, true, 'a1']);
-  assert.equal(readApprovals(fiberPair(ordinary(), null)).agreed, true);
+function tree({ current, stale, upper }) {
+  const fiberRoot = {};
+  const root = { stateNode: fiberRoot, memoizedProps: {} };
+  const oldRoot = { stateNode: fiberRoot, memoizedProps: {}, alternate: root };
+  root.alternate = oldRoot;
+  fiberRoot.current = root;
+  const panel = { memoizedProps: upper ? { approval: upper } : {} };
+  const card = { memoizedProps: current ? { approval: current } : { className: 'card' } };
+  const node = { memoizedProps: { className: 'item' } };
+  link(root, [{ memoizedProps: {} }, panel]);
+  link(panel, [card]);
+  link(card, [node]);
+  // Previous render: the same structure with old props, linked to its own old parents
+  const oldPanel = { memoizedProps: panel.memoizedProps, alternate: panel };
+  const oldCard = { memoizedProps: stale ? { approval: stale } : card.memoizedProps, alternate: card };
+  const oldNode = { memoizedProps: node.memoizedProps, alternate: node };
+  panel.alternate = oldPanel; card.alternate = oldCard; node.alternate = oldNode;
+  link(oldRoot, [oldPanel]);
+  link(oldPanel, [oldCard]);
+  link(oldCard, [oldNode]);
+  return { node, oldNode, card };
+}
+
+const upload = (id, site) => ordinary({ approvalId: id, payloadPreview: `Destination: https://${site}` });
+
+test('steady state: the DOM node points at the current fiber', () => {
+  const { node } = tree({ current: upload('a1', 'tmpfiles.org') });
+  assert.deepEqual(marksFor(node), { approvalId: 'a1', policy: 'connector.browser.page.upload', site: 'tmpfiles.org', purchase: false, found: true });
 });
 
-test('readApprovals marks a purchase found on either side', () => {
-  const checkout = ordinary({ approvalId: 'a2', shopifyCheckoutApproval: {} });
-  assert.equal(readApprovals(fiberPair(ordinary(), checkout)).purchase, true);
-  assert.equal(readApprovals(fiberPair(checkout, ordinary())).purchase, true);
+test('the DOM node points at the alternate: answer comes from the current tree', () => {
+  const { oldNode } = tree({ current: upload('a1', 'tmpfiles.org'), stale: upload('a1', 'tmpfiles.org') });
+  assert.equal(marksFor(oldNode).approvalId, 'a1');
 });
 
-test('readApprovals flags fibers that name different approvals', () => {
-  const r = readApprovals(fiberPair(ordinary(), ordinary({ approvalId: 'old' })));
-  assert.deepEqual([r.purchase, r.agreed], [false, false]);
+test('purchase one level up on the current side wins over an ordinary stale approval', () => {
+  const { oldNode } = tree({ current: null, stale: ordinary({ approvalId: 'old' }), upper: ordinary({ approvalId: 'new', shopifyCheckoutApproval: {} }) });
+  const marks = marksFor(oldNode);
+  assert.deepEqual([marks.approvalId, marks.purchase, marks.found], ['new', true, true]);
 });
 
-test('readApprovals finds nothing without approval props', () => {
-  assert.deepEqual(readApprovals({ memoizedProps: {}, return: null }).approvals, []);
-  assert.deepEqual(readApprovals(null).approvals, []);
+test('different ordinary ids on the two sides: the current one, with its site and policy', () => {
+  const current = ordinary({ approvalId: 'new', policySubject: 'connector.gmail.users.messages.send', payloadPreview: '' });
+  const { oldNode, node } = tree({ current, stale: upload('old', 'tmpfiles.org') });
+  for (const start of [node, oldNode]) {
+    assert.deepEqual(marksFor(start), { approvalId: 'new', policy: 'connector.gmail.users.messages.send', site: '', purchase: false, found: true });
+  }
+});
+
+test('a broken tree is unknown', () => {
+  const { node, card } = tree({ current: ordinary() });
+  card.return.child = null;
+  card.alternate.return.child = null;
+  assert.equal(marksFor(node), null);
+  const orphan = { memoizedProps: { approval: ordinary() }, return: { memoizedProps: {} } };
+  assert.equal(marksFor(orphan), null);
+  assert.equal(marksFor(null), null);
 });
 
 test('combinePurchase: purchase wins, then unknown, no only when every side said no', () => {

@@ -35,18 +35,55 @@
     return null;
   }
 
-  const idsOf = approvals => approvals.map(a => a.approvalId).sort().join(' ');
+  const newWalk = () => ({ memo: new Map(), steps: 0 });
 
-  // 往上找第一個 props 帶審批資料的元件。The node may point at the fiber from the previous render, so each step also reads
-  // its alternate: purchase is true if either side holds one, and agreed is false when the two sides name different approvals
-  function readApprovals(start) {
-    for (let f = start, i = 0; f && i < MAX_UP; f = f.return, i++) {
-      const own = approvalsInProps(f), other = approvalsInProps(f.alternate);
-      if (!own && !other) continue;
-      const all = [...(own || []), ...(other || [])];
-      return { approvals: own || other, purchase: all.some(isPurchaseApproval), agreed: !own || !other || idsOf(own) === idsOf(other) };
+  // The DOM node may point at the fiber from the previous render. A fiber is current when it is the current root, or
+  // when it (or its alternate) sits among the children of its parent's current version, as React's findCurrentFiberUsingSlowPath
+  // does. Returns null when that can't be established (broken tree or step cap reached)
+  function currentOf(fiber, walk) {
+    if (!fiber) return null;
+    if (walk.memo.has(fiber)) return walk.memo.get(fiber);
+    let found = null;
+    if (!fiber.return) {
+      const root = fiber.stateNode?.current;
+      if (root && (root === fiber || root === fiber.alternate)) found = root;
+    } else {
+      const parent = currentOf(fiber.return, walk);
+      for (let c = parent?.child; c; c = c.sibling) {
+        if (++walk.steps > MAX_FIBERS) break;
+        if (c === fiber || c === fiber.alternate) { found = c; break; }
+      }
     }
-    return { approvals: [], purchase: false, agreed: true };
+    walk.memo.set(fiber, found);
+    return found;
+  }
+
+  // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established
+  function approvalsOfFiber(start, walk = newWalk()) {
+    let f = currentOf(start, walk);
+    if (!f) return null;
+    for (let i = 0; i < MAX_UP; i++) {
+      const approvals = approvalsInProps(f);
+      if (approvals) return approvals;
+      if (!f.return) return [];
+      f = currentOf(f.return, walk);
+      if (!f) return null;
+    }
+    return [];
+  }
+
+  // Every data-maa-* value for a node comes from this one walk; null means unknown
+  function marksFor(start, walk) {
+    const approvals = approvalsOfFiber(start, walk);
+    if (!approvals) return null;
+    const one = approvals.length === 1 ? approvals[0] : null;
+    return {
+      approvalId: one?.approvalId || '',
+      policy: one?.policySubject || '',
+      site: one ? destinationOf(one) : '',
+      purchase: approvals.some(isPurchaseApproval),
+      found: approvals.length > 0,
+    };
   }
 
   // Upload approvals carry the target in payloadPreview, e.g. "Destination: https://tmpfiles.org"
@@ -74,21 +111,26 @@
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
-  // Returns whether the purchase answer can be trusted: approval data found, and either a purchase or both fibers agree
-  function markItem(el) {
-    const { approvals, purchase, agreed } = readApprovals(fiberOf(el));
-    const one = approvals.length === 1 ? approvals[0] : null;
-    setAttr(el, 'data-maa-approval-id', one?.approvalId);
-    setAttr(el, 'data-maa-policy', one?.policySubject);
-    setAttr(el, 'data-maa-site', one && destinationOf(one));
-    setAttr(el, 'data-maa-purchase', purchase ? '1' : '');
-    return approvals.length > 0 && (purchase || agreed);
+  // Unknown removes all four attributes. Returns whether the node got a verified answer from approval data
+  function markItem(el, walk = newWalk()) {
+    let marks = null;
+    try {
+      marks = marksFor(fiberOf(el), walk);
+    } catch (err) {
+      console.warn('[MAA] bridge read failed', err);
+    }
+    setAttr(el, 'data-maa-approval-id', marks?.approvalId);
+    setAttr(el, 'data-maa-policy', marks?.policy);
+    setAttr(el, 'data-maa-site', marks?.site);
+    setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
+    return !!marks?.found;
   }
 
   function markItems() {
+    const walk = newWalk();
     for (const el of document.querySelectorAll(ITEM_SELECTOR)) {
       if (!el.matches(CARD_SELECTOR) && !el.closest('section, ' + CARD_SELECTOR)) continue;
-      markItem(el);
+      markItem(el, walk);
     }
   }
 
@@ -153,7 +195,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, readApprovals };
+    module.exports = { isPurchaseApproval, marksFor };
     return;
   }
 
