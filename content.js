@@ -246,7 +246,8 @@ function purchaseState(node, body) {
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, ...grantLabel(attr) };
+  const grant = grantLabel(attr);
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR), grant.grant), purchase, ...grant };
 }
 
 // Label fields only: the grant host never reaches card.host or card.site, so no site rule can match this card

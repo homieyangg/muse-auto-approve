@@ -76,18 +76,30 @@
     return found;
   }
 
-  // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established
-  function approvalsOfFiber(start, walk = newWalk()) {
+  // Every approval object in one fiber's props, single or in arrays, so a second approval beside the first is not missed
+  function everyApprovalInProps(fiber) {
+    const props = fiber?.memoizedProps;
+    if (!props || typeof props !== 'object') return [];
+    return Object.values(props).flatMap(v => (isApproval(v) ? [v] : Array.isArray(v) ? v.filter(isApproval) : []));
+  }
+
+  // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established.
+  // fiber is that component, or null when none was found
+  function approvalLevelOf(start, walk = newWalk()) {
     let f = currentOf(start, walk);
     if (!f) return null;
     for (let i = 0; i < MAX_UP; i++) {
       const approvals = approvalsInProps(f);
-      if (approvals) return approvals;
-      if (!f.return) return [];
+      if (approvals) return { approvals, fiber: f };
+      if (!f.return) break;
       f = currentOf(f.return, walk);
       if (!f) return null;
     }
-    return [];
+    return { approvals: [], fiber: null };
+  }
+
+  function approvalsOfFiber(start, walk) {
+    return approvalLevelOf(start, walk)?.approvals ?? null;
   }
 
   // Every data-maa-* value for a node comes from this one walk; null means unknown
@@ -107,10 +119,28 @@
     };
   }
 
-  // The grant mark of a card: only a card holding exactly one approval, never a batch or combined card or one of its items
-  function grantOf(el, approvals) {
-    if (!el.matches(CARD_SELECTOR) || approvals?.length !== 1 || !isTaskWebGrant(approvals[0])) return null;
-    return { grant: TASK_WEB_GRANT, host: hostnameOf(approvals[0].host) };
+  // The grant mark of a card: only a card whose walk, and every button's, reaches exactly one approval id, never a batch or
+  // combined card or one of its items. Like the option agreement, every source with data (the card's approval objects,
+  // each button's, the pending entry) must read as the grant, and one without data must not contradict it
+  function grantOf(el, level, walk, pendingById) {
+    if (!el.matches(CARD_SELECTOR) || level?.approvals.length !== 1) return null;
+    const reached = everyApprovalInProps(level.fiber);
+    for (const button of el.querySelectorAll('button')) {
+      const own = approvalLevelOf(fiberOf(button), walk);
+      if (!own) return null;
+      reached.push(...everyApprovalInProps(own.fiber));
+    }
+    if (new Set(reached.map(a => a.approvalId)).size !== 1) return null;
+    const approval = level.approvals[0];
+    const sources = [...new Set([approval, ...reached, pendingById(approval.approvalId)])].filter(Boolean);
+    if (!isTaskWebGrant(approval) || !sources.every(agreesWithGrant)) return null;
+    return { grant: TASK_WEB_GRANT, host: hostnameOf(approval.host) };
+  }
+
+  function agreesWithGrant(approval) {
+    if (hasData(approval)) return isTaskWebGrant(approval);
+    const kind = approval.serverPresentation?.permissionQuestion?.kind;
+    return (kind === undefined || kind === 'network_turn_grant') && (approval.policySubject === undefined || approval.policySubject === 'tool.web_fetch');
   }
 
   const isOptionShape = o => !!o && typeof o === 'object' && typeof o.kind === 'string' && !!o.label && typeof o.label === 'object'
@@ -118,7 +148,7 @@
 
   // The card muse shows when its network default is "always ask": its only allow option grants web access for the whole
   // task, and approval.host is only where that access starts. Anything else in the options (an always, a second or scoped
-  // allow, a field that is not a string) means it is some other card
+  // allow, a scope field even if null, a field that is not a string) means it is some other card
   function isTaskWebGrant(approval) {
     const p = approval?.serverPresentation;
     if (!p || typeof p !== 'object' || p.permissionQuestion?.kind !== 'network_turn_grant') return false;
@@ -126,7 +156,7 @@
     const options = p.decisionOptions;
     if (!Array.isArray(options) || !options.every(isOptionShape)) return false;
     const allows = options.filter(o => o.kind !== 'deny' && o.kind !== 'deny_always');
-    return allows.length === 1 && allows[0].kind === 'allow_once' && allows[0].label.kind === TASK_WEB_LABEL_KIND && !allows[0].label.scope;
+    return allows.length === 1 && allows[0].kind === 'allow_once' && allows[0].label.kind === TASK_WEB_LABEL_KIND && allows[0].label.scope === undefined;
   }
 
   // A label only, never a trust input
@@ -262,9 +292,10 @@
   function markItem(el, walk = newWalk(), pendingById = pendingLookup()) {
     let approvals = null, marks = null, grant = null;
     try {
-      approvals = approvalsOfFiber(fiberOf(el), walk);
+      const level = approvalLevelOf(fiberOf(el), walk);
+      approvals = level ? level.approvals : null;
       marks = marksOf(approvals);
-      grant = grantOf(el, approvals);
+      grant = grantOf(el, level, walk, pendingById);
     } catch (err) {
       approvals = null;
       console.warn('[MAA] bridge read failed', err);

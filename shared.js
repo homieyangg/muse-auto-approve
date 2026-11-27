@@ -131,11 +131,13 @@ const AAM = (() => {
   // 網站只從標題（第一個問號前）找，而且標題要是「存取某網站」；其他卡（發文、傳訊息）用標題當動作名稱。
   // 批次卡的子項目沒有問號標題，由呼叫端傳 heading；policy 是 muse 的權限種類（例如 connector.gmail.users.messages.send），
   // 同一個動作在單張卡和批次卡標題寫法不同，靠它認成同一個
-  // site is the upload destination read by bridge.js; only browser upload cards keep it
-  function parseCard(text, heading, policy, site) {
+  // site is the upload destination read by bridge.js; only browser upload cards keep it. A task-wide web grant (grant from
+  // bridge.js) never takes a site from its text: a hostname there is the assistant's name, say, not what it grants
+  function parseCard(text, heading, policy, site, grant = '') {
     const t = cleanText(text);
     const title = (heading ? cleanText(heading) : t.split(/[？?]/)[0]).slice(0, 120);
-    const hostMatch = ACCESS_RE.test(title) ? title.match(HOST_RE) : null;
+    const taskWeb = grant === TASK_WEB_GRANT;
+    const hostMatch = !taskWeb && ACCESS_RE.test(title) ? title.match(HOST_RE) : null;
     let chat = '';
     for (const re of CHAT_RES) {
       const m = t.match(re);
@@ -145,7 +147,7 @@ const AAM = (() => {
       break;
     }
     const host = hostMatch ? hostMatch[0].toLowerCase() : '';
-    const uploadSite = !host && policy === UPLOAD_POLICY ? normalizeHost(site) : '';
+    const uploadSite = !host && !taskWeb && policy === UPLOAD_POLICY ? normalizeHost(site) : '';
     return { host, chat, title, action: host ? '' : title, policy: host ? '' : policy || '', site: uploadSite };
   }
 

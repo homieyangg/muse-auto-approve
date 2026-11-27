@@ -196,8 +196,8 @@ function attachTree(parent, props, el, buttons, keys) {
   return comp;
 }
 
-function cardText() {
-  return [new El('p', {}, [], QUESTION), new El('p', {}, [], '從⁨example.org⁩開始'), new El('p', {}, [], `此任務來自${CHAT}。`)];
+function cardText(question = QUESTION) {
+  return [new El('p', {}, [], question), new El('p', {}, [], '從⁨example.org⁩開始'), new El('p', {}, [], `此任務來自${CHAT}。`)];
 }
 
 function decisionButtons(options) {
@@ -205,15 +205,21 @@ function decisionButtons(options) {
 }
 
 // A single-approval card on the chat surface (cta keys) or the approvals panel (compact, no cta keys)
-function grantCard({ surface = 'chat', approval = grantApproval(), keys } = {}) {
+function grantCard({ surface = 'chat', approval = grantApproval(), keys, props = { approval }, question, pending } = {}) {
   const options = approval.serverPresentation.decisionOptions;
   const buttons = decisionButtons(options);
   const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': surface, 'data-hatch-single-approval': 'true' };
-  const card = new El('div', attrs, [...cardText(), new El('div', {}, buttons)]);
+  const card = new El('div', attrs, [...cardText(question), new El('div', {}, buttons)]);
   const ctaKeys = keys || (surface === 'chat' ? options.map((o, i) => `${approval.approvalId}-cta-${i}-${o.kind}`) : options.map(() => null));
-  attachTree(fiberRoot(), { approval }, card, buttons, ctaKeys);
+  attachTree(fiberRoot(), props, card, buttons, ctaKeys);
   doc.body.append(surface === 'panel' ? new El('section', {}, [card]) : card);
-  return { card, buttons, approval };
+  return { card, buttons, approval, pending };
+}
+
+// A copy of the approval held by the Button component above one button, as that button's own approval
+function withButtonApproval(fixture, index, approval) {
+  fixture.buttons[index].__reactFiber$test.return.return.memoizedProps.approval = approval;
+  return fixture;
 }
 
 // A combined chat card holding two approvals, each in its own expandable item
@@ -263,7 +269,7 @@ const quiet = fn => { const warn = console.warn; console.warn = () => {}; try { 
 async function run(build, sync, sources, onMark) {
   makeDocument();
   const fixture = build();
-  quiet(() => realBridge([fixture.approval || grantApproval()].filter(Boolean), onMark));
+  quiet(() => realBridge(fixture.pending || [fixture.approval || grantApproval()], onMark));
   const env = loadContent(sync, sources);
   env.ctx.scan();
   await tick();
@@ -326,7 +332,7 @@ test('parity fails without the exception and fails when the grant host is used a
   assert.notEqual(noException, shared);
   const lost = differs(await matrix([noException, guard, content]));
   assert.ok(lost.length > 0 && lost.every(l => l.startsWith('chat,')), lost.join('\n'));
-  const asSite = content.replace('purchase, ...grantLabel(attr) };', "purchase, ...grantLabel(attr), host: attr(GRANT_HOST_ATTR) };");
+  const asSite = content.replace('purchase, ...grant };', 'purchase, ...grant, host: attr(GRANT_HOST_ATTR) };');
   assert.notEqual(asSite, content);
   const widened = differs(await matrix([shared, guard, asSite]));
   assert.ok(widened.some(l => l.includes('site rule')), widened.join('\n'));
@@ -358,6 +364,7 @@ test('isTaskWebGrant accepts only the recorded shape', () => {
     'extra unscoped always': grantApproval({ options: [TASK_WEB, opt('allow_always', 'allow_always', 'Always'), DENY] }),
     'second allow once': grantApproval({ options: [TASK_WEB, opt('allow_once', 'allow_once', 'Once'), DENY] }),
     'scoped grant': grantApproval({ options: [opt('allow_once', 'allow_all_web_access_for_this_task', '允許', 'destination'), DENY] }),
+    'null scope': grantApproval({ options: [opt('allow_once', 'allow_all_web_access_for_this_task', '允許', null), DENY] }),
     'other label kind': grantApproval({ options: [opt('allow_once', 'allow_for_this_task', '允許'), DENY] }),
     'grant as always': grantApproval({ options: [opt('allow_always', 'allow_all_web_access_for_this_task', '允許'), DENY] }),
     'no options': grantApproval({ options: [] }),
@@ -390,6 +397,19 @@ test('cards that are not the recorded grant stay vetoed on the chat surface, as 
     'extra single-site always': () => grantCard({ approval: grantApproval({ options: [TASK_WEB, opt('allow_always', 'allow_always_scoped', '一律允許此網站', 'destination'), DENY] }) }),
     'second allow once': () => grantCard({ approval: grantApproval({ options: [TASK_WEB, opt('allow_once', 'allow_once', '允許一次'), DENY] }) }),
     'non-string scope': () => grantCard({ approval: grantApproval({ options: [opt('allow_once', 'allow_all_web_access_for_this_task', '允許', {}), DENY] }) }),
+    'explicit null scope': () => grantCard({ approval: grantApproval({ options: [opt('allow_once', 'allow_all_web_access_for_this_task', '允許', null), DENY] }) }),
+    'a second approval in an array beside the card approval': () => {
+      const a = grantApproval();
+      return grantCard({ approval: a, props: { approval: a, approvals: [a, grantApproval({ id: 'network-attempt-test-2' })] } });
+    },
+    'a second single approval beside the card approval': () => {
+      const a = grantApproval();
+      return grantCard({ approval: a, props: { approval: a, other: grantApproval({ id: 'network-attempt-test-2' }) } });
+    },
+    'pending entry asks another question': () => grantCard({ pending: [grantApproval({ question: 'network_site_grant' })] }),
+    'pending entry has another policy': () => grantCard({ pending: [grantApproval({ policy: 'connector.browser.page.open' })] }),
+    'pending entry without options asks another question': () => grantCard({ pending: [grantApproval({ question: 'network_site_grant', options: null })] }),
+    "a button's own approval asks another question": () => withButtonApproval(grantCard(), 0, grantApproval({ question: 'network_site_grant' })),
     'two approvals under the card': () => {
       const a = grantApproval({ id: 'network-attempt-test-2' });
       const b = grantApproval({ id: 'network-attempt-test-3' });
@@ -431,11 +451,10 @@ test('the exception holds only on a clean card with the grant mark, never for br
 });
 
 test('an anomalous grant card is not clicked on the chat surface', async () => {
-  // The pending list disagrees with the card about the options, so the read is anomalous
-  const pendingCopy = grantApproval({ options: [opt('allow_once', 'allow_once', '允許'), DENY] });
+  // Every source reads as the grant, but the deny button's cta key does not map to an option, so the read is anomalous
   makeDocument();
-  const { card, buttons } = grantCard();
-  quiet(() => realBridge([pendingCopy]));
+  const { card, buttons } = grantCard({ keys: [`${ID}-cta-0-allow_once`, `${ID}-cta-5-deny`] });
+  quiet(() => realBridge([grantApproval()]));
   assert.equal(card.getAttribute('data-maa-state'), 'anomalous');
   assert.equal(card.getAttribute('data-maa-grant'), 'task-web');
   const { ctx, pending } = loadContent(ALL_ACTIONS, HEAD_SOURCES);
@@ -453,6 +472,33 @@ test('a site rule for the grant host never clicks the card, with or without a ch
       assert.deepEqual(result.pending, [KEY], surface);
     }
   }
+});
+
+test('a hostname in the question never makes the grant card a site card, on either surface', async () => {
+  // An assistant named after a host: the title would otherwise yield host example.org and key example.org|<chat>
+  const question = '是否允許example.org存取網路以執行此任務？';
+  const title = '是否允許example.org存取網路以執行此任務';
+  const build = surface => () => grantCard({ surface, question });
+  const siteRules = {
+    'site rule': [{ id: 's1', host: 'example.org', sub: true, chats: [], on: true }],
+    'chat-scoped site rule': [{ id: 's2', host: 'example.org', sub: false, chats: [CHAT], on: true }],
+  };
+  for (const surface of ['chat', 'panel']) {
+    for (const [name, sites] of Object.entries(siteRules)) {
+      for (const preferAlways of [true, false]) {
+        const label = `${surface}, ${name}, preferAlways ${preferAlways}`;
+        const result = await run(build(surface), { sites, preferAlways }, HEAD_SOURCES);
+        assert.deepEqual(result.clicks, [0, 0], label);
+        const [item] = result.env.pendingItems();
+        assert.deepEqual([item.key, item.host, item.site, item.policy, item.action], [KEY, '', '', 'tool.web_fetch', title], label);
+      }
+    }
+  }
+  // Still an action card: an action rule for it clicks it on the chat surface
+  const byPolicy = await run(build('chat'), SETUPS['trusted + action rule by policy'], HEAD_SOURCES);
+  assert.deepEqual(byPolicy.clicks, [1, 0]);
+  assert.deepEqual(AAM.parseCard(question, '', 'tool.web_fetch', 'example.org', 'task-web').host, '');
+  assert.deepEqual(AAM.parseCard(question, '', 'tool.web_fetch', '').host, 'example.org');
 });
 
 test('the pre-click re-check refuses a stale grant mark', async () => {
