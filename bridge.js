@@ -162,15 +162,32 @@
     return first?.kind === 'allow_once' ? first : null;
   }
 
+  // The mark of the option a parsed decision key points at in one approval's data, or null
+  function keyMark(approval, m) {
+    const options = approval?.serverPresentation?.decisionOptions;
+    const option = Array.isArray(options) ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
+    return option ? markOf(option) : null;
+  }
+
+  function primaryMark(approval) {
+    const options = approval?.serverPresentation?.decisionOptions;
+    const option = Array.isArray(options) ? primaryOption(options) : null;
+    return option ? markOf(option) : null;
+  }
+
+  const sameMarks = marks => marks.every(mark => JSON.stringify(mark) === JSON.stringify(marks[0]));
+
   // Reads one approval's buttons in a single pass into { state, missing, options, marks }. state 'clean': at least one keyed
-  // button, and every keyed button carries this approval's key and maps to its option. 'anomalous': the options were read but
-  // a button is keyed to or sits under another approval, a key does not map, a fiber can't be confirmed, or no button is
-  // keyed; nothing later in the pass resets it. '': no decisionOptions, main's text rules.
+  // button, and every keyed button carries this approval's key and maps to the same option in every source holding the
+  // approval (the card's, the button's nearest one, the pending list's). 'anomalous': the options were read but a button is
+  // keyed to or sits under another approval, a key does not map, the sources disagree, a fiber can't be confirmed, or no
+  // button is keyed; nothing later in the pass resets it. '': no decisionOptions, main's text rules.
   // Every button confirmed on its own is marked; content.js clicks only a confirmed once button on an anomalous card.
   // A keyless primary is marked allow once only when it is the first allow option and a keyed button of this approval exists
-  function optionMarks(approval, buttons, walk = newWalk()) {
+  function optionMarks(approval, buttons, walk = newWalk(), pendingById = () => null) {
     const options = approval?.serverPresentation?.decisionOptions;
     if (!Array.isArray(options)) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
+    const cached = pendingById(approval.approvalId);
     let anomalous = false, keyed = 0;
     const found = buttons.map(({ fiber, primary }) => {
       const key = decisionKeyOf(fiber, walk);
@@ -180,40 +197,42 @@
         anomalous = true;
         return null;
       }
-      if (key === null) return primary && own.length === 1 ? 'primary' : null;
-      const option = m && own.length === 1 ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
-      if (!option) {
+      const sources = [approval, ...own, ...(cached ? [cached] : [])];
+      if (key === null) return primary && own.length === 1 ? { sources } : null;
+      const marks = m && own.length === 1 ? sources.map(a => keyMark(a, m)) : [null];
+      if (!marks[0] || !sameMarks(marks)) {
         anomalous = true;
         return null;
       }
       keyed++;
-      return markOf(option);
+      return marks[0];
     });
     if (!keyed && buttons.length) anomalous = true;
-    const primaryMark = keyed && primaryOption(options);
-    const marks = found.map(f => (f === 'primary' ? (primaryMark ? markOf(primaryMark) : null) : f));
+    const marks = found.map(f => {
+      if (!f?.sources) return f;
+      const all = f.sources.map(primaryMark);
+      if (!sameMarks(all)) anomalous = true;
+      return keyed && sameMarks(all) ? all[0] : null;
+    });
     return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: options.map(o => markOf(o || {})), marks };
   }
 
   // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
-  // Returns { approvalId, kind, labelKind, scope }, or null when it can't be matched
-  function menuItemMark(start, walk = newWalk(), pendingById = () => null) {
+  // The same key must point at the same option in the pending list, in the cards showing that approval (cardsById) and in
+  // the portal's own approval ancestor if it has one; at least one card side must be reached. Any difference (one source
+  // may say broad) leaves the item unmarked. Returns { approvalId, kind, labelKind, scope }, or null
+  function menuItemMark(start, walk = newWalk(), pendingById = () => null, cardsById = () => []) {
     const key = decisionKeyOf(start, walk);
     const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
     if (!m || m[2] !== 'compact-allow') return null;
-    // If the portal's React parents do reach an approval, it must be the key's one and point at the same option as the
-    // pending list: when the two sources disagree (one may say broad), the item stays unmarked and is never clicked
     const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
     if (!own || own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
-    const optionIn = approval => {
-      const options = approval?.serverPresentation?.decisionOptions;
-      const option = Array.isArray(options) ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
-      return option && markOf(option);
-    };
-    const mark = optionIn(pendingById(m[1]));
-    if (!mark) return null;
-    if (own.length === 1 && JSON.stringify(optionIn(own[0])) !== JSON.stringify(mark)) return null;
-    return { approvalId: m[1], ...mark };
+    const cards = [...own, ...cardsById(m[1], walk)];
+    const pending = pendingById(m[1]);
+    if (!pending || !cards.length) return null;
+    const marks = [pending, ...cards].map(a => keyMark(a, m));
+    if (!marks[0] || !sameMarks(marks)) return null;
+    return { approvalId: m[1], ...marks[0] };
   }
 
   function setAttr(el, name, value) {
@@ -227,7 +246,7 @@
 
   // Marks the decision buttons of a card or combined-card item from the same walk as the item itself. A combined card
   // holds several approvals and leaves its buttons to its items
-  function markOptions(el, approvals, walk) {
+  function markOptions(el, approvals, walk, pendingById) {
     if (!el.closest(CARD_SELECTOR) || el.closest(BACKGROUND_SELECTOR)) return;
     const buttons = [...el.querySelectorAll('button')].filter(b => !b.matches(MENU_SELECTOR));
     let result;
@@ -235,7 +254,7 @@
       const missing = approvals.some(a => !Array.isArray(a.serverPresentation?.decisionOptions));
       result = { state: '', missing, options: null, marks: null };
     } else if (approvals?.length === 1) {
-      result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b), primary: b.matches(PRIMARY_SELECTOR) })), walk);
+      result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b), primary: b.matches(PRIMARY_SELECTOR) })), walk, pendingById);
     } else {
       // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
       result = { state: '', missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
@@ -247,7 +266,7 @@
   }
 
   // Unknown removes every attribute. Returns whether the node got a verified answer from approval data
-  function markItem(el, walk = newWalk()) {
+  function markItem(el, walk = newWalk(), pendingById = pendingLookup()) {
     let approvals = null, marks = null;
     try {
       approvals = approvalsOfFiber(fiberOf(el), walk);
@@ -261,7 +280,7 @@
     setAttr(el, 'data-maa-site', marks?.site);
     setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
     try {
-      markOptions(el, approvals, walk);
+      markOptions(el, approvals, walk, pendingById);
     } catch (err) {
       console.warn('[MAA] bridge option read failed', err);
       for (const b of el.querySelectorAll('button')) writeOption(b, null);
@@ -273,17 +292,31 @@
 
   function markItems() {
     const walk = newWalk();
+    const pendingById = pendingLookup();
     for (const el of document.querySelectorAll(ITEM_SELECTOR)) {
       if (!el.matches(CARD_SELECTOR) && !el.closest('section, ' + CARD_SELECTOR)) continue;
-      markItem(el, walk);
+      markItem(el, walk, pendingById);
     }
+  }
+
+  function pendingLookup() {
+    const pending = findPending() || [];
+    return id => pending.find(a => isApproval(a) && a.approvalId === id && !a.decidedAtMs) || null;
+  }
+
+  // The approvals read now from the card nodes marked with this id; a node whose fresh walk holds anything else is skipped
+  function cardApprovals(id, walk) {
+    return [...document.querySelectorAll(ITEM_SELECTOR)]
+      .filter(el => el.getAttribute('data-maa-approval-id') === id)
+      .map(el => approvalsOfFiber(fiberOf(el), walk))
+      .filter(a => a?.length === 1 && a[0].approvalId === id)
+      .map(a => a[0]);
   }
 
   function markMenuItem(el) {
     let mark = null;
     try {
-      const pending = findPending() || [];
-      mark = menuItemMark(fiberOf(el), newWalk(), id => pending.find(a => isApproval(a) && a.approvalId === id && !a.decidedAtMs));
+      mark = menuItemMark(fiberOf(el), newWalk(), pendingLookup(), cardApprovals);
     } catch (err) {
       console.warn('[MAA] bridge menu read failed', err);
     }

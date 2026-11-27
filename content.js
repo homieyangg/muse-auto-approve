@@ -342,8 +342,9 @@ function stillAllowed(node, buttons, key, onceOnly, target) {
   const card = cardOf(node, buttons);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
-  if (buttons.data && !freshlyMarked(node)) return false;
-  if ((buttons.data || target.menu) && (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
+  // Without data the check stays main's, except that data turning up since the scan sends the card back to the next scan
+  if (!buttons.data) return !cardState(node);
+  if (!freshlyMarked(node) || (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
   return AAM.samePick(buttons, findAllowButtons(node), target);
 }
 

@@ -407,23 +407,25 @@ function menuTree(key, { depth = 12, approvalAbove = null } = {}) {
 }
 
 const pendingOf = (...approvals) => id => approvals.find(a => a.approvalId === id);
+// The approvals read from the card nodes showing an id, as bridge.js's cardApprovals
+const cardsOf = (...approvals) => id => approvals.filter(a => a?.approvalId === id);
 
 
 test('a menu item maps to its option through the compact-allow key and the pending list', () => {
   const appr = approval('appr-test-23', [ONCE, SCOPED, DENY]);
-  const mark = menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+  const mark = menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always'), undefined, pendingOf(appr), cardsOf(appr));
   assert.deepEqual(mark, { approvalId: 'appr-test-23', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' });
   assert.equal(AAM.menuItemAlways(mark, 'appr-test-23'), true);
   assert.equal(AAM.menuItemAlways(mark, 'appr-other'), false);
   // The approval comes from the pending list; an ancestor holding the same approval is only a consistency check
   assert.equal(menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, () => null), null);
-  assert.equal(menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, pendingOf(appr)).scope, 'destination');
+  assert.equal(menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always', { approvalAbove: appr }), undefined, pendingOf(appr), cardsOf(appr)).scope, 'destination');
 });
 
 test('menu items for broad or unknown options are marked but never picked as always', () => {
   for (const broad of [BROAD, opt('allow_always', 'allow_all_web_access_for_this_task'), opt('allow_always', 'allow_always_scoped', 'workspace')]) {
     const appr = approval('appr-test-24', [ONCE, broad, DENY]);
-    const mark = menuItemMark(menuTree('appr-test-24-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+    const mark = menuItemMark(menuTree('appr-test-24-compact-allow-0-allow_always'), undefined, pendingOf(appr), cardsOf(appr));
     assert.equal(mark.kind, 'allow_always');
     assert.equal(AAM.menuItemAlways(mark, 'appr-test-24'), false);
   }
@@ -433,22 +435,22 @@ test('a menu item that can not be matched gets no mark', () => {
   const appr = approval('appr-test-25', [ONCE, SCOPED, DENY]);
   const cases = {
     'not pending': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always'), undefined, () => undefined),
-    'kind at index differs': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_once'), undefined, pendingOf(appr)),
-    'index out of range': menuItemMark(menuTree('appr-test-25-compact-allow-1-allow_always'), undefined, pendingOf(appr)),
-    'other approval above': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always', { approvalAbove: approval('appr-other', [ONCE, SCOPED]) }), undefined, pendingOf(appr)),
-    'key too far up': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always', { depth: 40 }), undefined, pendingOf(appr)),
-    'no decisionOptions': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always'), undefined, pendingOf(approval('appr-test-25', null))),
-    'cta key': menuItemMark(menuTree('appr-test-25-cta-1-allow_always'), undefined, pendingOf(appr)),
-    stale: menuItemMark({ memoizedProps: {}, return: { memoizedProps: {} } }, undefined, pendingOf(appr)),
+    'kind at index differs': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_once'), undefined, pendingOf(appr), cardsOf(appr)),
+    'index out of range': menuItemMark(menuTree('appr-test-25-compact-allow-1-allow_always'), undefined, pendingOf(appr), cardsOf(appr)),
+    'other approval above': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always', { approvalAbove: approval('appr-other', [ONCE, SCOPED]) }), undefined, pendingOf(appr), cardsOf(appr)),
+    'key too far up': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always', { depth: 40 }), undefined, pendingOf(appr), cardsOf(appr)),
+    'no decisionOptions': menuItemMark(menuTree('appr-test-25-compact-allow-0-allow_always'), undefined, pendingOf(approval('appr-test-25', null)), cardsOf(approval('appr-test-25', null))),
+    'cta key': menuItemMark(menuTree('appr-test-25-cta-1-allow_always'), undefined, pendingOf(appr), cardsOf(appr)),
+    stale: menuItemMark({ memoizedProps: {}, return: { memoizedProps: {} } }, undefined, pendingOf(appr), cardsOf(appr)),
   };
   for (const [name, mark] of Object.entries(cases)) assert.equal(mark, null, name);
 });
 
 test('two options of the same kind that the compact key can not tell apart are not matched', () => {
   const appr = approval('appr-test-26', [ONCE, SCOPED, BROAD, DENY]);
-  for (const index of [0, 1]) assert.equal(menuItemMark(menuTree(`appr-test-26-compact-allow-${index}-allow_always`), undefined, pendingOf(appr)), null);
+  for (const index of [0, 1]) assert.equal(menuItemMark(menuTree(`appr-test-26-compact-allow-${index}-allow_always`), undefined, pendingOf(appr), cardsOf(appr)), null);
   const twins = approval('appr-test-27', [ONCE, SCOPED, SCOPED, DENY]);
-  assert.equal(menuItemMark(menuTree('appr-test-27-compact-allow-1-allow_always'), undefined, pendingOf(twins)).scope, 'destination');
+  assert.equal(menuItemMark(menuTree('appr-test-27-compact-allow-1-allow_always'), undefined, pendingOf(twins), cardsOf(twins)).scope, 'destination');
 });
 
 // Review P1-c
@@ -487,7 +489,7 @@ test('panel surface end to end: keyless primary, compact-deny and a compact-allo
   const picked = pick(optionMarks(appr, asButtons(hosts, 0)), PANEL_TEXTS);
   assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
   assert.equal(picked.alwaysInMenu, true);
-  const option = menuItemMark(menuTree('appr-test-30-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+  const option = menuItemMark(menuTree('appr-test-30-compact-allow-0-allow_always'), undefined, pendingOf(appr), cardsOf(appr));
   assert.deepEqual(AAM.pickMenuItem([{ el: 'm0', text: 'Toujours autoriser', option }], 'appr-test-30', picked.data), { item: 'm0', data: true });
   assert.equal(AAM.samePick(picked, picked, { menu: true, data: true, approvalId: 'appr-test-30', option }), true);
 });
@@ -497,16 +499,16 @@ test('panel surface: a compact-allow item with a broad scope is never picked, Al
   const picked = pick(read('appr-test-31', appr.serverPresentation.decisionOptions, [null, 'appr-test-31-compact-deny-0-deny'], 0), PANEL_TEXTS);
   assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
   assert.equal(picked.alwaysInMenu, false);
-  const option = menuItemMark(menuTree('appr-test-31-compact-allow-0-allow_always'), undefined, pendingOf(appr));
+  const option = menuItemMark(menuTree('appr-test-31-compact-allow-0-allow_always'), undefined, pendingOf(appr), cardsOf(appr));
   assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow all actions', option }], 'appr-test-31', true), null);
 });
 
 test('an unknown kind in a compact key: matched when the data has it but never picked, refused when it does not', () => {
   const appr = approval('appr-test-32', [ONCE, opt('allow_forever', 'allow_forever'), DENY]);
-  const option = menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_forever'), undefined, pendingOf(appr));
+  const option = menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_forever'), undefined, pendingOf(appr), cardsOf(appr));
   assert.equal(option.kind, 'allow_forever');
   assert.equal(AAM.menuItemAlways(option, 'appr-test-32'), false);
-  assert.equal(menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_later'), undefined, pendingOf(appr)), null);
+  assert.equal(menuItemMark(menuTree('appr-test-32-compact-allow-0-allow_later'), undefined, pendingOf(appr), cardsOf(appr)), null);
   const deny = read('appr-test-32', [ONCE, DENY], [null, 'appr-test-32-compact-deny-0-deny_later'], 0);
   assert.deepEqual([deny.missing, deny.marks], [true, [null, null]]);
 });
@@ -527,11 +529,11 @@ test('a menu item whose ancestor approval and pending list disagree is not marke
   const pendingSafe = approval('appr-test-44', [ONCE, SCOPED, DENY]);
   const ancestorBroad = approval('appr-test-44', [ONCE, BROAD, DENY]);
   const key = 'appr-test-44-compact-allow-0-allow_always';
-  assert.equal(menuItemMark(menuTree(key, { approvalAbove: ancestorBroad }), undefined, pendingOf(pendingSafe)), null);
-  assert.equal(menuItemMark(menuTree(key, { approvalAbove: pendingSafe }), undefined, pendingOf(ancestorBroad)), null);
+  assert.equal(menuItemMark(menuTree(key, { approvalAbove: ancestorBroad }), undefined, pendingOf(pendingSafe), cardsOf(pendingSafe)), null);
+  assert.equal(menuItemMark(menuTree(key, { approvalAbove: pendingSafe }), undefined, pendingOf(ancestorBroad), cardsOf(ancestorBroad)), null);
   // Fresh card broad, pending cache still single-site: the fresh card's alwaysInMenu=false refuses the click
   const panel = options => pick(read('appr-test-44', options, [null, 'appr-test-44-compact-deny-0-deny'], 0), PANEL_TEXTS);
-  const option = menuItemMark(menuTree(key), undefined, pendingOf(pendingSafe));
+  const option = menuItemMark(menuTree(key), undefined, pendingOf(pendingSafe), cardsOf(pendingSafe));
   const fresh = panel([ONCE, BROAD, DENY]);
   assert.equal(fresh.alwaysInMenu, false);
   assert.equal(AAM.samePick(panel([ONCE, SCOPED, DENY]), fresh, { menu: true, data: true, approvalId: 'appr-test-44', option }), false);
@@ -557,4 +559,51 @@ test('an anomalous card never opens the menu; a clean card takes the item only b
   assert.equal(AAM.samePick(clean, clean, { menu: true, data: false, approvalId: 'appr-test-45', option: null }), false);
   assert.equal(AAM.samePick(clean, clean, { menu: true, data: true, approvalId: 'appr-test-45', option: always }), true);
   assert.equal(AAM.samePick(clean, clean, { menu: true, data: true, approvalId: 'appr-test-45', option: { ...always, scope: 'destination_domain' } }), false);
+});
+
+const DOMAIN = opt('allow_always', 'allow_always_scoped', 'destination_domain');
+const SOURCE_PAIRS = [[SCOPED, DOMAIN], [DOMAIN, SCOPED], [SCOPED, BROAD], [BROAD, SCOPED]];
+
+// Codex re-review 4, P1: every source holding the approval must resolve the button to the same option, not just the same id
+test('a button is clean only when the card, its own ancestor and the pending list give the same option', () => {
+  const texts = ['Allow once', 'Always allow uploads to this site', 'Deny'];
+  for (const [a, b] of SOURCE_PAIRS) {
+    const name = `${a.label.scope}/${b.label.scope}`;
+    const card = approval('appr-test-60', [ONCE, a, DENY]);
+    const other = approval('appr-test-60', [ONCE, b, DENY]);
+    // The button's nearest approval is a different object with the same id
+    const ancestor = optionMarks(card, asButtons(cardTree(other, keysFor('appr-test-60', [ONCE, b, DENY])).hosts));
+    const cached = optionMarks(card, asButtons(cardTree(card, keysFor('appr-test-60', [ONCE, a, DENY])).hosts), undefined, pendingOf(other));
+    for (const [source, result] of [['ancestor', ancestor], ['pending', cached]]) {
+      assert.deepEqual([result.state, result.missing], ['anomalous', true], `${source} ${name}`);
+      assert.deepEqual(core(pick(result, texts)), { always: null, once: 'button-0', data: true }, `${source} ${name}`);
+    }
+    const agreed = optionMarks(card, asButtons(cardTree(card, keysFor('appr-test-60', [ONCE, a, DENY])).hosts), undefined, pendingOf(approval('appr-test-60', [ONCE, a, DENY])));
+    assert.equal(agreed.state, 'clean', name);
+  }
+  // The keyless primary too: the card says the first allow option is broad, the button's ancestor says allow once
+  const panelCard = approval('appr-test-61', [BROAD, ONCE, DENY]);
+  const { hosts } = cardTree(approval('appr-test-61', [ONCE, BROAD, DENY]), [null, 'appr-test-61-compact-deny-0-deny']);
+  const primary = optionMarks(panelCard, asButtons(hosts, 0));
+  assert.deepEqual([primary.state, primary.marks[0]], ['anomalous', null]);
+  assert.equal(pick(primary, PANEL_TEXTS), null);
+});
+
+// Codex re-review 4, P1: the same compact key is resolved in the pending list and in the card, and must agree
+test('a menu item is marked only when the pending list and the card give the same option at its key', () => {
+  const key = 'appr-test-62-compact-allow-0-allow_always';
+  for (const [a, b] of SOURCE_PAIRS) {
+    const name = `${a.label.scope}/${b.label.scope}`;
+    const pending = approval('appr-test-62', [ONCE, a, DENY]);
+    const card = approval('appr-test-62', [ONCE, b, DENY]);
+    assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(pending), cardsOf(card)), null, name);
+    assert.equal(menuItemMark(menuTree(key, { approvalAbove: pending }), undefined, pendingOf(pending), cardsOf(card)), null, name);
+    assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(pending), cardsOf(pending, card)), null, name);
+    assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(pending), cardsOf(pending)).scope, a.label.scope, name);
+  }
+  // The cache's option still appears in the card, but not at this key
+  const cache = approval('appr-test-62', [ONCE, SCOPED, DENY]);
+  assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(cache), cardsOf(approval('appr-test-62', [ONCE, DOMAIN, SCOPED, DENY]))), null);
+  // No card reached: refused
+  assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(cache), () => []), null);
 });

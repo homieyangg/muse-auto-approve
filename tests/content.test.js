@@ -377,3 +377,24 @@ test('without data, a menu item that disappears before the click leaves the card
   await menuWait();
   assert.deepEqual([primary.clicks, item.clicks], [0, 0]);
 });
+
+// Codex re-review 4, P2: on a card without data the pre-click check is main's, so a primary disabled while the menu is open
+// does not stop the menu item; data turning up meanwhile sends the card back to the next scan instead
+test('without data, the pre-click check is main\'s: a menu item is clicked though the primary is disabled meanwhile', async () => {
+  for (const [name, dataAppears, clicks] of [['no data', false, 1], ['data turned up', true, 0]]) {
+    makeDocument();
+    let n = 0;
+    fakeBridge(el => {
+      if (dataAppears && el.matches('[data-testid]') && ++n > 1) {
+        el.setAttribute('data-maa-approval-id', 'appr-test-63');
+        el.setAttribute('data-maa-state', 'clean');
+      }
+    });
+    const { primary, item } = panelCard(null, { bare: true });
+    const { ctx } = loadContent({ mode: 'all' });
+    ctx.scan();
+    primary.setAttribute('disabled', '');
+    await menuWait();
+    assert.deepEqual([primary.clicks, item.clicks], [0, clicks], name);
+  }
+});
