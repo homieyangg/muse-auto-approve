@@ -2,7 +2,7 @@
 
 Auto Approve for Muse does not collect, sell, or share any user data. It has no server and makes no network requests of its own.
 
-- The extension only runs on `muse.ai` pages. It reads the page to find approval cards and clicks the approve button. To tell approvals apart, it also reads the approval ID, the permission type, the site a browser upload goes to, and which option each approval button stands for, which the muse page already holds. That data stays in your browser.
+- The extension only runs on `muse.ai` pages. It reads the page to find approval cards and clicks the approve button. To tell approvals apart, it also reads the approval ID, the permission type, the site a browser upload goes to, the approval's own host field, and which option each approval button stands for, which the muse page already holds. That data stays in your browser.
 - Your settings (on/off, mode, preferences, language) and your trusted sites, actions, and chats are stored with `chrome.storage.sync`. If you are signed in to Chrome, Chrome syncs them between your own browsers through your Google account, the same way it syncs other extension settings. The developer never receives them.
 - The activity log (the last 200 approval cards, with time, site, and chat name) and the requests waiting for your decision are stored only on your device in `chrome.storage.local` and `chrome.storage.session`. You can clear the log at any time, and everything is removed when the extension is uninstalled.
 - Export creates a file on your computer that only you can see. Nothing is uploaded.

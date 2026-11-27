@@ -9,13 +9,19 @@ const AAT = (() => {
   // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
-  // muse policy types that mean "open this website". parseCard reads any card whose title says open plus a hostname as a
-  // website, so a row whose stored policy is anything else (an upload, an action, or a type not listed here) gets no Trust
+  // muse policy types that mean "open this website"
   const SITE_POLICIES = [];
 
+  // parseCard reads any card whose title says open plus a hostname as a website, so the title alone is no evidence. A row is
+  // a website only when muse's approval data, as content.js logged it, says so; an empty, ambiguous (several approvals) or
+  // mixed read, and rows logged before the data was kept, say nothing. Only SITE_POLICIES counts for now. If website cards
+  // turn out to carry no policy type, "the approval's own host (entry.approvalHost) equals the parsed host" goes here instead
+  function siteEvidence(entry) {
+    return !entry.mixed && SITE_POLICIES.includes(entry.policy);
+  }
+
   function trustable(entry) {
-    if (entry.policy && !SITE_POLICIES.includes(entry.policy)) return false;
-    return !!entry.host && !!aam.normalizeHost(entry.host) && !aam.isPurchase(entry);
+    return siteEvidence(entry) && !!entry.host && !!aam.normalizeHost(entry.host) && !aam.isPurchase(entry);
   }
 
   // True when this website card would still stop and ask: Allow everything approves every website card
@@ -179,7 +185,7 @@ const AAT = (() => {
     return { states, trustButton, pickButtons, undoButton };
   }
 
-  return { trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, rowStates, trust, undo, controls };
+  return { SITE_POLICIES, trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, rowStates, trust, undo, controls };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAT;

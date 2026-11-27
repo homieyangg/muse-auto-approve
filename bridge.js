@@ -97,6 +97,7 @@
       approvalId: one?.approvalId || '',
       policy: one?.policySubject || '',
       site: one ? destinationOf(one) : '',
+      host: typeof one?.host === 'string' ? one.host : '',
       purchase: approvals.some(isPurchaseApproval),
       found: approvals.length > 0,
     };
@@ -237,6 +238,7 @@
     setAttr(el, 'data-maa-approval-id', marks?.approvalId);
     setAttr(el, 'data-maa-policy', marks?.policy);
     setAttr(el, 'data-maa-site', marks?.site);
+    setAttr(el, 'data-maa-host', marks?.host);
     setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
     try {
       markOptions(el, approvals, walk, pendingById);

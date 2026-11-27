@@ -7,6 +7,9 @@ const AAT = require('../trust.js');
 
 const POLICY = 'connector.example.post.create';
 const UPLOAD = 'connector.browser.page.upload';
+// No muse website policy type is known yet; the tests stand one in
+const SITE = 'connector.example.site.open';
+AAT.SITE_POLICIES.push(SITE);
 
 const settingsWith = (patch = {}) => ({ ...structuredClone(AAM.SETTINGS_DEFAULTS), ...structuredClone(patch) });
 const site = (host, extra = {}) => ({ id: `s-${host}`, host, sub: false, chats: [], on: true, ...extra });
@@ -14,7 +17,7 @@ const apply = (settings, plan) => ({ ...settings, ...plan.patch });
 
 // Log entries shaped like the ones content.js writes, with the card key built the same way
 function siteEntry(host, chat, result = 'handled', extra = {}) {
-  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: '', site: '', result, ...extra };
+  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: SITE, approvalHost: host, mixed: false, site: '', result, ...extra };
   return { ...e, key: AAM.cardKey(e) };
 }
 function actionEntry(title, chat, result = 'handled', extra = {}) {
@@ -80,18 +83,20 @@ test('rule 1: only the newest row of a card offers Trust', () => {
   assert.deepEqual(offered(settingsWith({ sites: [site('a.example')] }), trusted), [false, false]);
 });
 
-test('website rows written before the log stored purchase still offer Trust', () => {
+test('website rows logged before the approval data was kept offer no Trust', () => {
   const old = siteEntry('a.example', 'Chat A');
-  delete old.policy;
-  assert.deepEqual(offered(settingsWith(), [old]), [true]);
+  for (const field of ['policy', 'approvalHost', 'mixed', 'purchase']) delete old[field];
+  assert.deepEqual(offered(settingsWith(), [old]), [false]);
+  assert.equal(AAT.planTrust(settingsWith(), old, 'any'), null);
 });
 
-test('a website row whose stored policy is an upload, an action or unknown offers no Trust', () => {
-  for (const policy of [UPLOAD, POLICY, 'connector.example.unknown']) {
-    const entry = siteEntry('a.example', 'Chat A', 'handled', { policy });
-    assert.deepEqual(offered(settingsWith(), [entry]), [false], policy);
-    assert.equal(AAT.planTrust(settingsWith(), entry, 'any'), null, policy);
+test('a website row offers Trust only with a website policy type that no scan contradicted', () => {
+  for (const extra of [{ policy: '' }, { policy: UPLOAD }, { policy: POLICY }, { policy: 'connector.example.unknown' }, { mixed: true }]) {
+    const entry = siteEntry('a.example', 'Chat A', 'handled', extra);
+    assert.deepEqual(offered(settingsWith(), [entry]), [false], JSON.stringify(extra));
+    assert.equal(AAT.planTrust(settingsWith(), entry, 'any'), null, JSON.stringify(extra));
   }
+  assert.deepEqual(offered(settingsWith(), [siteEntry('a.example', 'Chat A')]), [true]);
 });
 
 test('action and upload rows never offer Trust and keep main\'s label', () => {

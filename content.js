@@ -28,6 +28,8 @@ const MARKED_ATTR = 'data-maa-marked';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
+// The approval's own host field as muse holds it, e.g. 'browser' on upload cards
+const HOST_ATTR = 'data-maa-host';
 // Set by bridge.js on each decision button of a chat card from muse's decisionOptions, and the card state on the card or item
 const OPTION_KIND_ATTR = 'data-maa-option-kind';
 const LABEL_KIND_ATTR = 'data-maa-label-kind';
@@ -180,7 +182,7 @@ function scan() {
     const onceOnly = onceAllowed(key);
     const clickable = !!AAM.clickTarget(buttons, settings.preferAlways && !onceOnly);
     if (!clickable || !AAG.canAutoApprove(settings, card, onceOnly)) {
-      waiting.set(key, pendingItem(card, key));
+      addWaiting(waiting, pendingItem(card, key));
       continue;
     }
     trusted++;
@@ -223,15 +225,37 @@ function purchaseState(node, body) {
 }
 
 // Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data.
-// approvalPolicy is muse's policy type as read, kept for the log even when parseCard reads the card as a website
+// approvalPolicy and approvalHost are muse's policy type and host as read, kept for the log even when parseCard reads the
+// card as a website
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, approvalPolicy: attr(POLICY_ATTR) };
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, approvalPolicy: attr(POLICY_ATTR), approvalHost: attr(HOST_ATTR) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, approvalPolicy: card.approvalPolicy };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, ...evidenceOf(card) };
+}
+
+const evidenceOf = item => ({ approvalPolicy: item.approvalPolicy || '', approvalHost: item.approvalHost || '', mixed: !!item.mixed });
+const logEvidence = item => ({ policy: item.approvalPolicy, approvalHost: item.approvalHost, mixed: item.mixed });
+
+// The approval data a log row's Trust rests on, merged over reads of the same card key. A read that found nothing keeps what
+// another read found; two reads that disagree mark it mixed for good, so a later read never makes a row more trustable
+function mergeEvidence(a, b) {
+  const out = evidenceOf(a);
+  out.mixed ||= !!b.mixed;
+  for (const field of ['approvalPolicy', 'approvalHost']) {
+    const value = b[field] || '';
+    if (value && !out[field]) out[field] = value;
+    else if (value && out[field] !== value) out.mixed = true;
+  }
+  return out;
+}
+
+function addWaiting(waiting, item, keepEarlier = false) {
+  const prev = waiting.get(item.key);
+  waiting.set(item.key, prev ? { ...(keepEarlier ? prev : item), ...mergeEvidence(prev, item) } : item);
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -280,10 +304,10 @@ function reviewPreviews(previews, now, waiting, canExpand) {
   for (const preview of previews) {
     const purchase = purchaseState(preview, preview);
     const policy = preview.getAttribute(POLICY_ATTR) || '';
-    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, approvalPolicy: policy };
+    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, approvalPolicy: policy, approvalHost: preview.getAttribute(HOST_ATTR) || '' };
     const key = AAM.cardKey(card);
     if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
-      if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));
+      addWaiting(waiting, pendingItem(card, key), true);
       continue;
     }
     if (canExpand && !trusted && settings.openBackground && now - (handledAt.get(preview) || 0) >= RETRY_AFTER_MS) {
@@ -296,6 +320,8 @@ function reviewPreviews(previews, now, waiting, canExpand) {
 }
 
 async function approve(node, buttons, card, key, onceOnly) {
+  // Read before this scan's syncWaiting drops the key, which happens before the click resolves
+  const waited = waitingState.get(key);
   if (onceOnly) usedOnce.add(key);
   handledAt.set(node, Date.now());
   handledKeys.set(key, { at: Date.now(), surface: buttons.surface });
@@ -303,9 +329,10 @@ async function approve(node, buttons, card, key, onceOnly) {
   settleUntil.set(buttons.body, Date.now() + SETTLE_MS);
   const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target));
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
+  const evidence = waited ? mergeEvidence(waited, card) : evidenceOf(card);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.approvalPolicy, site: card.site, purchase: card.purchase, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(evidence), site: card.site, purchase: card.purchase, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -389,8 +416,9 @@ function syncWaiting(waiting, now, tracking) {
   if (!tracking) waitingState.clear();
   for (const w of added) waitingState.set(w.key, { ...w, ts: now });
   for (const k of gone) waitingState.delete(k);
+  const refreshed = refreshEvidence(waiting, added);
   if (!waitingState.size) blockedBanner = { text: '', at: 0 };
-  if (added.length || gone.length) recordWaitingChanges(added, gone);
+  if (added.length || gone.length || refreshed.length) recordWaitingChanges(added, gone, refreshed);
   const items = [...waitingState.values()];
   const report = items.map(i => i.key).join('\n');
   if (report === lastReported) return;
@@ -398,10 +426,33 @@ function syncWaiting(waiting, now, tracking) {
   chrome.runtime.sendMessage({ type: 'pending', items }).catch(() => {});
 }
 
-function recordWaitingChanges(added, gone) {
+// A card still waiting may be read with data this scan that an earlier scan could not read (bridge.js not loaded yet, or
+// several approvals at once); its waiting item takes the merged evidence. Returns the items that changed
+function refreshEvidence(waiting, added) {
+  const refreshed = [];
+  for (const w of waiting) {
+    const prev = waitingState.get(w.key);
+    if (!prev || added.includes(w)) continue;
+    const evidence = mergeEvidence(prev, w);
+    if (JSON.stringify(evidence) === JSON.stringify(evidenceOf(prev))) continue;
+    waitingState.set(w.key, { ...prev, ...evidence });
+    refreshed.push(waitingState.get(w.key));
+  }
+  return refreshed;
+}
+
+function recordWaitingChanges(added, gone, refreshed = []) {
   updateLocal({ log: [], dismissed: [] }, data => {
-    const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, policy: w.approvalPolicy, site: w.site, purchase: w.purchase, result: 'pending' }));
+    const refresh = new Map(refreshed.map(w => [w.key, w]));
+    // Only the newest waiting row of a key is the one this page wrote; it is merged too, so it is never relaxed
+    const log = data.log.map(e => {
+      if (gone.includes(e.key) && e.result === 'pending') return { ...e, result: 'handled' };
+      const w = e.result === 'pending' && refresh.get(e.key);
+      if (!w) return e;
+      refresh.delete(e.key);
+      return { ...e, ...logEvidence(mergeEvidence({ approvalPolicy: e.policy, approvalHost: e.approvalHost, mixed: e.mixed }, w)) };
+    });
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(w), site: w.site, purchase: w.purchase, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

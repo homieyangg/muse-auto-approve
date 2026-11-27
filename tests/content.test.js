@@ -417,36 +417,99 @@ test('log entries store the policy and purchase state of waiting and approved ca
   assert.deepEqual([allowedEntry.result, allowedEntry.policy, allowedEntry.purchase], ['allowed', 'connector.example.post.create', false]);
 });
 
-// Card -> parseCard -> log entry -> Trust offer: a website row may only come from a card whose policy type is a website one
-async function loggedRow(text, policy) {
+// Card -> parseCard -> log entry -> Trust offer. No muse website policy type is known yet, so these tests stand one in
+const AAT = require('../trust.js');
+const SITE = 'connector.example.site.open';
+const UPLOAD = 'connector.browser.page.upload';
+AAT.SITE_POLICIES.push(SITE);
+const offered = entry => AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size === 1;
+
+// A chat card with the bridge.js attributes given; set() changes them as a later bridge read would
+function siteCard(text, marks = {}) {
   makeDocument();
   fakeBridge();
-  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-80', 'data-maa-state': 'clean', ...(policy && { 'data-maa-policy': policy }) };
-  const buttons = [
-    new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow'),
-    new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny'),
-  ];
-  doc.body.append(new El('div', attrs, [new El('p', {}, [], text), new El('div', {}, buttons)]));
-  const { ctx, store } = loadContent();
-  ctx.scan();
-  for (let i = 0; i < 4; i++) await tick();
-  return store.local.log[0];
+  const card = new El('div', { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-80', 'data-maa-state': 'clean' }, [
+    new El('p', {}, [], text),
+    new El('div', {}, [
+      new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow'),
+      new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny'),
+    ]),
+  ]);
+  doc.body.append(card);
+  const set = ({ policy = '', host = '' }) => {
+    for (const [name, value] of [['data-maa-policy', policy], ['data-maa-host', host]]) {
+      if (value) card.setAttribute(name, value);
+      else card.removeAttribute(name);
+    }
+  };
+  set(marks);
+  const loaded = loadContent();
+  const scan = async next => {
+    if (next) set(next);
+    loaded.ctx.scan();
+    for (let i = 0; i < 6; i++) await tick();
+    return loaded.store.local.log;
+  };
+  return { ...loaded, scan };
 }
 
+async function loggedRow(text, marks) {
+  const [entry] = await siteCard(text, marks).scan();
+  return entry;
+}
+
+const ACCESS = 'Access a.example? This task is from Chat A.';
+const OPEN_UPLOAD = 'Open a.example to upload a file? This task is from Chat A.';
+
 test('a card titled "open <host>" whose policy is an upload is logged with that policy and offers no Trust', async () => {
-  const AAT = require('../trust.js');
-  const entry = await loggedRow('Open a.example to upload a file? This task is from Chat A.', 'connector.browser.page.upload');
-  assert.deepEqual([entry.host, entry.policy, entry.result], ['a.example', 'connector.browser.page.upload', 'pending']);
-  assert.equal(AAM.parseCard('Open a.example to upload a file?', '', 'connector.browser.page.upload', 'a.example').policy, '');
-  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size, 0);
+  const entry = await loggedRow(OPEN_UPLOAD, { policy: UPLOAD, host: 'browser' });
+  assert.deepEqual([entry.host, entry.policy, entry.approvalHost, entry.mixed, entry.result], ['a.example', UPLOAD, 'browser', false, 'pending']);
+  assert.equal(AAM.parseCard('Open a.example to upload a file?', '', UPLOAD, 'a.example').policy, '');
+  assert.equal(offered(entry), false);
 });
 
-test('a website row with an unknown policy type offers no Trust; one without a policy does', async () => {
-  const AAT = require('../trust.js');
-  const unknown = await loggedRow('Access a.example? This task is from Chat A.', 'connector.example.unknown');
-  assert.deepEqual([unknown.host, unknown.policy], ['a.example', 'connector.example.unknown']);
-  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [unknown]).size, 0);
-  const plain = await loggedRow('Access a.example? This task is from Chat A.', '');
-  assert.deepEqual([plain.host, plain.policy, plain.chat], ['a.example', '', 'Chat A']);
-  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [plain]).size, 1);
+test('without a website policy type from muse a row offers no Trust: none read, an upload title, or an unknown type', async () => {
+  for (const [text, marks] of [[ACCESS, {}], [OPEN_UPLOAD, {}], [ACCESS, { host: 'a.example' }], [ACCESS, { policy: 'connector.example.unknown' }]]) {
+    const entry = await loggedRow(text, marks);
+    assert.equal(entry.host, 'a.example');
+    assert.equal(offered(entry), false, `${text} ${JSON.stringify(marks)}`);
+  }
+  const site = await loggedRow(ACCESS, { policy: SITE, host: 'a.example' });
+  assert.deepEqual([site.policy, site.approvalHost, site.chat], [SITE, 'a.example', 'Chat A']);
+  assert.equal(offered(site), true);
+});
+
+test('a waiting card read without data first gets the data of a later scan on its one log row', async () => {
+  const card = siteCard(ACCESS);
+  const [first] = await card.scan();
+  assert.deepEqual([first.policy, first.approvalHost, offered(first)], ['', '', false]);
+  const log = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.equal(log.length, 1);
+  assert.deepEqual([log[0].result, log[0].policy, log[0].approvalHost, log[0].mixed], ['pending', SITE, 'a.example', false]);
+  assert.equal(offered(log[0]), true);
+  // A later scan that reads nothing keeps what was read
+  const [kept] = await card.scan({});
+  assert.deepEqual([kept.policy, kept.approvalHost, offered(kept)], [SITE, 'a.example', true]);
+});
+
+test('scans that disagree mark the row mixed for good, and it offers no Trust', async () => {
+  for (const [before, after] of [[{ policy: SITE }, { policy: UPLOAD }], [{ policy: UPLOAD }, { policy: SITE }], [{ policy: SITE, host: 'a.example' }, { policy: SITE, host: 'browser' }]]) {
+    const card = siteCard(ACCESS, before);
+    await card.scan();
+    const [mixed] = await card.scan(after);
+    assert.deepEqual([mixed.mixed, offered(mixed)], [true, false], JSON.stringify([before, after]));
+    const [again] = await card.scan(before);
+    assert.deepEqual([again.mixed, offered(again)], [true, false]);
+  }
+});
+
+test('an approved row keeps the evidence read while it waited, never relaxed by the read at the click', async () => {
+  for (const [waited, clicked, policy, mixed] of [[{}, { policy: SITE }, SITE, false], [{ policy: UPLOAD }, { policy: SITE }, UPLOAD, true]]) {
+    const card = siteCard(ACCESS, waited);
+    await card.scan();
+    vm.runInContext("settings.sites = [{ id: 's1', host: 'a.example', sub: false, chats: [], on: true }]", card.ctx);
+    const [entry] = await card.scan(clicked);
+    assert.deepEqual([entry.result, entry.policy, entry.mixed], ['allowed', policy, mixed]);
+    assert.equal(offered(entry), !mixed);
+  }
 });
