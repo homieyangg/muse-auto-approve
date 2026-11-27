@@ -108,10 +108,12 @@ function makeDocument() {
 }
 
 // Loads content.js with the given stored settings; returns the context and what it reported to the background.
-// sources replaces shared.js, guard.js and content.js with other versions of them
-function loadContent(sync = {}, sources = null) {
+// sources replaces shared.js, guard.js and content.js with other versions of them; local is what chrome.storage.local holds.
+// changed() runs the storage.onChanged listeners
+function loadContent(sync = {}, sources = null, local = {}) {
   const reports = [];
-  const store = { sync: { ...AAM.SETTINGS_DEFAULTS, ...sync }, local: { allowOnce: [] } };
+  const listeners = [];
+  const store = { sync: { ...AAM.SETTINGS_DEFAULTS, ...sync }, local: { allowOnce: [], ...local } };
   const area = name => ({
     get(defaults, cb) {
       const out = { ...defaults, ...Object.fromEntries(Object.keys(defaults).filter(k => k in store[name]).map(k => [k, store[name][k]])) };
@@ -122,7 +124,7 @@ function loadContent(sync = {}, sources = null) {
   });
   const chrome = {
     runtime: { id: 'test', sendMessage(msg) { reports.push(msg); return Promise.resolve(); } },
-    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener() {} } },
+    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener(fn) { listeners.push(fn); } } },
   };
   class Ev { constructor(type, init = {}) { Object.assign(this, init); this.type = type; } }
   const ctx = {
@@ -133,7 +135,8 @@ function loadContent(sync = {}, sources = null) {
   };
   vm.createContext(ctx);
   for (const source of sources || [CONTENT]) vm.runInContext(source, ctx);
-  return { ctx, reports, store, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
+  const changed = (changes, area) => listeners.forEach(fn => fn(changes, area));
+  return { ctx, reports, store, changed, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
 }
 
 // Stand-in for bridge.js: answers maa-mark for cards holding an approval id. onMark may change attributes first, or return
@@ -426,7 +429,7 @@ const offered = entry => AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size === 1;
 
 // A chat card with the bridge.js attributes given; set() changes them as a later bridge read would, and onMark runs on each
 // fresh mark request
-function siteCard(text, marks = {}) {
+function siteCard(text, marks = {}, local = {}) {
   makeDocument();
   const hooks = { onMark: () => {} };
   fakeBridge(el => hooks.onMark(el));
@@ -438,15 +441,15 @@ function siteCard(text, marks = {}) {
     ]),
   ]);
   doc.body.append(card);
-  const set = ({ policy = '', host = '', id = 'appr-test-80', purchase = false }) => {
-    const attrs = [['data-maa-policy', policy], ['data-maa-host', host], ['data-maa-approval-id', id], ['data-maa-purchase', purchase ? '1' : '']];
+  const set = ({ policy = '', host = '', id = 'appr-test-80', purchase = false, site = '' }) => {
+    const attrs = [['data-maa-policy', policy], ['data-maa-host', host], ['data-maa-approval-id', id], ['data-maa-purchase', purchase ? '1' : ''], ['data-maa-site', site]];
     for (const [name, value] of attrs) {
       if (value) card.setAttribute(name, value);
       else card.removeAttribute(name);
     }
   };
   set(marks);
-  const loaded = loadContent();
+  const loaded = loadContent({}, null, local);
   const scan = async next => {
     if (next) set(next);
     loaded.ctx.scan();
@@ -650,10 +653,255 @@ test('an approved row merges the rows another tab wrote for the same approval id
   }
 });
 
+// bridge.js answers no mark request without an approval id, so nothing on the node counts as read (#15 follow-up, item 4)
 test('a row whose first read had a site policy but no approval id is never trustable', async () => {
   const card = siteCard(ACCESS, { id: '', policy: SITE, host: 'a.example' });
   const [first] = await card.scan();
-  assert.deepEqual([first.approvalId, first.policy, offered(first)], ['', SITE, false]);
+  assert.deepEqual([first.approvalId, first.policy, offered(first)], ['', '', false]);
   const [after] = await card.scan({ policy: SITE, host: 'a.example' });
   assert.deepEqual([after.approvalId, offered(after)], ['', false]);
+});
+
+// Strict rules saved from an action or upload row (AAM.strictMatch), from card to click
+const POST = 'connector.example.post.create';
+const UPLOAD_TEXT = 'Allow the assistant to use Browser to upload this file? This task is from Chat A.';
+const UPLOAD_MARKS = { policy: UPLOAD, host: 'browser', site: 'a.example' };
+const strictRule = (policy, extra = {}) => ({ id: 'r1', title: 'Saved title', policy, chats: [], on: true, ...extra });
+const setActions = (card, actions) => vm.runInContext(`settings.strictActions = ${JSON.stringify(actions)}`, card.ctx);
+const allowClicks = () => doc.querySelector('[data-hatch-approval-primary-action="true"]').clicks;
+
+test('a strict upload rule clicks only an upload to its exact site, read fresh, from a picked chat', async () => {
+  const cases = [
+    ['exact site', UPLOAD_MARKS, {}, 1],
+    ['other site', { ...UPLOAD_MARKS, site: 'b.example' }, {}, 0],
+    ['subdomain', { ...UPLOAD_MARKS, site: 'sub.a.example' }, {}, 0],
+    ['www twin', { ...UPLOAD_MARKS, site: 'www.a.example' }, {}, 0],
+    ['other policy', { ...UPLOAD_MARKS, policy: 'connector.browser.page.download' }, {}, 0],
+    ['purchase', { ...UPLOAD_MARKS, purchase: true }, {}, 0],
+    ['other chat', UPLOAD_MARKS, { chats: ['Chat B'] }, 0],
+    ['picked chat', UPLOAD_MARKS, { chats: ['Chat A'] }, 1],
+  ];
+  for (const [name, marks, extra, clicks] of cases) {
+    const card = siteCard(UPLOAD_TEXT, marks);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example', ...extra })]);
+    const [row] = await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+    assert.equal(row.result, clicks ? 'allowed' : 'pending', name);
+  }
+});
+
+test('a strict action rule clicks a card with its policy under another title, not one with its title and another policy', async () => {
+  for (const [text, policy, clicks] of [['Publish a post? This task is from Chat A.', POST, 1], ['Saved title? This task is from Chat A.', 'connector.example.message.send', 0], ['Saved title? This task is from Chat A.', '', 0]]) {
+    const card = siteCard(text, { policy });
+    setActions(card, [strictRule(POST)]);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, `${text} ${policy}`);
+  }
+});
+
+test('a strict rule clicks nothing when bridge.js gives no fresh reply, whatever the node still holds', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+  card.hooks.onMark = () => false;
+  const [row] = await card.scan();
+  assert.equal(allowClicks(), 0);
+  assert.equal(row.result, 'pending');
+});
+
+test('an upload row offers Trust, and the pick makes the next upload to that site in that chat click', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  const [row] = await card.scan();
+  assert.deepEqual([row.result, row.policy, row.site, row.approvalId, row.purchase, row.mixed], ['pending', UPLOAD, 'a.example', 'appr-test-80', false, false]);
+  assert.equal(offered(row), true);
+  const plan = AAT.planTrust(AAM.SETTINGS_DEFAULTS, row, 'only');
+  assert.deepEqual(Object.keys(plan.patch), ['strictActions']);
+  assert.deepEqual(plan.patch.strictActions.map(a => [a.policy, a.site, a.chats]), [[UPLOAD, 'a.example', ['Chat A']]]);
+  const next = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id: 'appr-test-81' });
+  setActions(next, plan.patch.strictActions);
+  await next.scan();
+  assert.equal(allowClicks(), 1);
+  const other = siteCard(UPLOAD_TEXT.replace('Chat A', 'Chat B'), { ...UPLOAD_MARKS, id: 'appr-test-82' });
+  setActions(other, plan.patch.strictActions);
+  await other.scan();
+  assert.equal(allowClicks(), 0);
+});
+
+// #15 follow-up, item 3; Codex round 1, item 1: the strict rule that was refused never clicks that approval later
+test('a purchase seen by a first-scan refused click is on the approval\'s later rows', async () => {
+  for (const trustedLater of [false, true]) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+    let marks = 0;
+    card.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-purchase', '1'); };
+    const refused = await card.scan();
+    assert.equal(allowClicks(), 0);
+    assert.equal(refused.length, 0);
+    card.hooks.onMark = () => {};
+    if (!trustedLater) setActions(card, []);
+    const [row] = await card.scan(UPLOAD_MARKS);
+    assert.equal(allowClicks(), 0, String(trustedLater));
+    assert.deepEqual([row.result, row.approvalId, row.purchase], ['pending', 'appr-test-80', true], String(trustedLater));
+    assert.equal(offered(row), false);
+  }
+});
+
+// #15 follow-up, item 4
+test('a node bridge.js does not answer for logs no approval data, even when it still holds an earlier mark', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  card.hooks.onMark = () => false;
+  const [row] = await card.scan();
+  assert.deepEqual([row.approvalId, row.policy, row.approvalHost, row.purchase], ['', '', '', null]);
+  assert.equal(offered(row), false);
+  // muse reused the node for another upload while the attributes still name the first one
+  const reused = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  await reused.scan();
+  reused.hooks.onMark = () => false;
+  doc.querySelector('p').text = 'Allow the assistant to use Browser to upload this file? This task is from Chat B.';
+  const log = await reused.scan();
+  assert.deepEqual(Array.from(log, e => [e.chat, e.approvalId, e.policy]), [['Chat B', '', ''], ['Chat A', 'appr-test-80', UPLOAD]]);
+  assert.equal(offered(log[0]), false);
+});
+
+// Codex round 1, item 1: what another read of the approval saw, in this tab or the shared log, keeps a strict rule off it
+test('a strict rule never clicks an approval a logged, waiting or refused read saw as a purchase or a mix', async () => {
+  const logged = extra => [{ ts: 1, key: 'connector.browser.page.upload@a.example|Chat A', approvalId: 'appr-test-80', purchase: false, mixed: false, result: 'pending', ...extra }];
+  const cases = [
+    ['logged purchase', { log: logged({ purchase: true }) }, 0],
+    ['logged mix', { log: logged({ mixed: true }) }, 0],
+    ['logged purchase on another approval', { log: logged({ purchase: true, approvalId: 'appr-test-81' }) }, 1],
+    ['clean log', { log: logged({}) }, 1],
+  ];
+  for (const [name, local, clicks] of cases) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, local);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+  }
+  // A row another tab writes after this one loaded
+  const later = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(later, [strictRule(UPLOAD, { site: 'a.example' })]);
+  later.changed({ log: { newValue: logged({ purchase: true }) } }, 'local');
+  await later.scan();
+  assert.equal(allowClicks(), 0, 'logged later');
+  // The log not read yet
+  const unread = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(unread, [strictRule(UPLOAD, { site: 'a.example' })]);
+  vm.runInContext('loggedDoubts = null', unread.ctx);
+  await unread.scan();
+  assert.equal(allowClicks(), 0, 'log not read');
+  // Waiting as a purchase, then read without it while the rule is on
+  const waiting = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, purchase: true });
+  await waiting.scan();
+  setActions(waiting, [strictRule(UPLOAD, { site: 'a.example' })]);
+  await waiting.scan(UPLOAD_MARKS);
+  assert.equal(allowClicks(), 0, 'waiting purchase');
+  // A rule under actions keeps main's behaviour
+  const old = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: logged({ purchase: true }) });
+  vm.runInContext(`settings.actions = ${JSON.stringify([{ id: 'a1', title: 'x', policy: UPLOAD, site: 'a.example', chats: [], on: true }])}`, old.ctx);
+  await old.scan();
+  assert.equal(allowClicks(), 1, 'old rule');
+});
+
+// Codex round 1, item 5: an upload item of a combined card with a fresh id and site, but no fresh reply for the card itself
+test('a strict rule never clicks a combined-card item unless the whole card answered not a purchase', async () => {
+  for (const [parentAnswers, clicks] of [[false, 0], [true, 1]]) {
+    makeDocument();
+    fakeBridge();
+    const allow = new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow');
+    const item = new El('div', { role: 'button', 'aria-expanded': 'true', 'data-maa-approval-id': 'appr-test-90', 'data-maa-state': 'clean', 'data-maa-policy': UPLOAD, 'data-maa-host': 'browser', 'data-maa-site': 'a.example' }, [
+      new El('p', {}, [], 'Upload this file'),
+      new El('div', {}, [allow, new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny')]),
+    ]);
+    const cardAttrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', ...(parentAnswers && { 'data-maa-approval-id': 'appr-test-91' }) };
+    doc.body.append(new El('div', cardAttrs, [new El('p', {}, [], 'Allow the assistant to use Browser? This task is from Chat A.'), item]));
+    const { ctx, store } = loadContent({ strictActions: [strictRule(UPLOAD, { site: 'a.example' })] });
+    ctx.scan();
+    for (let i = 0; i < 6; i++) await tick();
+    assert.equal(allow.clicks, clicks, String(parentAnswers));
+    assert.equal(store.local.log[0].site, 'a.example');
+  }
+});
+
+// Codex round 1, item 7
+test('rows carry the evidence version unless they share an approval with a row an earlier version wrote', async () => {
+  const [fresh] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS).scan();
+  assert.equal(fresh.evidenceVersion, AAM.EVIDENCE_VERSION);
+  assert.equal(offered(fresh), true);
+  const { evidenceVersion, ...old } = { ...fresh, ts: 1, result: 'handled' };
+  const [row, earlier] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [old] }).scan();
+  assert.deepEqual([row.result, row.approvalId, 'evidenceVersion' in row, 'evidenceVersion' in earlier], ['pending', 'appr-test-80', false, false]);
+  assert.equal(offered(row), false);
+  // A current row of the same approval loses the version once an older row is merged into it
+  const [again, current, oldest] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...fresh, ts: 2, result: 'handled' }, old] }).scan();
+  assert.deepEqual([again, current, oldest].map(e => 'evidenceVersion' in e), [false, false, false]);
+  // Another approval's old row leaves this one current
+  const [other] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...old, approvalId: 'appr-test-81' }] }).scan();
+  assert.equal(other.evidenceVersion, AAM.EVIDENCE_VERSION);
+});
+
+// Codex round 2, item 3: the re-read right before the click finds another approval id on the node
+test('a node swapped for another approval before the click stores both ids as doubted, for every tab, and clicks neither', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+  let marks = 0;
+  card.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-approval-id', 'appr-test-81'); };
+  await card.scan();
+  assert.equal(allowClicks(), 0);
+  const doubts = Array.from(card.store.local.approvalDoubts);
+  assert.deepEqual([...doubts].sort(), ['appr-test-80', 'appr-test-81']);
+  // The next scan of this tab reads the second approval clean, and still clicks nothing
+  card.hooks.onMark = () => {};
+  const [row] = await card.scan({ ...UPLOAD_MARKS, id: 'appr-test-81' });
+  assert.equal(allowClicks(), 0);
+  assert.deepEqual([row.approvalId, row.result], ['appr-test-81', 'pending']);
+  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [row], doubts).size, 0);
+  // Another tab that reads either approval clean
+  for (const id of ['appr-test-80', 'appr-test-81']) {
+    const other = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id }, { approvalDoubts: doubts });
+    setActions(other, [strictRule(UPLOAD, { site: 'a.example' })]);
+    await other.scan();
+    assert.equal(allowClicks(), 0, id);
+  }
+  const unrelated = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id: 'appr-test-82' }, { approvalDoubts: doubts });
+  setActions(unrelated, [strictRule(UPLOAD, { site: 'a.example' })]);
+  await unrelated.scan();
+  assert.equal(allowClicks(), 1);
+});
+
+// Codex round 2, items 4 and 5: refusal evidence lives in chrome.storage.local by approval id, whatever card key it had
+test('a strict rule never clicks an approval another tab refused or logged as a doubt under any key', async () => {
+  const rule = [strictRule(UPLOAD, { site: 'a.example' })];
+  // A tab refuses the click on a purchase and writes no row; a tab opened later still knows
+  const refusing = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(refusing, rule);
+  let marks = 0;
+  refusing.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-purchase', '1'); };
+  assert.equal((await refusing.scan()).length, 0);
+  assert.deepEqual(Array.from(refusing.store.local.approvalDoubts), ['appr-test-80']);
+  const later = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { approvalDoubts: refusing.store.local.approvalDoubts });
+  setActions(later, rule);
+  await later.scan();
+  assert.equal(allowClicks(), 0, 'stored refusal');
+  // Stored doubts that arrive after the tab loaded
+  const open = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(open, rule);
+  open.changed({ approvalDoubts: { newValue: ['appr-test-80'] } }, 'local');
+  await open.scan();
+  assert.equal(allowClicks(), 0, 'stored later');
+  // Doubts reported before this tab's first read of the storage are kept when that read returns without them
+  const early = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(early, rule);
+  vm.runInContext('loggedDoubts = null', early.ctx);
+  early.changed({ approvalDoubts: { newValue: ['appr-test-80'] } }, 'local');
+  vm.runInContext('rememberDoubts([], [], true)', early.ctx);
+  await early.scan();
+  assert.equal(allowClicks(), 0, 'stored before the first read');
+  // A logged row of the same approval under another card key
+  const otherKey = [{ ts: 1, key: 'connector.example.post.create|Chat B', approvalId: 'appr-test-80', purchase: true, mixed: false, result: 'pending' }];
+  for (const [name, extra, clicks] of [['purchase', {}, 0], ['mixed', { purchase: false, mixed: true }, 0], ['clean', { purchase: false }, 1]]) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...otherKey[0], ...extra }] });
+    setActions(card, rule);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+  }
 });

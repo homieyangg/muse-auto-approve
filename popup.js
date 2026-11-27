@@ -97,7 +97,7 @@ function renderHome() {
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
   $('#sites-n').textContent = settings.sites.length;
   $('#chats-n').textContent = settings.chats.length;
-  $('#actions-n').textContent = settings.actions.length;
+  $('#actions-n').textContent = settings.actions.length + AAM.usableStrictRules(settings).length;
   $('#today-n').textContent = t('todayN', today);
   $('#prefer-always').checked = settings.preferAlways;
   $('#rate').hidden = !showRate();
@@ -204,13 +204,16 @@ function renderSites() {
   $('#sites-empty').hidden = rows.length > 0;
 }
 
+// Rules from the Waiting list, then the usable strict rules Trust on a recent-activity row saved, which can only be deleted
 function renderActions() {
-  const rows = settings.actions.map(action => row(
-    label(action),
-    action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
-    !action.on,
-    () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),
-  ));
+  const actionRow = (action, remove) => row(label(action), action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'), !action.on, remove);
+  const rows = [
+    ...settings.actions.map(action => actionRow(action, () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }))),
+    ...AAM.usableStrictRules(settings).map(action => actionRow(action, () => {
+      const patch = AAM.removeStrictRule(settings, action.id);
+      if (patch) saveSettings(patch);
+    })),
+  ];
   $('#action-list').replaceChildren(...rows);
   $('#action-list').hidden = !rows.length;
   $('#actions-empty').hidden = rows.length > 0;
@@ -237,7 +240,7 @@ function renderChats() {
   $('#recent-empty').hidden = recent.length > 0;
 }
 
-const trustControls = AAT.controls({ t, storage: chrome.storage.sync, render: () => renderLog() });
+const trustControls = AAT.controls({ t, storage: chrome.storage.sync, logStorage: chrome.storage.local, render: () => renderLog() });
 
 // The result sits under the label so the Trust button fits on the right
 function logRow(entry, { state, undo, open }) {
@@ -261,7 +264,7 @@ function logRow(entry, { state, undo, open }) {
 
 function renderLog() {
   const entries = local.log.slice(0, 30);
-  const states = trustControls.states(settings, local.log, entries);
+  const states = trustControls.states(settings, local.log, entries, local.approvalDoubts);
   $('#log-list').replaceChildren(...entries.flatMap(e => logRow(e, states.get(e))));
   $('#log-list').hidden = !entries.length;
   $('#log-empty').hidden = entries.length > 0;

@@ -495,3 +495,18 @@ test('the chat and panel copies of one approval are clicked once', async () => {
   await tick();
   assert.equal(chat.buttons[0].clicks + panel.buttons[0].clicks, 1);
 });
+
+// Strict rules from recent activity (AAM.strictMatch): the task-wide web-access card is not an action or upload row
+test('the task-wide web-access card offers no Trust, and a strict rule for its policy never clicks it', async () => {
+  const AAT = require('../trust.js');
+  for (const surface of ['chat', 'panel']) {
+    const untrusted = await run(() => grantCard({ surface }), {}, HEAD_SOURCES);
+    for (let i = 0; i < 4; i++) await tick();
+    const [row] = untrusted.env.store.local.log;
+    assert.deepEqual([row.result, row.host, row.policy, row.approvalId], ['pending', '', 'tool.web_fetch', ID], surface);
+    assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [row]).size, 0, surface);
+    const strict = { strictActions: [{ id: 'r1', title: TITLE, policy: 'tool.web_fetch', chats: [], on: true }] };
+    const { clicks } = await run(() => grantCard({ surface }), strict, HEAD_SOURCES);
+    assert.deepEqual(clicks, [0, 0], surface);
+  }
+});
