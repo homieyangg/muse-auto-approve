@@ -446,6 +446,21 @@
   "uploadToWithSub": {
     "message": "$1 とサブドメインへのアップロード"
   },
+  "trust": {
+    "message": "信頼する"
+  },
+  "onlyChat": {
+    "message": "$1 からのみ"
+  },
+  "trusted": {
+    "message": "信頼済み"
+  },
+  "undo": {
+    "message": "元に戻す"
+  },
+  "cancel": {
+    "message": "キャンセル"
+  },
   "unreadableNoticeOne": {
     "message": "1 件の承認カードを読み取れなかったため、カード本文で判定します。"
   },

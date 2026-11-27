@@ -60,9 +60,12 @@ body { width: 360px; min-height: 480px; }
 .row > div { flex: 1; min-width: 0; word-break: break-all; }
 .row small { display: block; color: var(--muted); }
 .row .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
-.row time { color: var(--muted); font-size: 12px; width: 44px; flex: none; }
+.row time { color: var(--muted); font-size: 12px; min-width: 44px; flex: none; }
 .row .result { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .row .result.pending { color: var(--warn); font-weight: 600; }
+.row small .now { color: var(--accent); }
+.pick { padding: 2px 12px 10px 64px; }
+.pick + .row { border-top: 1px solid var(--line); }
 
 .add { display: flex; gap: 6px; }
 .add .btn { border-radius: 8px; white-space: nowrap; }

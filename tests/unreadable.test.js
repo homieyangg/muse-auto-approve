@@ -9,6 +9,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const AAM = require('../shared.js');
 const AAG = require('../guard.js');
+const AAT = require('../trust.js');
 
 const ROOT = path.join(__dirname, '..');
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
@@ -294,7 +295,7 @@ function makePopupEnv({ local = {}, uiLang = 'en-US', now = 1_000_000 } = {}) {
     clock: () => '12:00',
   };
   const ctx = {
-    AAM, I18N, Date: FakeDate, URLSearchParams, document: doc,
+    AAM, AAT, I18N, Date: FakeDate, URLSearchParams, document: doc,
     window: { close() { closed = true; } },
     chrome: {
       runtime: { getManifest: () => ({ version: MANIFEST.version }), openOptionsPage() {} },

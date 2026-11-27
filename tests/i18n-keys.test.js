@@ -17,7 +17,7 @@ function usedKeys() {
   for (const file of ['options.html', 'popup.html', 'welcome.html']) {
     for (const match of read(file).matchAll(/data-i18n(?:-placeholder|-title)?="([^"]+)"/g)) keys.add(match[1]);
   }
-  for (const file of ['options.js', 'popup.js', 'welcome.js', 'i18n.js']) {
+  for (const file of ['options.js', 'popup.js', 'welcome.js', 'i18n.js', 'trust.js']) {
     for (const match of read(file).matchAll(/\bt\('([^']+)'/g)) keys.add(match[1]);
   }
   return keys;

@@ -32,6 +32,8 @@ const MARKED_ATTR = 'data-maa-marked';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
+// The approval's own host field as muse holds it, e.g. 'browser' on upload cards
+const HOST_ATTR = 'data-maa-host';
 // Set by bridge.js on each decision button of a chat card from muse's decisionOptions, and the card state on the card or item
 const OPTION_KIND_ATTR = 'data-maa-option-kind';
 const LABEL_KIND_ATTR = 'data-maa-label-kind';
@@ -187,7 +189,7 @@ function scan() {
     const onceOnly = onceAllowed(key);
     const clickable = !!AAM.clickTarget(buttons, settings.preferAlways && !onceOnly);
     if (!clickable || !AAG.canAutoApprove(settings, card, onceOnly)) {
-      waiting.set(key, pendingItem(card, key));
+      addWaiting(waiting, pendingItem(card, key));
       continue;
     }
     trusted++;
@@ -234,15 +236,60 @@ function purchaseState(node, body) {
   return AAG.combinePurchase(body === node ? [freshPurchase(node)] : [freshPurchase(node), freshPurchase(body)]);
 }
 
-// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data
+// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data.
+// approvalId, approvalPolicy and approvalHost are muse's data as read, kept for the log even when parseCard reads the card
+// as a website
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase };
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, approvalId: attr(ID_ATTR), approvalPolicy: attr(POLICY_ATTR), approvalHost: attr(HOST_ATTR) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, ...evidenceOf(card) };
+}
+
+const evidenceOf = item => ({ approvalId: item.approvalId || '', approvalPolicy: item.approvalPolicy || '', approvalHost: item.approvalHost || '', purchase: item.purchase ?? null, mixed: !!item.mixed });
+function logEvidence(item) {
+  const e = evidenceOf(item);
+  return { approvalId: e.approvalId, policy: e.approvalPolicy, approvalHost: e.approvalHost, purchase: e.purchase, mixed: e.mixed };
+}
+const loggedEvidence = e => evidenceOf({ ...e, approvalPolicy: e.policy });
+const sameApproval = (a, b) => !!a.approvalId && a.approvalId === b.approvalId;
+
+// The approval data a log row's Trust rests on, merged over reads of one approval. A read that found nothing keeps what
+// another read found; two reads that disagree mark it mixed for good, and a purchase seen once stays a purchase, so a later
+// read never makes a row more trustable
+function mergeEvidence(a, b) {
+  const out = evidenceOf(a);
+  out.mixed ||= !!b.mixed;
+  for (const field of ['approvalId', 'approvalPolicy', 'approvalHost']) {
+    const value = b[field] || '';
+    if (value && !out[field]) out[field] = value;
+    else if (value && out[field] !== value) out.mixed = true;
+  }
+  out.purchase = out.purchase === true || b.purchase === true ? true : (out.purchase ?? b.purchase ?? null);
+  return out;
+}
+
+// Merges reads of two cards with one key; unless both hold the same approval id, which approval a row is about is unknown
+function mergeCards(a, b) {
+  const out = mergeEvidence(a, b);
+  if (!sameApproval(a, b)) out.mixed = true;
+  return out;
+}
+
+// Rows of one approval (same key and approval id) may be written by several tabs and scans. Writing one merges the
+// evidence of all of them and puts it on each, so a row never loses what another read of that approval saw
+function shareEvidence(log, item) {
+  const rows = log.filter(e => e.key === item.key && sameApproval(e, item));
+  const evidence = rows.map(loggedEvidence).reduce(mergeEvidence, evidenceOf(item));
+  return { evidence, log: rows.length ? log.map(e => (rows.includes(e) ? { ...e, ...logEvidence(evidence) } : e)) : log };
+}
+
+function addWaiting(waiting, item, keepEarlier = false) {
+  const prev = waiting.get(item.key);
+  waiting.set(item.key, prev ? { ...(keepEarlier ? prev : item), ...mergeCards(prev, item) } : item);
 }
 
 // 同一筆審批剛按過就先跳過等 muse 收掉：右側面板開著時聊天室和面板各一份，批次卡縮回單張卡時也會換新節點。
@@ -290,10 +337,11 @@ function reviewPreviews(previews, now, waiting, canExpand) {
   let trusted = 0;
   for (const preview of previews) {
     const purchase = purchaseState(preview, preview);
-    const card = { ...AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || ''), purchase };
+    const policy = preview.getAttribute(POLICY_ATTR) || '';
+    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, approvalId: preview.getAttribute(ID_ATTR) || '', approvalPolicy: policy, approvalHost: preview.getAttribute(HOST_ATTR) || '' };
     const key = AAM.cardKey(card);
     if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
-      if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));
+      addWaiting(waiting, pendingItem(card, key), true);
       continue;
     }
     if (canExpand && !trusted && settings.openBackground && now - (handledAt.get(preview) || 0) >= RETRY_AFTER_MS) {
@@ -306,18 +354,24 @@ function reviewPreviews(previews, now, waiting, canExpand) {
 }
 
 async function approve(node, buttons, card, key, onceOnly) {
+  // Read before this scan's syncWaiting drops the key, which happens before the click resolves
+  const waited = waitingState.get(key);
   if (onceOnly) usedOnce.add(key);
   handledAt.set(node, Date.now());
   handledKeys.set(key, { at: Date.now(), surface: buttons.surface });
   if (buttons.approvalId) handledIds.set(buttons.approvalId, Date.now());
   settleUntil.set(buttons.body, Date.now() + SETTLE_MS);
-  const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target));
-  if (!kind) return releaseRefused(node, buttons, key, onceOnly);
+  // Every read of this card goes into the log entry: the scan's, the pre-click re-reads, and what was read while it waited
+  const reads = [card];
+  const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target, reads));
+  const evidence = [...reads, ...(waited ? [waited] : [])].reduce(mergeCards);
+  if (!kind) return releaseRefused(node, buttons, key, onceOnly, evidence);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
-    const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
+    const shared = shareEvidence(data.log, { key, ...evidence });
+    const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(shared.evidence), site: card.site, result: 'allowed', kind };
+    const log = shared.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
     if (onceOnly) patch.allowOnce = data.allowOnce.filter(k => k !== key);
     return patch;
@@ -326,9 +380,10 @@ async function approve(node, buttons, card, key, onceOnly) {
 
 // Re-reads the card on fresh bridge data; a different key means the node now holds another approval.
 // With a target, the buttons are picked again from the attributes that same fresh mark wrote, and the target must still be the pick
-function stillAllowed(node, buttons, key, onceOnly, target) {
+function stillAllowed(node, buttons, key, onceOnly, target, reads) {
   if (!node.isConnected) return false;
   const card = cardOf(node, buttons);
+  reads.push(card);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
   // Without data the check stays main's, except that data turning up since the scan sends the card back to the next scan
@@ -342,8 +397,10 @@ function freshlyMarked(node) {
   return !!token && node.getAttribute(MARKED_ATTR) === token;
 }
 
-// The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting
-function releaseRefused(node, buttons, key, onceOnly) {
+// The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting. What the refusing
+// read saw (a purchase, say) goes onto the card's rows, which this scan may already have marked handled
+function releaseRefused(node, buttons, key, onceOnly, evidence) {
+  updateLocal({ log: [] }, data => ({ log: shareEvidence(data.log, { key, ...evidence }).log }));
   handledAt.delete(node);
   handledKeys.delete(key);
   if (buttons.approvalId) handledIds.delete(buttons.approvalId);
@@ -399,8 +456,9 @@ function syncWaiting(waiting, now, tracking) {
   if (!tracking) waitingState.clear();
   for (const w of added) waitingState.set(w.key, { ...w, ts: now });
   for (const k of gone) waitingState.delete(k);
+  const refreshed = refreshEvidence(waiting, added);
   if (!waitingState.size) blockedBanner = { text: '', at: 0 };
-  if (added.length || gone.length) recordWaitingChanges(added, gone);
+  if (added.length || gone.length || refreshed.length) recordWaitingChanges(added, gone, refreshed);
   const items = [...waitingState.values()];
   const report = items.map(i => i.key).join('\n');
   if (report === lastReported) return;
@@ -408,10 +466,32 @@ function syncWaiting(waiting, now, tracking) {
   chrome.runtime.sendMessage({ type: 'pending', items }).catch(() => {});
 }
 
-function recordWaitingChanges(added, gone) {
+// A card still waiting may be read with data this scan that an earlier scan could not read (bridge.js not loaded yet, or
+// several approvals at once); its waiting item takes the merged evidence, mixed unless both reads hold one approval id. The
+// log row is filled only from reads of its own approval id (recordWaitingChanges). Returns the items that changed
+function refreshEvidence(waiting, added) {
+  const refreshed = [];
+  for (const w of waiting) {
+    const prev = waitingState.get(w.key);
+    if (!prev || added.includes(w)) continue;
+    const evidence = mergeCards(prev, w);
+    if (JSON.stringify(evidence) === JSON.stringify(evidenceOf(prev))) continue;
+    waitingState.set(w.key, { ...prev, ...evidence });
+    refreshed.push(waitingState.get(w.key));
+  }
+  return refreshed;
+}
+
+function recordWaitingChanges(added, gone, refreshed = []) {
   updateLocal({ log: [], dismissed: [] }, data => {
-    const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, result: 'pending' }));
+    // The log is shared by every muse tab, so a row is filled only by reads of the approval that wrote it
+    let log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
+    for (const w of refreshed) log = shareEvidence(log, w).log;
+    const fresh = added.map(w => {
+      const shared = shareEvidence(log, w);
+      log = shared.log;
+      return { ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(shared.evidence), site: w.site, result: 'pending' };
+    });
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }

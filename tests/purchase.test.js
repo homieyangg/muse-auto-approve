@@ -124,11 +124,19 @@ function tree({ current, stale, upper }) {
   return { node, oldNode, card };
 }
 
-const upload = (id, site) => ordinary({ approvalId: id, payloadPreview: `Destination: https://${site}` });
+// Upload approvals hold the connector name in their own host field
+const upload = (id, site) => ordinary({ approvalId: id, host: 'browser', payloadPreview: `Destination: https://${site}` });
 
 test('steady state: the DOM node points at the current fiber', () => {
   const { node } = tree({ current: upload('a1', 'tmpfiles.org') });
-  assert.deepEqual(marksFor(node), { approvalId: 'a1', policy: 'connector.browser.page.upload', site: 'tmpfiles.org', purchase: false, found: true });
+  assert.deepEqual(marksFor(node), { approvalId: 'a1', policy: 'connector.browser.page.upload', site: 'tmpfiles.org', host: 'browser', purchase: false, found: true });
+});
+
+test('an approval host that is not a string is not read', () => {
+  for (const host of [null, 7, { name: 'a.example' }]) {
+    const { node } = tree({ current: ordinary({ host }) });
+    assert.equal(marksFor(node).host, '', String(host));
+  }
 });
 
 test('the DOM node points at the alternate: answer comes from the current tree', () => {
@@ -146,7 +154,7 @@ test('different ordinary ids on the two sides: the current one, with its site an
   const current = ordinary({ approvalId: 'new', policySubject: 'connector.gmail.users.messages.send', payloadPreview: '' });
   const { oldNode, node } = tree({ current, stale: upload('old', 'tmpfiles.org') });
   for (const start of [node, oldNode]) {
-    assert.deepEqual(marksFor(start), { approvalId: 'new', policy: 'connector.gmail.users.messages.send', site: '', purchase: false, found: true });
+    assert.deepEqual(marksFor(start), { approvalId: 'new', policy: 'connector.gmail.users.messages.send', site: '', host: '', purchase: false, found: true });
   }
 });
 

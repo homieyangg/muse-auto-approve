@@ -446,6 +446,21 @@
   "uploadToWithSub": {
     "message": "上传到 $1 及子域名"
   },
+  "trust": {
+    "message": "信任"
+  },
+  "onlyChat": {
+    "message": "仅限 $1"
+  },
+  "trusted": {
+    "message": "已信任"
+  },
+  "undo": {
+    "message": "撤销"
+  },
+  "cancel": {
+    "message": "取消"
+  },
   "unreadableNoticeOne": {
     "message": "有 1 张审批卡无法读取数据，已改看卡片文字。"
   },
