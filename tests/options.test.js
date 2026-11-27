@@ -462,3 +462,29 @@ test('an unknown kind in a compact key: matched when the data has it but never p
   const deny = read('appr-test-32', [ONCE, DENY], [null, 'appr-test-32-compact-deny-0-deny_later'], 0);
   assert.deepEqual([deny.missing, deny.marks], [true, [null, null]]);
 });
+
+// Review round 2, item 1: the marked buttons are filtered out as not clickable, so the pick runs on text within the veto
+test('an unclickable marked deny or primary never lets the primary fall back to a looser text reading', () => {
+  const candidates = texts => texts.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: false, kind: '', labelKind: '', scope: '' }));
+  const broad = markList([BROAD, DENY]);
+  // Only the keyless primary is left clickable: the data says the first allow option is broad
+  assert.equal(AAM.pickAllowButtons(candidates(['Always allow all actions']), false, broad), null);
+  assert.equal(AAM.pickAllowButtons(candidates(['Allow']), false, broad), null);
+  // The data confirms the primary as the once option: text may still pick it
+  assert.equal(AAM.pickAllowButtons(candidates(['Allow once']), false, markList([ONCE, BROAD, DENY])).once, 'button-0');
+});
+
+// Review round 2, item 2: any source saying broad vetoes
+test('a menu item whose ancestor approval and pending list disagree is not marked', () => {
+  const pendingSafe = approval('appr-test-44', [ONCE, SCOPED, DENY]);
+  const ancestorBroad = approval('appr-test-44', [ONCE, BROAD, DENY]);
+  const key = 'appr-test-44-compact-allow-0-allow_always';
+  assert.equal(menuItemMark(menuTree(key, { approvalAbove: ancestorBroad }), undefined, pendingOf(pendingSafe)), null);
+  assert.equal(menuItemMark(menuTree(key, { approvalAbove: pendingSafe }), undefined, pendingOf(ancestorBroad)), null);
+  // Fresh card broad, pending cache still single-site: the fresh card's alwaysInMenu=false refuses the click
+  const panel = options => pick(read('appr-test-44', options, [null, 'appr-test-44-compact-deny-0-deny'], 0), PANEL_TEXTS);
+  const option = menuItemMark(menuTree(key), undefined, pendingOf(pendingSafe));
+  const fresh = panel([ONCE, BROAD, DENY]);
+  assert.equal(fresh.alwaysInMenu, false);
+  assert.equal(AAM.samePick(panel([ONCE, SCOPED, DENY]), fresh, { menu: true, data: true, approvalId: 'appr-test-44', option }), false);
+});

@@ -201,14 +201,19 @@
     const key = decisionKeyOf(start, walk);
     const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
     if (!m || m[2] !== 'compact-allow') return null;
-    // Only a consistency check: if the portal's React parents do reach an approval, it must be the key's one
+    // If the portal's React parents do reach an approval, it must be the key's one and point at the same option as the
+    // pending list: when the two sources disagree (one may say broad), the item stays unmarked and is never clicked
     const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
     if (!own || own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
-    const approval = pendingById(m[1]);
-    const options = approval?.serverPresentation?.decisionOptions;
-    if (!Array.isArray(options)) return null;
-    const option = optionForKey(options, m[2], Number(m[3]), m[4]);
-    return option ? { approvalId: m[1], ...markOf(option) } : null;
+    const optionIn = approval => {
+      const options = approval?.serverPresentation?.decisionOptions;
+      const option = Array.isArray(options) ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
+      return option && markOf(option);
+    };
+    const mark = optionIn(pendingById(m[1]));
+    if (!mark) return null;
+    if (own.length === 1 && JSON.stringify(optionIn(own[0])) !== JSON.stringify(mark)) return null;
+    return { approvalId: m[1], ...mark };
   }
 
   function setAttr(el, name, value) {
