@@ -88,9 +88,21 @@ function findAllowButtons(scope) {
   return AAM.pickAllowButtons(candidates, cardState(scope));
 }
 
-// 'clean' or 'anomalous' when bridge.js read this card's options, '' otherwise
+// 'clean' or 'anomalous' when bridge.js read this card's options, '' otherwise and for a card that takes the text rules
 function cardState(scope) {
-  return (scope.closest(CARD_SELECTOR) && scope.getAttribute(ID_ATTR) && scope.getAttribute(STATE_ATTR)) || '';
+  const state = (scope.closest(CARD_SELECTOR) && scope.getAttribute(ID_ATTR) && scope.getAttribute(STATE_ATTR)) || '';
+  return state && !takesTextRules(scope) ? state : '';
+}
+
+// A single chat card (not a combined-card item) that AAM.takesTextRules sends down the panel copy's text rules
+function takesTextRules(scope) {
+  if (!scope.matches(CHAT_CARD_SELECTOR)) return false;
+  const buttons = [...scope.querySelectorAll(BUTTON_SELECTOR)].map(b => ({
+    kind: b.getAttribute(OPTION_KIND_ATTR) || '',
+    labelKind: b.getAttribute(LABEL_KIND_ATTR) || '',
+    scope: b.getAttribute(SCOPE_ATTR) || '',
+  }));
+  return AAM.takesTextRules({ state: scope.getAttribute(STATE_ATTR), policy: scope.getAttribute(POLICY_ATTR), menu: !!scope.querySelector(MENU_SELECTOR), buttons });
 }
 
 // 從按鈕區往上找第一層有按鈕以外文字的容器（卡片本體），只用它判斷是不是外聯審批，不再往外爬
@@ -130,7 +142,7 @@ function approvalCards() {
       const buttons = found || (state && { always: null, once: null, data: true, state });
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
-      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true });
+      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true, textRules: takesTextRules(node) });
     }
   }
   for (const deny of document.querySelectorAll(BUTTON_SELECTOR)) {
@@ -386,6 +398,8 @@ function stillAllowed(node, buttons, key, onceOnly, target, reads) {
   reads.push(card);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
+  // A card sent to the text rules must be sent there again by the attributes this fresh mark wrote, for the same approval
+  if (buttons.textRules) return freshlyMarked(node) && (node.getAttribute(ID_ATTR) || '') === buttons.approvalId && takesTextRules(node);
   // Without data the check stays main's, except that data turning up since the scan sends the card back to the next scan
   if (!buttons.data) return !cardState(node);
   if (!freshlyMarked(node) || (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
