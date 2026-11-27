@@ -36,6 +36,7 @@
       ],
       "js": [
         "shared.js",
+        "guard.js",
         "content.js"
       ],
       "run_at": "document_idle"

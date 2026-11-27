@@ -24,6 +24,10 @@ const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 const ID_ATTR = 'data-maa-approval-id';
 // Set by bridge.js when muse's data marks the approval as a checkout or purchase
 const PURCHASE_ATTR = 'data-maa-purchase';
+// Dispatched on a node to have bridge.js re-mark it synchronously; it echoes the request token in MARKED_ATTR
+const MARK_EVENT = 'maa-mark';
+const MARK_REQUEST_ATTR = 'data-maa-mark-request';
+const MARKED_ATTR = 'data-maa-marked';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
@@ -36,6 +40,8 @@ const CHAT_ROW_SELECTOR = '[data-testid="hatch-thread-row"][data-slot="context-m
 
 let settings = { ...AAM.SETTINGS_DEFAULTS };
 let allowOnce = [];
+// "Just this once" keys already spent on a click, so one press approves one card even before storage catches up
+const usedOnce = new Set();
 const handledAt = new WeakMap();
 const handledKeys = new Map();
 const handledIds = new Map();
@@ -104,9 +110,7 @@ function approvalCards() {
       const buttons = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
-      // A purchase anywhere in a combined card holds back its other items too
-      const purchase = node.hasAttribute(PURCHASE_ATTR) || card.hasAttribute(PURCHASE_ATTR);
-      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', policy: node.getAttribute(POLICY_ATTR) || '', site: node.getAttribute(SITE_ATTR) || '', purchase });
+      cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true });
     }
   }
   for (const deny of document.querySelectorAll(BUTTON_SELECTOR)) {
@@ -154,7 +158,7 @@ function scan() {
   const busyCards = new Set();
   let trusted = 0;
   for (const [node, buttons] of cards) {
-    const card = { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, buttons.policy, buttons.site), purchase: !!buttons.purchase };
+    const card = cardOf(node, buttons);
     const key = AAM.cardKey(card);
     linkActionPolicy(card);
     if (handledElsewhere(buttons, key, now)) {
@@ -162,8 +166,8 @@ function scan() {
       busyCards.add(buttons.body);
       continue;
     }
-    const onceOnly = allowOnce.includes(key);
-    if (!shouldAllow(card, onceOnly)) {
+    const onceOnly = onceAllowed(key);
+    if (!AAG.canAutoApprove(settings, card, onceOnly)) {
       waiting.set(key, pendingItem(card, key));
       continue;
     }
@@ -189,12 +193,30 @@ function scan() {
   else blockedBanner = { text: lastClickedBanner || signature, at: now };
 }
 
-// "Allow everything" approves website cards, including browser uploads to a site; posts and other actions are public and
-// can't be undone, so they need the separate switch. Checkouts and purchases are only approved when the user picks "just this once"
-function shouldAllow(card, onceOnly) {
-  if (onceOnly) return true;
-  if (AAM.isPurchase(card)) return false;
-  return (settings.mode === 'all' && !!(card.host || card.site || settings.includeActions)) || AAM.isTrusted(settings, card);
+function onceAllowed(key) {
+  return allowOnce.includes(key) && !usedOnce.has(key);
+}
+
+// Asks bridge.js to re-mark the node now: true/false is its fresh answer, null means it did not answer (not loaded, no React data)
+function freshPurchase(node) {
+  const token = Math.random().toString(36).slice(2);
+  node.setAttribute(MARK_REQUEST_ATTR, token);
+  node.dispatchEvent(new CustomEvent(MARK_EVENT));
+  return node.getAttribute(MARKED_ATTR) === token ? node.hasAttribute(PURCHASE_ATTR) : null;
+}
+
+// A purchase anywhere in a combined card holds back its other items too
+function purchaseState(node, body) {
+  const own = freshPurchase(node);
+  if (own === null) return null;
+  return own || (body !== node && freshPurchase(body) === true);
+}
+
+// Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data
+function cardOf(node, buttons) {
+  const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
+  const attr = name => (buttons.muse && node.getAttribute(name)) || '';
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase };
 }
 
 function pendingItem(card, key) {
@@ -245,9 +267,10 @@ function panelPreviews() {
 function reviewPreviews(previews, now, waiting, canExpand) {
   let trusted = 0;
   for (const preview of previews) {
-    const card = { ...AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || ''), purchase: preview.hasAttribute(PURCHASE_ATTR) };
+    const purchase = purchaseState(preview, preview);
+    const card = { ...AAM.parseCard(labelOf(preview), '', preview.getAttribute(POLICY_ATTR) || '', preview.getAttribute(SITE_ATTR) || ''), purchase };
     const key = AAM.cardKey(card);
-    if (!shouldAllow(card, allowOnce.includes(key))) {
+    if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
       if (!waiting.has(key)) waiting.set(key, pendingItem(card, key));
       continue;
     }
@@ -261,12 +284,14 @@ function reviewPreviews(previews, now, waiting, canExpand) {
 }
 
 async function approve(node, buttons, card, key, onceOnly) {
+  if (onceOnly) usedOnce.add(key);
   handledAt.set(node, Date.now());
   handledKeys.set(key, { at: Date.now(), surface: buttons.surface });
   if (buttons.approvalId) handledIds.set(buttons.approvalId, Date.now());
   settleUntil.set(buttons.body, Date.now() + SETTLE_MS);
+  const kind = await clickAllow(buttons, settings.preferAlways && !onceOnly, () => stillAllowed(node, buttons, key, onceOnly));
+  if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
-  const kind = await clickAllow(buttons, settings.preferAlways && !onceOnly);
   console.info('[MAA] approved', card.host || card.action, card.chat);
   const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
@@ -277,9 +302,33 @@ async function approve(node, buttons, card, key, onceOnly) {
   });
 }
 
+// Re-reads the card on fresh bridge data; a different key means the node now holds another approval
+function stillAllowed(node, buttons, key, onceOnly) {
+  if (!node.isConnected) return false;
+  const card = cardOf(node, buttons);
+  return AAM.cardKey(card) === key && AAG.canAutoApprove(settings, card, onceOnly);
+}
+
+// The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting
+function releaseRefused(node, buttons, key, onceOnly) {
+  handledAt.delete(node);
+  handledKeys.delete(key);
+  if (buttons.approvalId) handledIds.delete(buttons.approvalId);
+  settleUntil.delete(buttons.body);
+  if (onceOnly) usedOnce.delete(key);
+  console.info('[MAA] click refused on fresh data', key);
+  scheduleScan();
+}
+
 // 右側面板和批次卡把一律允許收進「更多允許選項」選單，要的話打開選單去按；選單裡沒有才按允許一次
-async function clickAllow({ always, once, menu }, preferAlways) {
+// allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile
+async function clickAllow({ always, once, menu }, preferAlways, allowed) {
+  if (!allowed()) return null;
   const item = preferAlways && !always && once && menu && isClickable(menu) ? await openAlwaysItem(menu) : null;
+  if (!allowed()) {
+    if (item) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    return null;
+  }
   if (item) {
     item.click();
     return 'always';
@@ -370,6 +419,11 @@ function updateLocal(defaults, fn) {
     .catch(() => {});
 }
 
+// A spent key leaves usedOnce once storage drops it, so a later "just this once" for the same card works again
+function forgetUsedOnce() {
+  for (const key of usedOnce) if (!allowOnce.includes(key)) usedOnce.delete(key);
+}
+
 let pending = null;
 function scheduleScan() {
   if (pending) return;
@@ -386,13 +440,17 @@ chrome.storage.sync.get(AAM.SETTINGS_DEFAULTS, stored => {
 });
 chrome.storage.local.get({ allowOnce: [] }, stored => {
   allowOnce = stored.allowOnce;
+  forgetUsedOnce();
   scheduleScan();
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync') {
     for (const key of Object.keys(AAM.SETTINGS_DEFAULTS)) if (changes[key]) settings[key] = changes[key].newValue ?? AAM.SETTINGS_DEFAULTS[key];
   }
-  if (area === 'local' && changes.allowOnce) allowOnce = changes.allowOnce.newValue || [];
+  if (area === 'local' && changes.allowOnce) {
+    allowOnce = changes.allowOnce.newValue || [];
+    forgetUsedOnce();
+  }
   if (area === 'sync' || (area === 'local' && changes.allowOnce)) {
     blockedBanner = { text: '', at: 0 };
     lastReviewAt = 0;

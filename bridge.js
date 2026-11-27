@@ -9,6 +9,9 @@
   const MAX_FIBERS = 50000;
   // Matched against key names, not a fixed list, so checkout kinds muse adds later are still caught
   const PURCHASE_RE = /checkout|purchase|payment/i;
+  const MARK_EVENT = 'maa-mark';
+  const MARK_REQUEST_ATTR = 'data-maa-mark-request';
+  const MARKED_ATTR = 'data-maa-marked';
   let timer = null;
   let queryClient = null;
 
@@ -59,15 +62,33 @@
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
+  function markItem(el) {
+    const approvals = approvalsOf(el);
+    const one = approvals.length === 1 ? approvals[0] : null;
+    setAttr(el, 'data-maa-approval-id', one?.approvalId);
+    setAttr(el, 'data-maa-policy', one?.policySubject);
+    setAttr(el, 'data-maa-site', one && destinationOf(one));
+    setAttr(el, 'data-maa-purchase', approvals.some(isPurchaseApproval) ? '1' : '');
+    return approvals;
+  }
+
   function markItems() {
     for (const el of document.querySelectorAll(ITEM_SELECTOR)) {
       if (!el.matches(CARD_SELECTOR) && !el.closest('section, ' + CARD_SELECTOR)) continue;
-      const approvals = approvalsOf(el);
-      const one = approvals.length === 1 ? approvals[0] : null;
-      setAttr(el, 'data-maa-approval-id', one?.approvalId);
-      setAttr(el, 'data-maa-policy', one?.policySubject);
-      setAttr(el, 'data-maa-site', one && destinationOf(one));
-      setAttr(el, 'data-maa-purchase', approvals.some(isPurchaseApproval) ? '1' : '');
+      markItem(el);
+    }
+  }
+
+  // content.js asks for a fresh mark right before it clicks. Listeners run inside its dispatchEvent, so the answer is
+  // there when dispatchEvent returns; echoing its token proves this run read approval data for this node
+  function markOnRequest(e) {
+    const el = e.target;
+    if (!(el instanceof Element)) return;
+    el.removeAttribute(MARKED_ATTR);
+    try {
+      if (markItem(el).length) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
+    } catch (err) {
+      console.warn('[MAA] bridge mark failed', err);
     }
   }
 
@@ -123,6 +144,7 @@
     return;
   }
 
+  document.addEventListener(MARK_EVENT, markOnRequest, true);
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   setInterval(update, 2000);
   schedule();
