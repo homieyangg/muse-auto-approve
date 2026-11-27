@@ -1,10 +1,7 @@
 'use strict';
 
-const ALWAYS_RE = /^(一律允許|永久允許|總是允許|始終允許|永遠允許|一律允许|永久允许|总是允许|始终允许|always allow|allow always)/i;
-const ONCE_RE = /^(允許|允许|allow)( ?(一次|本次|此次|once|this time))?$/i;
-// 連接器動作卡的拒絕鈕是「不要＋動作」，例如寄信卡的「不要傳送」，簡體是「不发送」
-const DENY_RE = /^(拒絕|拒绝|不允許|不允许|不要|不发|封鎖|阻擋|deny|reject|block|decline|don['’]t |do not )/i;
-const CONTEXT_RE = /(網域|域名|網路|网络|網站|网站|連線|连接|存取|访问|外聯|外联|請求|请求|審批|审批|核准|批准|權限|权限|瀏覽器|浏览器|approv|domain|network|website|egress|request|access|permission|browser|https?:\/\/)/i;
+// 按鈕文字與卡片本文的判斷集中在 shared.js，介面語言和審批卡的語言可以分開加
+const { ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE } = AAM;
 const MAX_DEPTH = 6;
 const MAX_CONTEXT_TEXT = 1500;
 const RETRY_AFTER_MS = 5000;
@@ -27,8 +24,6 @@ const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
-// 右側面板的分頁按鈕只有各語言的名稱可認
-const APPROVALS_TAB_RE = /^(核可工具|批准|approvals)$/i;
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
 const CHAT_ROW_SELECTOR = '[data-testid="hatch-thread-row"][data-slot="context-menu-trigger"]';
 

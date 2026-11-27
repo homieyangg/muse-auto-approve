@@ -2,12 +2,16 @@
 
 // 設定頁可以強制指定介面語言，chrome.i18n 只跟著瀏覽器，所以自己讀 _locales
 const I18N = (() => {
+  const HTML_LANG = { zh_TW: 'zh-Hant', ja: 'ja', en: 'en' };
+  const DATE_LOCALE = { zh_TW: 'zh-TW', ja: 'ja-JP', en: 'en' };
   let messages = {};
   let code = 'en';
 
   function pickCode(lang) {
-    if (lang === 'zh_TW' || lang === 'en') return lang;
-    return chrome.i18n.getUILanguage().toLowerCase().startsWith('zh') ? 'zh_TW' : 'en';
+    if (['zh_TW', 'ja', 'en'].includes(lang)) return lang;
+    const ui = chrome.i18n.getUILanguage().toLowerCase();
+    if (ui.startsWith('zh')) return 'zh_TW';
+    return ui.startsWith('ja') ? 'ja' : 'en';
   }
 
   async function load() {
@@ -15,7 +19,7 @@ const I18N = (() => {
     code = pickCode(lang);
     const res = await fetch(chrome.runtime.getURL(`_locales/${code}/messages.json`));
     messages = await res.json();
-    document.documentElement.lang = code === 'zh_TW' ? 'zh-Hant' : 'en';
+    document.documentElement.lang = HTML_LANG[code];
     apply(document);
   }
 
@@ -37,17 +41,17 @@ const I18N = (() => {
     if (min < 1) return t('justNow');
     if (min < 60) return t('minutesAgo', min);
     if (min < 24 * 60) return t('hoursAgo', Math.floor(min / 60));
-    return new Date(ts).toLocaleDateString(code === 'zh_TW' ? 'zh-TW' : 'en');
+    return new Date(ts).toLocaleDateString(DATE_LOCALE[code]);
   }
 
   function clock(ts) {
     const d = new Date(ts);
-    const hm = d.toLocaleTimeString(code === 'zh_TW' ? 'zh-TW' : 'en', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const hm = d.toLocaleTimeString(DATE_LOCALE[code], { hour: '2-digit', minute: '2-digit', hour12: false });
     const today = new Date();
     if (d.toDateString() === today.toDateString()) return hm;
     today.setDate(today.getDate() - 1);
     if (d.toDateString() === today.toDateString()) return `${t('yesterday')} ${hm}`;
-    return d.toLocaleDateString(code === 'zh_TW' ? 'zh-TW' : 'en', { month: 'numeric', day: 'numeric' }) + ` ${hm}`;
+    return d.toLocaleDateString(DATE_LOCALE[code], { month: 'numeric', day: 'numeric' }) + ` ${hm}`;
   }
 
   return { load, t, apply, ago, clock, get code() { return code; } };

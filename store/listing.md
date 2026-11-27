@@ -9,7 +9,7 @@
 - 名稱：Auto Approve for Muse（取自 manifest）
 - 摘要：取自 manifest 的 description
 - 類別：工具（Tools）
-- 語言：中文（繁體）
+- 語言：中文（繁體）／English／日本語
 - 商店圖示：`icons/icon128.png`
 - 在地化螢幕截圖（中文）：`store/screenshot-1.png`、`store/screenshot-2.png`、`store/screenshot-3.png`（照順序上傳，舊的那張刪掉）
 - 在地化螢幕截圖（英文）：`store/screenshot-en-1.png`、`store/screenshot-en-2.png`、`store/screenshot-en-3.png`
@@ -37,7 +37,7 @@ muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你
 ・審批來自其他聊天室時，會先按「檢閱」把卡片叫出來
 ・有「一律允許」時優先按，同一個網站之後就不會再問
 ・只在卡片裡同時有「允許」和「拒絕」、內容跟網站存取有關時才會按，卡片外的按鈕不會被點到
-・介面有繁體中文和英文
+・介面有繁體中文、英文和日文
 
 插件沒有伺服器，不會把資料送出去。信任清單透過 Chrome 同步到你自己登入的瀏覽器，紀錄只存在本機。
 
@@ -62,13 +62,39 @@ Also:
 - Opens review banners for approvals that come from other chats
 - Prefers "Always allow" when available, so the same site isn't asked again
 - Only clicks inside cards that have both Allow and Deny buttons and mention website access
-- English and Traditional Chinese interface
+- English, Traditional Chinese, and Japanese interface
 
 No server, nothing sent anywhere. Trusted lists sync between your own signed-in Chrome browsers through Chrome sync; the activity log stays on your computer.
 
 Note: a muse.ai tab must be open for it to work. Auto-approving skips the human check, so evaluate the risk yourself.
 
 This is an unofficial tool and is not affiliated with Meta or muse.ai. Source code: https://github.com/homieyangg/muse-auto-approve
+
+### 説明（日本語）
+
+muse.ai のアシスタントが新しいサイトや重要なサイトを開こうとすると、承認カードが表示され、「許可」を押すまで待ちます。誰も操作しないとタスクは止まったままになり、スケジュールタスクでは特に頻繁に起こります。
+
+この拡張機能が代わりに「許可」を押します。動かし方は2つから選べます。
+
+- 信頼したものだけ（おすすめ）: 新しいサイト・アクション・チャットが初めて表示されたときに確認します。ツールバーのアイコンに赤い数字が出たら開き、どこまで信頼するかを選べば記憶されます。
+- すべて許可: Ren が求めるすべてのウェブサイトを許可します。投稿やメッセージなどのアクションは、設定でオンにしない限り確認されます。
+
+そのほか:
+
+- サイト、アクション、特定のチャットだけ、チャット全体、今回だけ、の範囲で信頼できます
+- Threads への投稿などのアクションカードも認識します
+- 設定ページで完全なリストを管理し、サイトを特定のチャットに限定したり、削除せずにオフにしたり、アクティビティログの確認や設定のエクスポート・インポートができます
+- ほかのチャットからの承認は「確認」バナーを開いて処理します
+- 「常に許可」があれば優先するので、同じサイトで何度も確認されません
+- カード内に許可と拒否の両方のボタンがあり、内容がサイトへのアクセスや権限に関係するときだけ押します
+- 操作を誤らないよう、購入・決済のカードは自動で許可しません
+- 画面は日本語・英語・繁体字中国語に対応しています
+
+サーバーはなく、データをどこにも送信しません。信頼リストは Chrome の同期で、同じ Google アカウントでサインインしたブラウザ間に保存されます。アクティビティログはこのコンピューターにだけ残ります。
+
+注意: muse.ai のタブを開いたままにする必要があります。自動許可は人の確認を省くため、リスクを理解したうえで使用してください。
+
+非公式ツールです。Meta や muse.ai とは関係ありません。ソースコード: https://github.com/homieyangg/muse-auto-approve
 
 ## 隱私權做法
 

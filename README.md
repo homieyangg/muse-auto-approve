@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome Web Store"></a>
 </p>
 
-<p align="center"><a href="README.zh-TW.md">繁體中文</a></p>
+<p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.ja.md">日本語</a></p>
 
 When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
 
@@ -55,7 +55,7 @@ Run the same command again to update. The folder stays the same, so your setting
 
    <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The interface is in English and Traditional Chinese and follows your browser language. You can change it in Settings.
+The interface is in English, Traditional Chinese, and Japanese and follows your browser language. You can change it in Settings.
 
 ## Trusted sites and chats
 
@@ -86,6 +86,24 @@ Settings has the full lists. You can limit a site to certain chats, turn an entr
 
 <img src="docs/images/options-sites.png" width="720" alt="Trusted sites in Settings">
 
+## Muse's own approval settings
+
+The extension doesn't change Muse's settings. Whether a card appears at all depends on Muse's own approval policy. Meta's help center describes these controls under Settings > Access permissions:
+
+- **Connectors**: "Ask for some actions" asks before every write action and important read actions. "Always ask" asks before every action.
+- **Default web access**: "Ask for some actions" asks when information may be shared or an unfamiliar site is visited. "Always ask" asks before any website is opened.
+- **Manage access permissions**: review or revoke per-connector permissions, approvals for artifacts and scheduled tasks, and the list of allowed websites.
+
+Muse separates read actions (checking a calendar, reading email, listing GitHub issues) from write actions (sending a message, posting, buying). Depending on your settings, Muse may still ask for an important read action.
+
+`List issues on GitHub` is a read action, but when Muse shows an approval card for it, the extension sees an action card rather than a website card. That means:
+
+- **Only what I trust**: choose "This action" in the popup and cards with the same permission type are approved automatically.
+- **Allow everything**: action cards are not approved by default. Turn on "Include actions" under Settings > General > Advanced. Posts and messages can't be undone, so only turn it on if you need it.
+- **Checkout and purchase cards** are never approved automatically.
+
+To use the GitHub connector, connect GitHub in Muse and grant the read permissions there first. The extension doesn't do OAuth or grant permissions. If a card isn't approved automatically, the popup says why (action not included, purchase card, and so on).
+
 ## How it finds approval cards
 
 - muse marks its approval cards with `data-testid="hatch-inline-approval-card"`, and the extension only clicks Allow or Always allow inside a marked card, so an Allow button anywhere else on the page is never clicked.
@@ -97,7 +115,7 @@ Settings has the full lists. You can limit a site to certain chats, turn an entr
 - When "Always allow" is tucked into the "More allow options" menu (side panel, combined cards), the extension opens the menu to click it.
 - It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the cards it opened aren't trusted, it leaves the same set of approvals alone for 10 minutes instead of opening them again and again.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations. Japanese labels such as "許可する", "許可しない", and "常に許可" are covered by automated tests.
 
 ## Limitations
 
@@ -128,7 +146,7 @@ Once you're signed in, you can close the page and the SSH session. Chromium keep
 A few things to keep in mind:
 
 - The web UI includes a terminal with passwordless sudo. Never expose the port to the internet.
-- Chromium in the container defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that's the UI the extension was tested with. After signing in, also set Chromium's language to Traditional Chinese and turn off page translation, since a translated page changes the button labels the extension looks for.
+- Chromium in the container defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that's the UI the extension was tested with. After signing in, also set Chromium's language to the one you want (Traditional Chinese, English, or Japanese) and turn off page translation, since a translated page changes the button labels the extension looks for.
 - Streaming the web UI takes a fair amount of CPU, so close it when you're done.
 - Chromium on the server isn't signed in to Google, so your trusted lists don't sync to it. Export them from Settings > Backup in your own browser and import the file on the server.
 - After updating the extension, run `docker compose restart` so Chromium loads the new version.
@@ -136,6 +154,14 @@ A few things to keep in mind:
 ## Privacy
 
 The extension has no server and makes no network requests of its own. Your mode and trusted lists are saved with `chrome.storage.sync`, so Chrome syncs them between browsers signed in to the same Google account. The activity log stays in `chrome.storage.local` on your computer. See [PRIVACY.md](PRIVACY.md) for details.
+
+## Testing
+
+```bash
+node --test tests/
+```
+
+The tests cover approval-label matching in English, Traditional Chinese, Simplified Chinese, and Japanese, chat/purchase parsing, locale key parity, and the manifest message limits.
 
 ## Packaging
 
