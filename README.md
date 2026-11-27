@@ -55,7 +55,7 @@ Run the same command again to update. Your folder and settings stay intact. Afte
 
    <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The interface supports English, Traditional Chinese, Simplified Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, Simplified Chinese, and Japanese muse.ai accounts are supported.
+The interface supports English, Traditional Chinese, Simplified Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, and Japanese muse.ai accounts are supported. Simplified Chinese accounts have not been tested yet.
 
 ## Modes and trusted rules
 
@@ -116,7 +116,7 @@ To use the GitHub connector, connect GitHub in Muse and grant the read permissio
 - When "Always allow" sits inside the "More allow options" menu (side panel or combined cards), the extension opens the menu to click it.
 - Cooldowns: it will not click the same card twice within 5 seconds, clicks Review at most once every 10 seconds, and leaves the same set of untrusted approvals alone for 10 minutes instead of reopening them repeatedly.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese and Japanese. Checkout cards have not been triggered for real; they are recognized from the checkout and payment fields in muse's approval data, which does not depend on language, with the card wording as a fallback. Japanese labels such as "許可する", "許可しない", "承認しない", "一度だけ許可", and "...を常に許可" are covered by automated tests.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese and English. Browser upload cards have been tested in Traditional Chinese and Japanese. Checkout cards have not been triggered for real; they are recognized from the checkout and payment fields in muse's approval data, which does not depend on language, with the card wording as a fallback. Japanese labels such as "許可する", "許可しない", "承認しない", "一度だけ許可", and "...を常に許可" are covered by automated tests. Simplified Chinese accounts have not been tested on the live site yet.
 
 ## Limitations
 

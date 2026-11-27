@@ -35,7 +35,7 @@ muse.ai 跳出審批卡時自動幫你按「允許」，人不在電腦前任務
 - 卡片有「一律允許」就優先按，同一個網站之後不用再問。
 - 審批來自別的聊天室或排程時，會先按「檢閱」把卡片叫出來。
 - 設定頁可管理完整清單、把網站限定在特定聊天室、先停用不刪掉、看紀錄，也能匯出匯入設定。
-- 插件介面和 muse.ai 審批卡都支援繁體中文、簡體中文、英文、日文。
+- 插件介面支援繁體中文、簡體中文、英文、日文。muse.ai 審批卡支援繁體中文、英文、日文帳號，簡體中文帳號還沒有實測過。
 
 不會亂點：
 
@@ -65,7 +65,7 @@ muse.ai 弹出审批卡时自动帮你点击「允许」，人不在电脑前任
 - 卡片有「始终允许」会优先点击，同一个网站之后不再重复询问。
 - 审批来自其他聊天或定时任务时，会先点击「审阅」把卡片展开。
 - 设置页可管理完整列表、把网站限定在特定聊天、先停用不删除、查看记录，也支持导出导入设置。
-- 插件界面和 muse.ai 审批卡均支持简体中文、繁体中文、英文、日文。
+- 插件界面支持简体中文、繁体中文、英文、日文。muse.ai 审批卡支持繁体中文、英文、日文账号，简体中文账号尚未实测。
 
 不会乱点：
 
@@ -95,7 +95,7 @@ What it does:
 - Picks "Always allow" when offered, so the same site does not ask again.
 - Opens Review banners for approvals coming from other chats or scheduled tasks.
 - Full controls in Settings: limit a site to specific chats, pause an entry without deleting it, check the activity log, and export or import your rules.
-- Supports English, Traditional Chinese, Simplified Chinese, and Japanese for both the extension interface and muse.ai approval cards.
+- The extension interface supports English, Traditional Chinese, Simplified Chinese, and Japanese. Approval cards are supported on English, Traditional Chinese, and Japanese muse.ai accounts; Simplified Chinese accounts have not been tested yet.
 
 What it will not click:
 

@@ -45,7 +45,7 @@
     "message": "今天 $1 次"
   },
   "preferAlways": {
-    "message": "优先点击「始终允许」"
+    "message": "优先点击始终允许类的选项"
   },
   "preferAlwaysDesc": {
     "message": "muse 会记住网站，以后不再弹卡"
@@ -252,7 +252,7 @@
     "message": "自动打开其他聊天的请求"
   },
   "openBackgroundDesc": {
-    "message": "其他聊天的请求只会显示「一项任务需要审阅」，插件会先点击「审阅」"
+    "message": "其他聊天的请求只会显示审阅提示，插件会先点击提示把卡片展开"
   },
   "language": {
     "message": "界面语言"
@@ -390,7 +390,7 @@
     "message": "欢迎使用 Auto Approve for Muse"
   },
   "welcomeSub": {
-    "message": "Ren 要打开网站时，muse 会弹出审批卡等你点击「允许」。这个插件可以帮你自动点击。"
+    "message": "Ren 要打开网站时，muse 会弹出审批卡等你点击允许。这个插件可以帮你自动点击。"
   },
   "welcomeQ": {
     "message": "你希望怎么处理？"
