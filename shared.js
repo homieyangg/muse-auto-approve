@@ -11,13 +11,34 @@ const AAM = (() => {
   const INVISIBLE_RE = /[‎‏⁦-⁩]/g;
   const HOST_RE = /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}/i;
   // 來源：副聊天室寫「此任務來自…」，排程任務寫「這是針對排定的…任務」，排程名稱也當成聊天室，才能用信任清單涵蓋
-  const CHAT_RES = [/此任務來自([^。]*)。/, /此任务来自([^。]*)。/, /這是針對排定的([^。]*)任務。/, /这是预定任务([^。]*)。/, /this task (?:is |comes |came )?from ([^.]*)\./i, /this is for the scheduled task ([^.]*)\./i];
+  // 日本語は「このタスクは…から」「予定されたタスク「…」」のような言い回しになる
+  const CHAT_RES = [
+    /此任務來自([^。]*)。/, /此任务来自([^。]*)。/, /這是針對排定的([^。]*)任務。/, /这是预定任务([^。]*)。/,
+    /this task (?:is |comes |came )?from ([^.]*)\./i, /this is for the scheduled task ([^.]*)\./i,
+    /このタスクは([^。]*)から/, /このタスクは([^。]*)のため/, /これは([^。]*)という予定/,
+    /(?:予定|スケジュール)されたタスク[「『“"]([^」』”"]+)[」』”"]/,
+  ];
   const QUOTED_RE = /[「『“"]([^」』”"]+)[」』”"]/;
   // English verbs need word boundaries, otherwise the "Browser" connector name in browser cards reads as "browse"
-  const ACCESS_RE = /(存取|訪問|访问|開啟|打開|打开|前往|瀏覽|浏览|\b(?:access|visit|open|browse)\b)/i;
+  // 日本語のサイト審批は「example.com にアクセスしますか？」のように動詞が漢字かな混じりになる
+  const ACCESS_RE = /(存取|訪問|访问|開啟|打開|打开|前往|瀏覽|浏览|アクセス|閲覧|接続|開く|開きます|\b(?:access|visit|open|browse)\b)/i;
   // muse scopes browser upload approvals to the destination site ("Always allow uploads to this site")
   const UPLOAD_POLICY = 'connector.browser.page.upload';
-  const PURCHASE_RE = /(結帳|下訂單|購買|结账|结帐|下单|购买|想买|check ?out|place (?:an )?order|purchase|\bbuy\b)/i;
+  const PURCHASE_RE = /(結帳|下訂單|購買|结账|结帐|下单|购买|想买|購入|注文|決済|支払|チェックアウト|買う|check ?out|place (?:an )?order|purchase|\bbuy\b)/i;
+
+  // 承認カードのボタン文字。日本語は「許可する」「許可しない」「常に許可」。
+  // 「常に許可」は主語が前に付く（例: このサイトへのアップロードを常に許可）ので末尾で照合する。
+  // 末尾を固定することで「常に許可しない」「常に許可済み」とは一致しない。
+  // 「すべてを常に許可」はコネクター全体を許可する広い操作なので、英語・中国語と同じく対象外にする
+  const ALWAYS_RE = /^(?:一律允許|永久允許|總是允許|始終允許|永遠允許|一律允许|永久允许|总是允许|始终允许|always allow|allow always)|^(?!.*すべて).*常に許可(?:する)?$/i;
+  const ONCE_RE = /^(?:(?:允許|允许|allow)(?: ?(?:一次|本次|此次|once|this time))?|許可(?:する)?|(?:1|一)回だけ許可(?:する)?|今回(?:だけ|のみ)?許可(?:する)?|一度だけ許可(?:する)?)$/i;
+  // 連接器動作卡的拒絕鈕是「不要＋動作」，例如寄信卡的「不要傳送」，簡體是「不发送」；日本語は「許可しない」「承認しない」「却下」「拒否」
+  // キャンセル / やめる は通常のダイアログにもあるため、拒否ボタンとして扱わない
+  const DENY_RE = /^(?:拒絕|拒绝|不允許|不允许|不要|不发|封鎖|阻擋|deny|reject|block|decline|don['’]t |do not |(?:この(?:サイト|タスク)を)?(?:許可|承認)しない|却下(?:する)?|拒否(?:する)?)/i;
+  // カード本文にサイト・権限・許可の話が出ているか。DOM 標記が無いときの誤クリック防止に使う
+  const CONTEXT_RE = /(網域|域名|網路|网络|網站|网站|連線|连接|存取|访问|外聯|外联|請求|请求|審批|审批|核准|批准|權限|权限|瀏覽器|浏览器|許可|承認|アクセス|サイト|ウェブ|ブラウザ|接続|権限|リクエスト|ドメイン|ネットワーク|読み取り|書き込み|approv|domain|network|website|egress|request|access|permission|browser|https?:\/\/)/i;
+  // 右側面板の分頁按鈕は「承認」「承認待ち」。「許可」は他のボタンにもあるため使わない
+  const APPROVALS_TAB_RE = /^(?:核可工具|批准|approvals|承認(?:待ち)?)$/i;
 
   function cleanText(text) {
     return (text || '').replace(INVISIBLE_RE, '').replace(/\s+/g, ' ').trim();
@@ -141,7 +162,7 @@ const AAM = (() => {
     if (!raw || typeof raw !== 'object') return out;
     for (const key of ['enabled', 'preferAlways', 'openBackground', 'includeActions']) if (typeof raw[key] === 'boolean') out[key] = raw[key];
     if (['all', 'trusted'].includes(raw.mode)) out.mode = raw.mode;
-    if (['auto', 'zh_TW', 'en'].includes(raw.lang)) out.lang = raw.lang;
+    if (['auto', 'zh_TW', 'ja', 'en'].includes(raw.lang)) out.lang = raw.lang;
     if (Array.isArray(raw.sites)) {
       out.sites = raw.sites
         .map(s => ({ id: String(s.id || newId()), host: normalizeHost(s.host), sub: !!s.sub, on: s.on !== false, chats: Array.isArray(s.chats) ? s.chats.filter(c => typeof c === 'string' && c) : [] }))
@@ -165,7 +186,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

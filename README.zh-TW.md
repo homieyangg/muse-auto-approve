@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome 線上應用程式商店"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a></p>
+<p align="center"><a href="README.md">English</a> · <a href="README.ja.md">日本語</a></p>
 
 muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你按「允許」。沒人按，任務就卡在那裡，排程任務特別常遇到。
 
@@ -55,7 +55,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
    <img src="docs/images/zh-TW/popup.png" width="300" alt="插件的 popup">
 
-介面有繁體中文和英文，預設跟著瀏覽器的語言，也可以在設定頁切換。
+介面有繁體中文、英文和日文，預設跟著瀏覽器的語言，也可以在設定頁切換。
 
 ## 信任的網站和聊天室
 
@@ -97,7 +97,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 - 「一律允許」收在「更多允許選項」選單裡時（右側面板、批次卡），插件會打開選單去按。
 - 同一張卡 5 秒內不會重按，「檢閱」最多 10 秒按一次。叫出來的卡如果不在信任清單裡，同一批審批 10 分鐘內不會再一直點開。
 
-繁體中文、英文、簡體中文介面都實際測過寄信、批次、副聊天室、排程、網站存取這幾種卡。瀏覽器上傳卡在繁體中文介面實測過。結帳卡沒有真的觸發過，是照 muse 的翻譯字樣判斷。
+繁體中文、英文、簡體中文介面都實際測過寄信、批次、副聊天室、排程、網站存取這幾種卡。瀏覽器上傳卡在繁體中文介面實測過。結帳卡沒有真的觸發過，是照 muse 的翻譯字樣判斷。日文的「許可する」「許可しない」「常に許可」等按鈕文字有自動測試涵蓋。
 
 ## 限制
 

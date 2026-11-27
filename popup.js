@@ -35,7 +35,7 @@ function saveSettings(patch) {
   return chrome.storage.sync.set(patch);
 }
 
-const sep = () => (I18N.code === 'zh_TW' ? '、' : ', ');
+const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
 
@@ -73,6 +73,13 @@ function renderHome() {
   $('#rate').hidden = !showRate();
 }
 
+// 說明這張卡為什麼沒有自動按：購買卡永遠要人工決定；「全部允許」預設不含發文這類動作
+function pendingReason(item) {
+  if (AAM.isPurchase(item)) return 'reasonPurchase';
+  if (settings.mode === 'all' && !item.host && !item.site && !settings.includeActions) return 'reasonAction';
+  return '';
+}
+
 // 結帳、購買的卡插件不會自動按，只給「只允許這一次」
 function scopeOptions(item) {
   if (AAM.isPurchase(item)) return ['once'];
@@ -102,6 +109,10 @@ function pendingCard(item) {
   I18N.apply(node);
   node.querySelector('.req-site').textContent = label(item);
   node.querySelector('.req-meta').textContent = `${item.chat ? t('from', item.chat) : t('fromUnknown')}・${I18N.ago(item.ts)}`;
+  const reason = pendingReason(item);
+  const note = node.querySelector('.req-reason');
+  note.hidden = !reason;
+  note.textContent = reason ? t(reason) : '';
   const radios = scopeOptions(item).map((scope, i) => scopeRadio(`scope-${item.key}`, scope, i === 0));
   node.querySelector('.scopes').append(...radios);
   node.querySelector('[data-act=allow]').addEventListener('click', () => {

@@ -119,6 +119,12 @@
   "pendingHint": {
     "message": "If you answer a card in muse yourself, it disappears from here."
   },
+  "reasonAction": {
+    "message": "\"Allow everything\" doesn't approve actions like this unless you turn on \"Include actions\" in Settings > General > Advanced. Trust this action here, or enable that switch."
+  },
+  "reasonPurchase": {
+    "message": "Checkout and purchase cards are never approved automatically. Choose \"Just this once\" to allow this one."
+  },
   "anyChat": {
     "message": "Any chat"
   },

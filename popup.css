@@ -48,6 +48,7 @@ body { width: 360px; min-height: 480px; }
 .req { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
 .req-site { font-weight: 600; word-break: break-all; }
 .req-meta { display: block; margin: 2px 0 8px; }
+.req-reason { display: block; color: var(--warn); margin: 0 0 8px; line-height: 1.45; }
 .scopes { display: grid; gap: 4px; margin: 4px 0 10px; font-size: 13px; }
 .scopes small { display: block; color: var(--warn); }
 .actions { display: flex; gap: 8px; }

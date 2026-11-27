@@ -1,0 +1,449 @@
+{
+  "extName": {
+    "message": "Auto Approve for Muse"
+  },
+  "extDescription": {
+    "message": "muse.ai の承認カードで「許可」を自動クリック。信頼したサイト・アクション・チャットだけを許可できます。Meta 非公認。"
+  },
+  "statusOn": {
+    "message": "オン · 今日 $1 件を許可"
+  },
+  "statusPaused": {
+    "message": "一時停止中。何もクリックしません。"
+  },
+  "toggleTitle": {
+    "message": "オン・オフを切り替える"
+  },
+  "pendingAlert": {
+    "message": "承認待ち: $1 件"
+  },
+  "modeLabel": {
+    "message": "許可する範囲"
+  },
+  "modeTrusted": {
+    "message": "信頼したものだけ"
+  },
+  "modeAll": {
+    "message": "すべて"
+  },
+  "modeTrustedDesc": {
+    "message": "新しいサイト・アクション・チャットは先に確認します"
+  },
+  "modeAllDesc": {
+    "message": "すべてのウェブサイトのリクエストを許可します"
+  },
+  "trustedSites": {
+    "message": "信頼するサイト"
+  },
+  "trustedChats": {
+    "message": "信頼するチャット"
+  },
+  "recentLog": {
+    "message": "最近のアクティビティ"
+  },
+  "todayN": {
+    "message": "今日 $1 件"
+  },
+  "preferAlways": {
+    "message": "「常に許可」を優先"
+  },
+  "preferAlwaysDesc": {
+    "message": "muse がサイトを記憶し、次回から確認しません"
+  },
+  "rateTitle": {
+    "message": "役に立っていますか？"
+  },
+  "rateText": {
+    "message": "Chrome ウェブストアでのレビューが、ほかの人の発見につながります。"
+  },
+  "rateButton": {
+    "message": "★ レビューを書く"
+  },
+  "moreSettings": {
+    "message": "設定"
+  },
+  "more": {
+    "message": "その他"
+  },
+  "menuHelp": {
+    "message": "使い方"
+  },
+  "menuIssue": {
+    "message": "問題を報告"
+  },
+  "menuRate": {
+    "message": "Chrome ウェブストアでレビュー"
+  },
+  "menuSource": {
+    "message": "ソースコード (GitHub)"
+  },
+  "back": {
+    "message": "戻る"
+  },
+  "pendingHeader": {
+    "message": "承認待ち"
+  },
+  "from": {
+    "message": "$1 から"
+  },
+  "fromUnknown": {
+    "message": "不明なチャット"
+  },
+  "allowLater": {
+    "message": "今後、許可する範囲:"
+  },
+  "scopeSite": {
+    "message": "このサイトを、すべてのチャットから"
+  },
+  "scopeSiteChat": {
+    "message": "このサイトを、このチャットからのみ"
+  },
+  "scopeChat": {
+    "message": "このチャットのすべて"
+  },
+  "scopeChatWarn": {
+    "message": "投稿などのアクションも含め、このチャットの依頼をすべて許可します。購入や決済は引き続き確認します"
+  },
+  "scopeOnce": {
+    "message": "今回だけ（記憶しない）"
+  },
+  "allow": {
+    "message": "許可"
+  },
+  "notNow": {
+    "message": "あとで"
+  },
+  "pendingEmpty": {
+    "message": "承認待ちはありません。"
+  },
+  "pendingHint": {
+    "message": "muse 側でカードに回答すると、ここから消えます。"
+  },
+  "reasonAction": {
+    "message": "「すべて許可」では、このようなアクションカードは自動承認されません。「設定 → 一般 → 詳細設定」で「アクションを含める」をオンにするか、ここでこのアクションを信頼してください。"
+  },
+  "reasonPurchase": {
+    "message": "購入・決済のカードは自動承認しません。「今回だけ」を選ぶと、この1回だけ許可します。"
+  },
+  "anyChat": {
+    "message": "すべてのチャット"
+  },
+  "onlyChats": {
+    "message": "$1 からのみ"
+  },
+  "withSub": {
+    "message": "$1 とサブドメイン"
+  },
+  "sitePlaceholder": {
+    "message": "URL を貼り付けるか、x.com のようなサイト名を入力"
+  },
+  "includeSub": {
+    "message": "サブドメインを含める（mail.google.com など）"
+  },
+  "add": {
+    "message": "追加"
+  },
+  "siteInvalid": {
+    "message": "サイト名として認識できません。x.com のような形式で入力してください。"
+  },
+  "siteLimitHint": {
+    "message": "サイトを特定のチャットに限定するには、設定ページを使ってください。"
+  },
+  "sitesEmpty": {
+    "message": "信頼するサイトはまだありません。"
+  },
+  "chatsEmpty": {
+    "message": "信頼するチャットはまだありません。"
+  },
+  "chatAllSites": {
+    "message": "すべて許可"
+  },
+  "recentChats": {
+    "message": "muse のチャットから追加:"
+  },
+  "recentChatsEmpty": {
+    "message": "muse でチャット一覧を一度開くと、サイドチャットがここに表示されます。"
+  },
+  "chatWarn": {
+    "message": "信頼したチャットは、投稿などのアクションも含めてすべて許可されます（購入・決済は除く）。確実なチャットだけ追加してください。"
+  },
+  "logEmpty": {
+    "message": "まだ何もありません。"
+  },
+  "clearLog": {
+    "message": "アクティビティを消去"
+  },
+  "resultAllowed": {
+    "message": "許可済み"
+  },
+  "resultPending": {
+    "message": "承認待ち"
+  },
+  "resultSkipped": {
+    "message": "スキップ"
+  },
+  "resultHandled": {
+    "message": "muse で回答済み"
+  },
+  "justNow": {
+    "message": "たった今"
+  },
+  "minutesAgo": {
+    "message": "$1 分前"
+  },
+  "hoursAgo": {
+    "message": "$1 時間前"
+  },
+  "yesterday": {
+    "message": "昨日"
+  },
+  "remove": {
+    "message": "削除"
+  },
+  "navSettings": {
+    "message": "設定"
+  },
+  "navData": {
+    "message": "データ"
+  },
+  "navOther": {
+    "message": "その他"
+  },
+  "navGeneral": {
+    "message": "一般"
+  },
+  "navLog": {
+    "message": "アクティビティ"
+  },
+  "navBackup": {
+    "message": "バックアップ"
+  },
+  "navAbout": {
+    "message": "ヘルプ"
+  },
+  "navChangelog": {
+    "message": "リリースノート"
+  },
+  "generalLead": {
+    "message": "拡張機能が自動で「許可」を押す条件を設定します。"
+  },
+  "enabledLabel": {
+    "message": "自動許可"
+  },
+  "enabledDesc": {
+    "message": "オフにすると一時停止し、何もクリックしません。"
+  },
+  "modeTrustedLong": {
+    "message": "信頼したものだけ"
+  },
+  "modeTrustedLongDesc": {
+    "message": "新しいサイト・アクション・チャットは先に確認します。ポップアップで一度答えれば記憶されます。"
+  },
+  "modeAllLong": {
+    "message": "すべて許可"
+  },
+  "modeAllLongDesc": {
+    "message": "すべてのウェブサイトのリクエストを許可し、人の確認を省きます。投稿などのアクションは「詳細設定」で別途オンにする必要があります。"
+  },
+  "advanced": {
+    "message": "詳細設定"
+  },
+  "openBackground": {
+    "message": "ほかのチャットからのリクエストを開く"
+  },
+  "openBackgroundDesc": {
+    "message": "ほかのチャットからのリクエストは確認バナーだけ表示されるため、拡張機能が先に「確認」を押します。"
+  },
+  "language": {
+    "message": "言語"
+  },
+  "languageDesc": {
+    "message": "既定ではブラウザの言語に従います"
+  },
+  "langAuto": {
+    "message": "ブラウザの設定"
+  },
+  "sitesLead": {
+    "message": "Ren がこれらのサイトを開こうとすると、拡張機能が「許可」を押します。サイトを特定のチャットに限定できます。"
+  },
+  "addSite": {
+    "message": "＋ サイトを追加"
+  },
+  "newSite": {
+    "message": "新しいサイト"
+  },
+  "siteLabel": {
+    "message": "サイト"
+  },
+  "scopeLabel": {
+    "message": "許可する範囲"
+  },
+  "onlyTheseChats": {
+    "message": "これらのチャットのみ"
+  },
+  "chatPickHint": {
+    "message": "muse のサイドチャットと、最近表示されたチャット"
+  },
+  "chatPickEmpty": {
+    "message": "チャットがまだありません。muse でチャット一覧を一度開くと表示されます。"
+  },
+  "siteStats": {
+    "message": "過去7日間に $1 回許可しました。直近は $2。"
+  },
+  "siteStatsNone": {
+    "message": "過去7日間は使われていません。"
+  },
+  "deleteRule": {
+    "message": "削除"
+  },
+  "create": {
+    "message": "追加"
+  },
+  "chatsLead": {
+    "message": "これらのチャット（多くはスケジュールタスク）からの依頼をすべて許可します。確実なチャットだけ追加してください。"
+  },
+  "addChat": {
+    "message": "＋ チャットを追加"
+  },
+  "newChat": {
+    "message": "新しいチャット"
+  },
+  "chatNameLabel": {
+    "message": "チャット名"
+  },
+  "chatNamePlaceholder": {
+    "message": "muse に表示される名前をそのまま入力"
+  },
+  "chatDetailWarn": {
+    "message": "このチャットの依頼は、初めてのサイトや投稿などのアクションも含めてすべて許可されます。購入・決済は引き続き確認します。"
+  },
+  "chatRecentSites": {
+    "message": "最近リクエストしたサイト"
+  },
+  "chatRecentSitesEmpty": {
+    "message": "最近のリクエストはありません。"
+  },
+  "logLead": {
+    "message": "直近 $1 件の承認カード。このコンピューターにのみ保存されます。"
+  },
+  "filterAll": {
+    "message": "すべて"
+  },
+  "colTime": {
+    "message": "時刻"
+  },
+  "colSite": {
+    "message": "サイト"
+  },
+  "colChat": {
+    "message": "チャット"
+  },
+  "colResult": {
+    "message": "結果"
+  },
+  "backupLead": {
+    "message": "同じ Google アカウントでログインしている Chrome なら、信頼リストは自動で同期されます。サーバー上のブラウザなど、ログインしていない環境へ設定を移すときに使います。"
+  },
+  "exportLabel": {
+    "message": "設定をエクスポート"
+  },
+  "exportDesc": {
+    "message": "モードと信頼するサイト・チャットをファイルに保存します。アクティビティは含みません。"
+  },
+  "exportBtn": {
+    "message": "エクスポート"
+  },
+  "importLabel": {
+    "message": "設定をインポート"
+  },
+  "importDesc": {
+    "message": "エクスポートしたファイルを選択します。現在の設定は置き換わります。"
+  },
+  "importBtn": {
+    "message": "インポート"
+  },
+  "importDone": {
+    "message": "サイト $1 件、チャット $2 件をインポートしました。"
+  },
+  "importFailed": {
+    "message": "ファイルから設定を読み込めませんでした。"
+  },
+  "importConfirm": {
+    "message": "インポートすると現在の設定が置き換わります。続けますか？"
+  },
+  "aboutLead": {
+    "message": "非公式ツールです。Meta や muse.ai とは関係ありません。"
+  },
+  "helpDesc": {
+    "message": "GitHub の README"
+  },
+  "issueDesc": {
+    "message": "カードが処理されない、誤ったボタンを押した、muse の更新後に動かない場合"
+  },
+  "rateDesc": {
+    "message": "ほかの人の発見につながります"
+  },
+  "open": {
+    "message": "開く ›"
+  },
+  "welcomeTitle": {
+    "message": "Auto Approve for Muse へようこそ"
+  },
+  "welcomeSub": {
+    "message": "Ren がウェブサイトを開こうとすると、muse は承認カードを表示して「許可」を押すまで待ちます。この拡張機能が代わりに押します。"
+  },
+  "welcomeQ": {
+    "message": "どのように動かしますか？"
+  },
+  "recommended": {
+    "message": "おすすめ"
+  },
+  "welcomeTrustedDesc": {
+    "message": "新しいサイトやチャットが初めて出てきたときに確認します。一度答えれば、以後は自動で許可されます。"
+  },
+  "welcomeAllDesc": {
+    "message": "いちばん簡単な設定です。Ren が求めるすべてのウェブサイトを許可します。投稿などのアクションは引き続き確認します。"
+  },
+  "start": {
+    "message": "はじめる"
+  },
+  "pinHint": {
+    "message": "Chrome 右上のパズルアイコンをクリックし、Auto Approve for Muse をピン留めしてください。承認待ちがあると赤い数字が表示されます。"
+  },
+  "welcomeFine": {
+    "message": "設定はツールバーのアイコンからいつでも変更できます。非公式ツールで、Meta や muse.ai とは関係ありません。"
+  },
+  "subShort": {
+    "message": "サブドメインを含む"
+  },
+  "trustedActions": {
+    "message": "信頼するアクション"
+  },
+  "scopeAction": {
+    "message": "このアクションを、すべてのチャットから"
+  },
+  "scopeActionChat": {
+    "message": "このアクションを、このチャットからのみ"
+  },
+  "actionsEmpty": {
+    "message": "信頼するアクションはまだありません。"
+  },
+  "actionsHint": {
+    "message": "投稿などのアクションカードが表示されたら、「承認待ち」で「このアクション」を選ぶとここに追加されます。"
+  },
+  "actionsLead": {
+    "message": "投稿やメッセージ送信などのアクションを自動で許可します。アクションはカードが表示されたときに追加されます。"
+  },
+  "includeActions": {
+    "message": "「すべて許可」にアクションを含める"
+  },
+  "includeActionsDesc": {
+    "message": "「すべて許可」は既定ではウェブサイトのリクエストだけを許可します。投稿やメッセージは取り消せないため、この設定をオンにしたときだけ許可します。"
+  },
+  "uploadTo": {
+    "message": "$1 へのアップロード"
+  },
+  "uploadToWithSub": {
+    "message": "$1 とサブドメインへのアップロード"
+  }
+}
