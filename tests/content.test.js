@@ -438,8 +438,8 @@ function siteCard(text, marks = {}) {
     ]),
   ]);
   doc.body.append(card);
-  const set = ({ policy = '', host = '', id = 'appr-test-80', purchase = false }) => {
-    const attrs = [['data-maa-policy', policy], ['data-maa-host', host], ['data-maa-approval-id', id], ['data-maa-purchase', purchase ? '1' : '']];
+  const set = ({ policy = '', host = '', id = 'appr-test-80', purchase = false, site = '' }) => {
+    const attrs = [['data-maa-policy', policy], ['data-maa-host', host], ['data-maa-approval-id', id], ['data-maa-purchase', purchase ? '1' : ''], ['data-maa-site', site]];
     for (const [name, value] of attrs) {
       if (value) card.setAttribute(name, value);
       else card.removeAttribute(name);
@@ -650,10 +650,109 @@ test('an approved row merges the rows another tab wrote for the same approval id
   }
 });
 
+// bridge.js answers no mark request without an approval id, so nothing on the node counts as read (#15 follow-up, item 4)
 test('a row whose first read had a site policy but no approval id is never trustable', async () => {
   const card = siteCard(ACCESS, { id: '', policy: SITE, host: 'a.example' });
   const [first] = await card.scan();
-  assert.deepEqual([first.approvalId, first.policy, offered(first)], ['', SITE, false]);
+  assert.deepEqual([first.approvalId, first.policy, offered(first)], ['', '', false]);
   const [after] = await card.scan({ policy: SITE, host: 'a.example' });
   assert.deepEqual([after.approvalId, offered(after)], ['', false]);
+});
+
+// Strict rules saved from an action or upload row (AAM.strictMatch), from card to click
+const POST = 'connector.example.post.create';
+const UPLOAD_TEXT = 'Allow the assistant to use Browser to upload this file? This task is from Chat A.';
+const UPLOAD_MARKS = { policy: UPLOAD, host: 'browser', site: 'a.example' };
+const strictRule = (policy, extra = {}) => ({ id: 'r1', title: 'Saved title', policy, match: 'strict', chats: [], on: true, ...extra });
+const setActions = (card, actions) => vm.runInContext(`settings.actions = ${JSON.stringify(actions)}`, card.ctx);
+const allowClicks = () => doc.querySelector('[data-hatch-approval-primary-action="true"]').clicks;
+
+test('a strict upload rule clicks only an upload to its exact site, read fresh, from a picked chat', async () => {
+  const cases = [
+    ['exact site', UPLOAD_MARKS, {}, 1],
+    ['other site', { ...UPLOAD_MARKS, site: 'b.example' }, {}, 0],
+    ['subdomain', { ...UPLOAD_MARKS, site: 'sub.a.example' }, {}, 0],
+    ['www twin', { ...UPLOAD_MARKS, site: 'www.a.example' }, {}, 0],
+    ['other policy', { ...UPLOAD_MARKS, policy: 'connector.browser.page.download' }, {}, 0],
+    ['purchase', { ...UPLOAD_MARKS, purchase: true }, {}, 0],
+    ['other chat', UPLOAD_MARKS, { chats: ['Chat B'] }, 0],
+    ['picked chat', UPLOAD_MARKS, { chats: ['Chat A'] }, 1],
+  ];
+  for (const [name, marks, extra, clicks] of cases) {
+    const card = siteCard(UPLOAD_TEXT, marks);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example', ...extra })]);
+    const [row] = await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+    assert.equal(row.result, clicks ? 'allowed' : 'pending', name);
+  }
+});
+
+test('a strict action rule clicks a card with its policy under another title, not one with its title and another policy', async () => {
+  for (const [text, policy, clicks] of [['Publish a post? This task is from Chat A.', POST, 1], ['Saved title? This task is from Chat A.', 'connector.example.message.send', 0], ['Saved title? This task is from Chat A.', '', 0]]) {
+    const card = siteCard(text, { policy });
+    setActions(card, [strictRule(POST)]);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, `${text} ${policy}`);
+  }
+});
+
+test('a strict rule clicks nothing when bridge.js gives no fresh reply, whatever the node still holds', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+  card.hooks.onMark = () => false;
+  const [row] = await card.scan();
+  assert.equal(allowClicks(), 0);
+  assert.equal(row.result, 'pending');
+});
+
+test('an upload row offers Trust, and the pick makes the next upload to that site in that chat click', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  const [row] = await card.scan();
+  assert.deepEqual([row.result, row.policy, row.site, row.approvalId, row.purchase, row.mixed], ['pending', UPLOAD, 'a.example', 'appr-test-80', false, false]);
+  assert.equal(offered(row), true);
+  const plan = AAT.planTrust(AAM.SETTINGS_DEFAULTS, row, 'only');
+  assert.deepEqual(plan.patch.actions.map(a => [a.policy, a.site, a.match, a.chats]), [[UPLOAD, 'a.example', 'strict', ['Chat A']]]);
+  const next = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id: 'appr-test-81' });
+  setActions(next, plan.patch.actions);
+  await next.scan();
+  assert.equal(allowClicks(), 1);
+  const other = siteCard(UPLOAD_TEXT.replace('Chat A', 'Chat B'), { ...UPLOAD_MARKS, id: 'appr-test-82' });
+  setActions(other, plan.patch.actions);
+  await other.scan();
+  assert.equal(allowClicks(), 0);
+});
+
+// #15 follow-up, item 3
+test('a purchase seen by a first-scan refused click is on the approval\'s later rows', async () => {
+  for (const trustedLater of [false, true]) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+    let marks = 0;
+    card.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-purchase', '1'); };
+    const refused = await card.scan();
+    assert.equal(allowClicks(), 0);
+    assert.equal(refused.length, 0);
+    card.hooks.onMark = () => {};
+    if (!trustedLater) setActions(card, []);
+    const [row] = await card.scan(UPLOAD_MARKS);
+    assert.deepEqual([row.result, row.approvalId, row.purchase], [trustedLater ? 'allowed' : 'pending', 'appr-test-80', true], String(trustedLater));
+    assert.equal(offered(row), false);
+  }
+});
+
+// #15 follow-up, item 4
+test('a node bridge.js does not answer for logs no approval data, even when it still holds an earlier mark', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  card.hooks.onMark = () => false;
+  const [row] = await card.scan();
+  assert.deepEqual([row.approvalId, row.policy, row.approvalHost, row.purchase], ['', '', '', null]);
+  assert.equal(offered(row), false);
+  // muse reused the node for another upload while the attributes still name the first one
+  const reused = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  await reused.scan();
+  reused.hooks.onMark = () => false;
+  doc.querySelector('p').text = 'Allow the assistant to use Browser to upload this file? This task is from Chat B.';
+  const log = await reused.scan();
+  assert.deepEqual(Array.from(log, e => [e.chat, e.approvalId, e.policy]), [['Chat B', '', ''], ['Chat A', 'appr-test-80', UPLOAD]]);
+  assert.equal(offered(log[0]), false);
 });

@@ -1,15 +1,16 @@
 'use strict';
 
-// "Trust" on a recent-activity website row: which rows offer it, the site rule it saves, and undoing that one change.
-// It never edits what an existing rule matches: it re-enables or extends a rule only when its host and sub are exactly the
-// card's, and otherwise appends a new rule. Action and upload rows don't offer it
+// "Trust" on a recent-activity row: which rows offer it, the rule it saves, and undoing that one change.
+// It never edits what an existing rule matches: it re-enables or extends a rule only when its criteria are exactly the
+// card's, and otherwise appends a new rule. Website rows offer nothing until SITE_POLICIES has a value; action and upload
+// rows save a strict action rule (AAM.strictMatch)
 const AAT = (() => {
   const aam = typeof AAM !== 'undefined' ? AAM : require('./shared.js');
 
   // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
-  // Verified muse policy types for website access; none yet, so no row offers Trust. Browser connector types such as
+  // Verified muse policy types for website access; none yet, so no website row offers Trust. Browser connector types such as
   // connector.browser.page.goto or .download can name a site in the title but are not website access
   const SITE_POLICIES = [];
 
@@ -22,13 +23,38 @@ const AAT = (() => {
     return !!entry.approvalId && !entry.mixed && SITE_POLICIES.includes(entry.policy);
   }
 
-  function trustable(entry) {
-    return siteEvidence(entry) && !!entry.host && !!aam.normalizeHost(entry.host) && !aam.isPurchase(entry);
+  // Browser connector actions other than uploads act on a site the log doesn't keep (goto, download, credential_fill, ...),
+  // so a rule for their policy would cover every site. tool.* and other non-connector types (tool.web_fetch is a task-wide
+  // network grant) get nothing either
+  function actionPolicyOffered(policy) {
+    if (policy === aam.UPLOAD_POLICY) return true;
+    return /^connector\.[^.]+\./.test(policy) && !policy.startsWith('connector.browser.');
   }
 
-  // True when this website card would still stop and ask: Allow everything approves every website card
+  // An action or upload row, with muse's data for one approval read fresh, no purchase seen and purchase known to be false.
+  // An upload also needs its destination as normalizeHost gives it
+  function actionEvidence(entry) {
+    if (!entry.action || !entry.approvalId || entry.mixed || entry.purchase !== false) return false;
+    if (!entry.policy || !actionPolicyOffered(entry.policy)) return false;
+    if (entry.policy !== aam.UPLOAD_POLICY) return !entry.site;
+    return !!entry.site && aam.normalizeHost(entry.site) === entry.site;
+  }
+
+  // A row parsed as a website (a host in the title) is one whatever its policy: the matcher takes such cards down the
+  // website path, so an action rule would never cover them
+  const isSiteRow = entry => !!entry.host;
+
+  function trustable(entry) {
+    if (aam.isPurchase(entry)) return false;
+    if (isSiteRow(entry)) return siteEvidence(entry) && !!aam.normalizeHost(entry.host);
+    return actionEvidence(entry);
+  }
+
+  // True when this card would still stop and ask: Allow everything approves website and upload cards, and other actions
+  // only with "include actions" on
   function wouldAsk(settings, entry) {
-    return settings.mode !== 'all' && !aam.isTrusted(settings, entry);
+    const all = settings.mode === 'all' && !!(entry.host || entry.site || settings.includeActions);
+    return !all && !aam.isTrusted(settings, entry);
   }
 
   function scopes(entry) {
@@ -47,34 +73,54 @@ const AAT = (() => {
     return id;
   }
 
-  // Returns the sites patch and the undo record, or null when the row offers nothing for this scope.
   // addSiteRule isn't used because it merges into any rule for the host, including one with subdomains, a duplicate id, or
   // a disabled one whose old scope comes back. Here a rule is reused only when its id is unique and its host and sub are the
   // card's: a disabled one whose chats are exactly the pick is turned back on, and for "only" an enabled one limited to
   // other chats gains this chat. Anything else is appended, with the host as normalizeHost gives it
-  function planTrust(settings, entry, scope) {
-    if (!scopes(entry).includes(scope) || !trustable(entry) || !wouldAsk(settings, entry)) return null;
+  function planSite(settings, entry, chats) {
     const host = aam.normalizeHost(entry.host);
-    const rules = settings.sites || [];
-    const chats = scope === 'only' ? [entry.chat] : [];
-    const exact = rules.filter(r => sameSite(r, host) && rules.filter(o => o.id === r.id).length === 1);
+    return planRule(settings.sites || [], 'sites', chats, r => sameSite(r, host), id => ({ id, host, sub: false, chats, on: true }));
+  }
+
+  // Same merge for action and upload rows, over strict rules with the same policy and site only. addActionRule isn't used:
+  // it merges into a title-or-policy rule and widens what it matches
+  function planAction(settings, entry, chats) {
+    const { policy, site } = entry;
+    const same = r => r.match === 'strict' && r.policy === policy && (r.site || '') === site && !r.sub;
+    return planRule(settings.actions || [], 'actions', chats, same,
+      id => ({ id, title: entry.action.slice(0, 120), policy, ...(site && { site }), match: 'strict', chats, on: true }));
+  }
+
+  function planRule(rules, list, chats, same, make) {
+    const exact = rules.filter(r => same(r) && rules.filter(o => o.id === r.id).length === 1);
     const off = exact.find(r => !r.on && sameChats(r.chats, chats));
-    const limited = scope === 'only' && exact.find(r => r.on && r.chats.length);
+    const limited = chats.length > 0 && exact.find(r => r.on && r.chats.length);
     const prev = off || limited || null;
     const after = off ? { ...off, on: true }
-      : limited ? { ...limited, chats: [...limited.chats, entry.chat] }
-      : { id: freshId(rules), host, sub: false, chats, on: true };
+      : limited ? { ...limited, chats: [...limited.chats, ...chats] }
+      : make(freshId(rules));
     const next = prev ? rules.map(r => (r.id === prev.id ? after : r)) : [...rules, after];
-    return { patch: { sites: next }, change: { key: entry.key, id: after.id, prev, after } };
+    return { patch: { [list]: next }, list, id: after.id, prev, after };
+  }
+
+  // Returns the patch and the undo record, or null when the row offers nothing for this scope. A row the saved rule would
+  // not make the matcher trust gets no offer
+  function planTrust(settings, entry, scope) {
+    if (!scopes(entry).includes(scope) || !trustable(entry) || !wouldAsk(settings, entry)) return null;
+    const chats = scope === 'only' ? [entry.chat] : [];
+    const plan = isSiteRow(entry) ? planSite(settings, entry, chats) : planAction(settings, entry, chats);
+    if (!aam.isTrusted({ ...settings, ...plan.patch }, entry)) return null;
+    return { patch: plan.patch, change: { key: entry.key, list: plan.list, id: plan.id, prev: plan.prev, after: plan.after } };
   }
 
   // The inverse of one trust click, only while that rule is still exactly as the click left it; null otherwise
   function planUndo(settings, change) {
-    const rules = settings.sites || [];
+    const list = change.list || 'sites';
+    const rules = settings[list] || [];
     const hits = rules.filter(r => r.id === change.id);
     if (hits.length !== 1 || canon(hits[0]) !== canon(change.after)) return null;
-    if (!change.prev) return { sites: rules.filter(r => r.id !== change.id) };
-    return { sites: rules.map(r => (r.id === change.id ? change.prev : r)) };
+    if (!change.prev) return { [list]: rules.filter(r => r.id !== change.id) };
+    return { [list]: rules.map(r => (r.id === change.id ? change.prev : r)) };
   }
 
   // Newest first; only the newest entry of each card gets the button
@@ -96,7 +142,7 @@ const AAT = (() => {
     return b.startsWith('www.') ? host : b;
   }
 
-  // Action and upload rows keep main's label
+  // Action and upload rows keep main's label: the upload one names the exact destination a strict rule matches
   function rowLabel(entry, t) {
     return aam.cardLabel(entry.host ? { ...entry, host: shownHost(entry.host) } : entry, t);
   }
@@ -118,23 +164,33 @@ const AAT = (() => {
     return out;
   }
 
-  // storage is chrome.storage.sync. chrome.storage has no compare-and-set, so the sites list is read right before the write,
-  // with nothing awaited in between, instead of using the page's copy
-  async function trust(storage, entry, scope) {
-    const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), entry, scope);
+  // The row as the log holds it now: the entry the menu was opened on may since have been read as a purchase or mixed, or
+  // a newer row of the card taken the offer. Only the same row (time and approval id), still the card's newest, counts
+  function freshRow(log, entry) {
+    const newest = log.find(e => e.key === entry.key);
+    return newest && newest.ts === entry.ts && (newest.approvalId || '') === (entry.approvalId || '') ? newest : null;
+  }
+
+  // storage is chrome.storage.sync and logStorage chrome.storage.local. chrome.storage has no compare-and-set, so the rule
+  // list is read right before the write, with nothing awaited in between, instead of using the page's copy
+  async function trust(storage, logStorage, entry, scope) {
+    const row = freshRow((await logStorage.get({ log: [] })).log || [], entry);
+    if (!row) return null;
+    const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), row, scope);
     if (!plan) return null;
     await storage.set(plan.patch);
     return plan.change;
   }
 
   async function undo(storage, change) {
-    const patch = planUndo(await storage.get({ sites: [] }), change);
+    const list = change.list || 'sites';
+    const patch = planUndo(await storage.get({ [list]: [] }), change);
     if (patch) await storage.set(patch);
     return !!patch;
   }
 
   // Row controls for the popup and the options page. The undo record lives until the next trust click or the page closes
-  function controls({ t, storage, render }) {
+  function controls({ t, storage, logStorage, render }) {
     let openKey = '';
     let last = null;
     const button = (className, text, onClick) => {
@@ -156,7 +212,7 @@ const AAT = (() => {
 
     async function pick(entry, scope) {
       openKey = '';
-      last = await trust(storage, entry, scope);
+      last = await trust(storage, logStorage, entry, scope);
       render();
     }
 

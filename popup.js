@@ -237,7 +237,7 @@ function renderChats() {
   $('#recent-empty').hidden = recent.length > 0;
 }
 
-const trustControls = AAT.controls({ t, storage: chrome.storage.sync, render: () => renderLog() });
+const trustControls = AAT.controls({ t, storage: chrome.storage.sync, logStorage: chrome.storage.local, render: () => renderLog() });
 
 // The result sits under the label so the Trust button fits on the right
 function logRow(entry, { state, undo, open }) {

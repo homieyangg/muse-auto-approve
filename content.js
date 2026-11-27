@@ -54,6 +54,9 @@ const handledKeys = new Map();
 const handledIds = new Map();
 const seenIds = new Set();
 const linkedTitles = new Set();
+// Evidence of reads that refused a click, by approval id, for the rows the approval gets later
+const refusedEvidence = new Map();
+const REFUSED_LIMIT = 200;
 const settleUntil = new WeakMap();
 const waitingState = new Map();
 const unreadableSince = new Map();
@@ -242,11 +245,31 @@ function purchaseState(node, body) {
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, approvalId: attr(ID_ATTR), approvalPolicy: attr(POLICY_ATTR), approvalHost: attr(HOST_ATTR) };
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, ...freshEvidence(buttons.muse ? node : null) };
+}
+
+// Only a fresh bridge.js reply counts: without one the attributes may be left from an earlier mark, on a node muse has
+// since reused for another approval. Call right after the node's mark request
+function freshEvidence(node) {
+  const attr = name => (node && freshlyMarked(node) && node.getAttribute(name)) || '';
+  return { approvalId: attr(ID_ATTR), approvalPolicy: attr(POLICY_ATTR), approvalHost: attr(HOST_ATTR) };
 }
 
 function pendingItem(card, key) {
-  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, ...evidenceOf(card) };
+  return { key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, ...evidenceOf(withRefused(card)) };
+}
+
+// Adds what a refused click's re-read saw on this approval; that read may have had no log row to go on
+function withRefused(item) {
+  const held = item.approvalId && refusedEvidence.get(item.approvalId);
+  return held ? { ...item, ...mergeEvidence(item, held) } : item;
+}
+
+function holdRefused(evidence) {
+  if (!evidence.approvalId) return;
+  refusedEvidence.delete(evidence.approvalId);
+  refusedEvidence.set(evidence.approvalId, evidenceOf(evidence));
+  if (refusedEvidence.size > REFUSED_LIMIT) refusedEvidence.delete(refusedEvidence.keys().next().value);
 }
 
 const evidenceOf = item => ({ approvalId: item.approvalId || '', approvalPolicy: item.approvalPolicy || '', approvalHost: item.approvalHost || '', purchase: item.purchase ?? null, mixed: !!item.mixed });
@@ -303,10 +326,12 @@ function handledElsewhere({ approvalId, surface }, key, now) {
 // 舊版信任的動作只記標題；看到同標題的卡就把權限種類補進規則，之後標題寫法不同的批次卡也認得
 function linkActionPolicy(card) {
   if (!card.policy || linkedTitles.has(card.action)) return;
-  if (!settings.actions.some(a => a.title === card.action && !a.policy)) return;
+  // Strict rules from recent activity never take a policy from a card title
+  const legacy = a => a.match === undefined && a.title === card.action && !a.policy;
+  if (!settings.actions.some(legacy)) return;
   linkedTitles.add(card.action);
   chrome.storage.sync.get({ actions: [] })
-    .then(({ actions }) => chrome.storage.sync.set({ actions: actions.map(a => (a.title === card.action && !a.policy ? { ...a, policy: card.policy } : a)) }))
+    .then(({ actions }) => chrome.storage.sync.set({ actions: actions.map(a => (legacy(a) ? { ...a, policy: card.policy } : a)) }))
     .catch(() => {});
 }
 
@@ -338,7 +363,7 @@ function reviewPreviews(previews, now, waiting, canExpand) {
   for (const preview of previews) {
     const purchase = purchaseState(preview, preview);
     const policy = preview.getAttribute(POLICY_ATTR) || '';
-    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, approvalId: preview.getAttribute(ID_ATTR) || '', approvalPolicy: policy, approvalHost: preview.getAttribute(HOST_ATTR) || '' };
+    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, ...freshEvidence(preview) };
     const key = AAM.cardKey(card);
     if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
       addWaiting(waiting, pendingItem(card, key), true);
@@ -364,7 +389,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   // Every read of this card goes into the log entry: the scan's, the pre-click re-reads, and what was read while it waited
   const reads = [card];
   const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target, reads));
-  const evidence = [...reads, ...(waited ? [waited] : [])].reduce(mergeCards);
+  const evidence = withRefused([...reads, ...(waited ? [waited] : [])].reduce(mergeCards));
   if (!kind) return releaseRefused(node, buttons, key, onceOnly, evidence);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
@@ -400,6 +425,7 @@ function freshlyMarked(node) {
 // The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting. What the refusing
 // read saw (a purchase, say) goes onto the card's rows, which this scan may already have marked handled
 function releaseRefused(node, buttons, key, onceOnly, evidence) {
+  holdRefused(evidence);
   updateLocal({ log: [] }, data => ({ log: shareEvidence(data.log, { key, ...evidence }).log }));
   handledAt.delete(node);
   handledKeys.delete(key);

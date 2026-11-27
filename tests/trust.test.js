@@ -99,7 +99,8 @@ test('a website row offers Trust only with a website policy type that no scan co
   assert.deepEqual(offered(settingsWith(), [siteEntry('a.example', 'Chat A')]), [true]);
 });
 
-test('action and upload rows never offer Trust and keep main\'s label', () => {
+test('action and upload rows without positive evidence offer no Trust and keep main\'s label', () => {
+  // These fixtures carry no approval id, like rows logged before this change
   const rows = [actionEntry('Post', 'Chat A'), actionEntry('Post', 'Chat B', 'pending'), uploadEntry('upload.example', 'Chat A'), uploadEntry('', 'Chat A')];
   for (const settings of [settingsWith(), settingsWith({ mode: 'all' }), settingsWith({ mode: 'all', includeActions: true })]) {
     assert.deepEqual(offered(settings, rows), [false, false, false, false]);
@@ -272,10 +273,12 @@ function fakeStorage(initial) {
 
 test('trust and undo write over the stored list, not the page copy, and keep changes made elsewhere', async () => {
   const storage = fakeStorage(settingsWith({ sites: [site('a.example', { chats: ['Chat B'] }), site('c.example')] }));
+  const rows = [siteEntry('n.example', 'Chat A'), siteEntry('a.example', 'Chat A')];
+  const logStorage = fakeStorage({ log: rows });
   // Another page turned c.example off after this page loaded; the page copy still has it on
   storage.data.sites[1].on = false;
-  const created = await AAT.trust(storage, siteEntry('n.example', 'Chat A'), 'only');
-  const merged = await AAT.trust(storage, siteEntry('a.example', 'Chat A'), 'only');
+  const created = await AAT.trust(storage, logStorage, rows[0], 'only');
+  const merged = await AAT.trust(storage, logStorage, rows[1], 'only');
   assert.equal(storage.data.sites[1].on, false);
   storage.data.sites.push(site('d.example'));
   storage.data.mode = 'all';
@@ -289,7 +292,8 @@ test('trust and undo write over the stored list, not the page copy, and keep cha
 
 test('trust does nothing when the stored settings already cover the card', async () => {
   const storage = fakeStorage(settingsWith({ sites: [site('a.example')] }));
-  assert.equal(await AAT.trust(storage, siteEntry('a.example', 'Chat A'), 'only'), null);
+  const entry = siteEntry('a.example', 'Chat A');
+  assert.equal(await AAT.trust(storage, fakeStorage({ log: [entry] }), entry, 'only'), null);
   assert.deepEqual(storage.data.sites, [site('a.example')]);
 });
 

@@ -302,7 +302,8 @@ function uploadSiteFields(action, current) {
     input.value = site;
     if (site !== current().site) updateAction(action.id, { site });
   });
-  const sub = check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on }));
+  // A strict rule from recent activity matches its exact site only, so it has no subdomain option
+  const sub = action.match === undefined ? check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on })) : null;
   // Only an unsaved edit in the focused input is kept; otherwise the input follows the stored site
   let shown = action.site;
   const refresh = rule => {
@@ -311,14 +312,15 @@ function uploadSiteFields(action, current) {
       error.hidden = true;
     }
     shown = rule.site;
-    sub.querySelector('input').checked = !!rule.sub;
+    if (sub) sub.querySelector('input').checked = !!rule.sub;
   };
-  return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, sub], refresh };
+  return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, ...(sub ? [sub] : [])], refresh };
 }
 
 function actionStatsText(action) {
   const sameSite = e => !action.site || AAM.hostMatches({ host: action.site, sub: !!action.sub }, e.site || '');
-  const hits = local.log.filter(e => e.result === 'allowed' && e.action === action.title && sameSite(e) && Date.now() - e.ts < WEEK_MS);
+  const same = e => (action.match === undefined ? e.action === action.title && sameSite(e) : AAM.strictMatch(action, e));
+  const hits = local.log.filter(e => e.result === 'allowed' && same(e) && Date.now() - e.ts < WEEK_MS);
   return hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone');
 }
 
@@ -395,7 +397,7 @@ function renderActions(force) {
   $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
 }
 
-const trustControls = AAT.controls({ t, storage: chrome.storage.sync, render: () => renderLog() });
+const trustControls = AAT.controls({ t, storage: chrome.storage.sync, logStorage: chrome.storage.local, render: () => renderLog() });
 
 function trustCell({ state, undo, open }, entry) {
   if (state === 'offer') return trustControls.trustButton(entry, open);

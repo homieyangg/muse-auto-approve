@@ -155,8 +155,18 @@ const AAM = (() => {
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
     const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
-    const sameAction = a => sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
+    const sameAction = a => (a.match === undefined ? sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy)) : strictMatch(a, card));
     return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
+  }
+
+  // Rules saved from a recent-activity row carry match: 'strict'. They match only a card freshly read from muse's data
+  // (content.js keeps approvalId only then) whose policy is the rule's, and for uploads whose destination is exactly the
+  // rule's site, no subdomains or www twin; the title is only a label. Any other match value matches nothing, so a rule
+  // never falls back to the title-or-policy match above
+  function strictMatch(rule, card) {
+    if (rule.match !== 'strict' || !rule.policy || !card.approvalId || rule.policy !== card.policy) return false;
+    const site = card.site || '';
+    return (rule.site || '') === site && (card.policy !== UPLOAD_POLICY || !!site);
   }
 
   // 結帳、下單、購買的卡會花到錢，不管信任設定都不自動按，只接受使用者在 popup 按的「只允許這一次」
@@ -184,7 +194,8 @@ const AAM = (() => {
 
   function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
-    const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
+    // Rules from recent activity are left alone, so the result is the one main writes
+    const found = next.find(a => a.match === undefined && (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
     if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
@@ -232,13 +243,15 @@ const AAM = (() => {
       out.chats = raw.chats.filter(c => c && typeof c.name === 'string' && c.name).map(c => ({ id: String(c.id || newId()), name: c.name, on: c.on !== false }));
     }
     if (Array.isArray(raw.actions)) {
+      // A match value this version doesn't know drops the rule rather than letting it match like an old rule
       out.actions = raw.actions
-        .filter(a => a && typeof a.title === 'string' && a.title)
+        .filter(a => a && typeof a.title === 'string' && a.title && (a.match === undefined || a.match === 'strict'))
         .map(a => ({
           id: String(a.id || newId()),
           title: a.title.slice(0, 120),
           ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
-          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
+          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && a.match === undefined && { sub: true }) }),
+          ...(a.match === 'strict' && { match: 'strict' }),
           on: a.on !== false,
           chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
         }));
@@ -246,7 +259,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
+  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;
