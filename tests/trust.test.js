@@ -6,12 +6,10 @@ const AAM = require('../shared.js');
 const AAT = require('../trust.js');
 
 const POLICY = 'connector.example.post.create';
-const OTHER_POLICY = 'connector.example.message.send';
-const UPLOAD = AAM.UPLOAD_POLICY;
+const UPLOAD = 'connector.browser.page.upload';
 
 const settingsWith = (patch = {}) => ({ ...structuredClone(AAM.SETTINGS_DEFAULTS), ...structuredClone(patch) });
 const site = (host, extra = {}) => ({ id: `s-${host}`, host, sub: false, chats: [], on: true, ...extra });
-const action = (title, extra = {}) => ({ id: `a-${title}`, title, chats: [], on: true, ...extra });
 const apply = (settings, plan) => ({ ...settings, ...plan.patch });
 
 // Log entries shaped like the ones content.js writes, with the card key built the same way
@@ -23,8 +21,8 @@ function actionEntry(title, chat, result = 'handled', extra = {}) {
   const e = { ts: Date.now(), host: '', chat, title, action: title, policy: POLICY, site: '', purchase: false, result, ...extra };
   return { ...e, key: AAM.cardKey(e) };
 }
-function uploadEntry(dest, chat, result = 'handled', extra = {}) {
-  const e = { ts: Date.now(), host: '', chat, title: 'Upload', action: 'Upload', policy: UPLOAD, site: dest, purchase: false, result, ...extra };
+function uploadEntry(dest, chat, result = 'handled') {
+  const e = { ts: Date.now(), host: '', chat, title: 'Upload', action: 'Upload', policy: UPLOAD, site: dest, purchase: false, result };
   return { ...e, key: AAM.cardKey(e) };
 }
 
@@ -33,20 +31,15 @@ const offered = (settings, log) => log.map(e => AAT.offers(settings, log).has(e)
 const CHATS = ['Chat A', 'Chat B', 'Chat C', ''];
 const SITE_PROBES = ['a.example', 'www.a.example', 'www.www.a.example', 'sub.a.example', 'wwwa.example', 'b.example']
   .flatMap(host => CHATS.map(chat => ({ id: `${host}|${chat}`, host, chat, action: '', policy: '', site: '' })));
-const ACTION_PROBES = ['Post', 'Upload', 'Other'].flatMap(title => [POLICY, UPLOAD, ''].flatMap(policy =>
-  ['', 'upload.example', 'www.upload.example', 'www.www.upload.example', 'x.upload.example', 'other.example'].flatMap(dest => CHATS.map(chat =>
-    ({ id: `${title}/${policy}@${dest}|${chat}`, host: '', chat, action: title, policy, site: dest })))));
-const trustedProbes = (settings, probes) => probes.filter(p => AAM.isTrusted(settings, p)).map(p => p.id);
-const grown = (before, after, probes) => {
-  const old = new Set(trustedProbes(before, probes));
-  return trustedProbes(after, probes).filter(id => !old.has(id));
+const trustedProbes = settings => SITE_PROBES.filter(p => AAM.isTrusted(settings, p)).map(p => p.id);
+const grown = (before, after) => {
+  const old = new Set(trustedProbes(before));
+  return trustedProbes(after).filter(id => !old.has(id));
 };
 
-test('rule 1: waiting, answered in muse and skipped rows offer Trust', () => {
-  const s = settingsWith();
+test('rule 1: waiting, answered in muse and skipped website rows offer Trust', () => {
   for (const result of ['pending', 'handled', 'skipped']) {
-    assert.deepEqual(offered(s, [siteEntry('a.example', 'Chat A', result)]), [true], `site ${result}`);
-    assert.deepEqual(offered(s, [actionEntry('Post', 'Chat A', result)]), [true], `action ${result}`);
+    assert.deepEqual(offered(settingsWith(), [siteEntry('a.example', 'Chat A', result)]), [true], result);
   }
 });
 
@@ -62,23 +55,16 @@ test('rule 1: a row allowed by an existing rule offers nothing', () => {
   assert.deepEqual(offered(settingsWith({ sites: [site('a.example')] }), [entry]), [false]);
   assert.deepEqual(offered(settingsWith({ sites: [site('a.example', { chats: ['Chat A'] })] }), [entry]), [false]);
   assert.deepEqual(offered(settingsWith({ sites: [site('example.com', { sub: true })] }), [siteEntry('www.example.com', 'Chat A')]), [false]);
-  assert.deepEqual(offered(settingsWith({ actions: [action('Other', { policy: POLICY })] }), [actionEntry('Post', 'Chat A', 'allowed')]), [false]);
   assert.deepEqual(offered(settingsWith({ chats: [{ id: 'c1', name: 'Chat A', on: true }] }), [entry]), [false]);
 });
 
-test('rule 1: in Allow everything, site and upload rows offer nothing; action rows only while actions are excluded', () => {
-  const all = settingsWith({ mode: 'all' });
-  assert.deepEqual(offered(all, [siteEntry('a.example', 'Chat A')]), [false]);
-  assert.deepEqual(offered(all, [uploadEntry('upload.example', 'Chat A')]), [false]);
-  assert.deepEqual(offered(all, [actionEntry('Post', 'Chat A')]), [true]);
-  assert.deepEqual(offered(settingsWith({ mode: 'all', includeActions: true }), [actionEntry('Post', 'Chat A')]), [false]);
+test('rule 1: in Allow everything, website rows offer nothing', () => {
+  assert.deepEqual(offered(settingsWith({ mode: 'all' }), [siteEntry('a.example', 'Chat A')]), [false]);
+  assert.deepEqual(offered(settingsWith({ mode: 'all', includeActions: true }), [siteEntry('a.example', 'Chat A')]), [false]);
 });
 
-test('rule 1: purchase and checkout rows never offer Trust', () => {
-  const s = settingsWith();
-  assert.deepEqual(offered(s, [actionEntry('Confirm', 'Chat A', 'handled', { purchase: true })]), [false]);
-  assert.deepEqual(offered(s, [actionEntry('Check out on shop.example', 'Chat A')]), [false]);
-  assert.deepEqual(offered(s, [siteEntry('shop.example', 'Chat A', 'handled', { purchase: true })]), [false]);
+test('rule 1: purchase rows never offer Trust', () => {
+  assert.deepEqual(offered(settingsWith(), [siteEntry('shop.example', 'Chat A', 'handled', { purchase: true })]), [false]);
 });
 
 test('rule 1: only the newest row of a card offers Trust', () => {
@@ -94,23 +80,23 @@ test('rule 1: only the newest row of a card offers Trust', () => {
   assert.deepEqual(offered(settingsWith({ sites: [site('a.example')] }), trusted), [false, false]);
 });
 
-test('rule 1: action rows written before the log stored purchase offer nothing; site rows are unaffected', () => {
-  const old = actionEntry('Post', 'Chat A');
-  delete old.purchase;
+test('website rows written before the log stored purchase still offer Trust', () => {
+  const old = siteEntry('a.example', 'Chat A');
   delete old.policy;
-  assert.deepEqual(offered(settingsWith(), [old, { ...old, policy: POLICY }, { ...old, purchase: null, policy: POLICY }]), [false, false, false]);
-  const oldSite = siteEntry('a.example', 'Chat A');
-  delete oldSite.policy;
-  assert.deepEqual(offered(settingsWith(), [oldSite]), [true]);
+  assert.deepEqual(offered(settingsWith(), [old]), [true]);
 });
 
-test('finding: an upload without a destination, or an action without a policy, offers nothing', () => {
-  const noDest = uploadEntry('', 'Chat A');
-  assert.deepEqual(offered(settingsWith(), [noDest]), [false]);
-  assert.equal(AAT.planTrust(settingsWith(), noDest, 'any'), null);
-  const noPolicy = actionEntry('Upload', 'Chat A', 'handled', { policy: '' });
-  assert.deepEqual(offered(settingsWith(), [noPolicy]), [false]);
-  assert.equal(AAT.planTrust(settingsWith(), noPolicy, 'only'), null);
+test('action and upload rows never offer Trust and keep main\'s label', () => {
+  const rows = [actionEntry('Post', 'Chat A'), actionEntry('Post', 'Chat B', 'pending'), uploadEntry('upload.example', 'Chat A'), uploadEntry('', 'Chat A')];
+  for (const settings of [settingsWith(), settingsWith({ mode: 'all' }), settingsWith({ mode: 'all', includeActions: true })]) {
+    assert.deepEqual(offered(settings, rows), [false, false, false, false]);
+    for (const entry of rows) for (const scope of ['any', 'only']) assert.equal(AAT.planTrust(settings, entry, scope), null);
+    const states = AAT.rowStates(settings, rows, rows);
+    assert.deepEqual(rows.map(e => states.get(e)), rows.map(() => ({ state: '' })));
+  }
+  const t = (k, v) => `${k} ${v}`;
+  assert.equal(AAT.rowLabel(uploadEntry('www.upload.example', 'Chat A'), t), AAM.cardLabel(uploadEntry('www.upload.example', 'Chat A'), t));
+  assert.equal(AAT.rowLabel(actionEntry('Post', 'Chat A'), t), 'Post');
 });
 
 test('scopes: a known chat gets Any and Only; an unknown chat gets Any only', () => {
@@ -119,21 +105,21 @@ test('scopes: a known chat gets Any and Only; an unknown chat gets Any only', ()
   assert.deepEqual(AAT.scopes(unknown), ['any']);
   assert.equal(AAT.planTrust(settingsWith(), unknown, 'only'), null);
   const plan = AAT.planTrust(settingsWith(), unknown, 'any');
-  assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan), SITE_PROBES),
+  assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan)),
     ['a.example|Chat A', 'a.example|Chat B', 'a.example|Chat C', 'a.example|', 'www.a.example|Chat A', 'www.a.example|Chat B', 'www.a.example|Chat C', 'www.a.example|']);
 });
 
-test('finding: "Only Chat A" on www.a.example names and trusts exactly a.example and www.a.example in Chat A', () => {
+test('"Only Chat A" on www.a.example is shown as a.example and trusts exactly a.example and www.a.example in Chat A', () => {
   const entry = siteEntry('www.a.example', 'Chat A');
   assert.equal(AAT.rowLabel(entry, k => k), 'a.example');
   const plan = AAT.planTrust(settingsWith(), entry, 'only');
   assert.deepEqual(plan.patch.sites.map(r => [r.host, r.sub, r.chats, r.on]), [['www.a.example', false, ['Chat A'], true]]);
-  assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan), SITE_PROBES), ['a.example|Chat A', 'www.a.example|Chat A']);
+  assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan)), ['a.example|Chat A', 'www.a.example|Chat A']);
 });
 
 // The host is stored as normalizeHost gives it and the matcher strips one www, so a rule covers its own card and the hosts
 // normalizeHost-equivalent to it: a.example and www.a.example are one site, www.www.a.example is only itself
-test('finding: a double-www host is stored as is and covers only itself', () => {
+test('a double-www host is stored as is and covers only itself', () => {
   const covers = { 'a.example': ['a.example', 'www.a.example'], 'www.a.example': ['a.example', 'www.a.example'], 'www.www.a.example': ['www.www.a.example'] };
   for (const [raw, hosts] of Object.entries(covers)) {
     const entry = siteEntry(raw, 'Chat A');
@@ -141,21 +127,14 @@ test('finding: a double-www host is stored as is and covers only itself', () => 
     assert.equal(plan.patch.sites[0].host, raw);
     const after = apply(settingsWith(), plan);
     assert.ok(AAM.isTrusted(after, entry), raw);
-    assert.deepEqual(grown(settingsWith(), after, SITE_PROBES), hosts.map(h => `${h}|Chat A`), raw);
+    assert.deepEqual(grown(settingsWith(), after), hosts.map(h => `${h}|Chat A`), raw);
   }
   assert.equal(AAT.rowLabel(siteEntry('www.www.a.example', 'Chat A'), k => k), 'www.www.a.example');
-  const upload = uploadEntry('www.www.upload.example', 'Chat A');
-  const plan = AAT.planTrust(settingsWith(), upload, 'only');
-  assert.equal(plan.patch.actions[0].site, 'www.www.upload.example');
-  const after = apply(settingsWith(), plan);
-  assert.ok(AAM.isTrusted(after, upload));
-  assert.ok(grown(settingsWith(), after, ACTION_PROBES).every(id => id.includes('@www.www.upload.example|Chat A')));
-  assert.equal(AAT.rowLabel(upload, (k, v) => `${k} ${v}`), 'uploadTo www.www.upload.example');
 });
 
-test('finding: an older purchase row of the same card never shows Trusted or Undo', () => {
-  const newest = actionEntry('Post', 'Chat A');
-  const purchase = actionEntry('Post', 'Chat A', 'handled', { purchase: true, ts: 0 });
+test('an older purchase row of the same card never shows Trusted or Undo', () => {
+  const newest = siteEntry('a.example', 'Chat A');
+  const purchase = siteEntry('a.example', 'Chat A', 'handled', { purchase: true, ts: 0 });
   assert.equal(newest.key, purchase.key);
   const log = [newest, purchase];
   const plan = AAT.planTrust(settingsWith(), newest, 'only');
@@ -163,50 +142,18 @@ test('finding: an older purchase row of the same card never shows Trusted or Und
   assert.deepEqual(log.map(e => states.get(e)), [{ state: 'trusted', undo: true }, { state: '' }]);
 });
 
-test('finding: an upload to www.upload.example is shown as upload.example and covers only that site', () => {
-  const entry = uploadEntry('www.upload.example', 'Chat A');
-  assert.equal(AAT.rowLabel(entry, (k, v) => `${k} ${v}`), 'uploadTo upload.example');
-  const plan = AAT.planTrust(settingsWith(), entry, 'only');
-  const [rule] = plan.patch.actions;
-  assert.deepEqual([rule.title, rule.policy, rule.site, rule.sub, rule.chats], ['Upload', UPLOAD, 'www.upload.example', undefined, ['Chat A']]);
-  assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan), ACTION_PROBES), [
-    `Upload/${POLICY}@upload.example|Chat A`, `Upload/${POLICY}@www.upload.example|Chat A`,
-    `Upload/${UPLOAD}@upload.example|Chat A`, `Upload/${UPLOAD}@www.upload.example|Chat A`,
-    'Upload/@upload.example|Chat A', 'Upload/@www.upload.example|Chat A',
-    `Post/${UPLOAD}@upload.example|Chat A`, `Post/${UPLOAD}@www.upload.example|Chat A`,
-    `Other/${UPLOAD}@upload.example|Chat A`, `Other/${UPLOAD}@www.upload.example|Chat A`,
-  ].sort((a, b) => ACTION_PROBES.findIndex(p => p.id === a) - ACTION_PROBES.findIndex(p => p.id === b)));
-});
-
-test('finding: a title-only rule for other chats is left alone; the new rule carries title, policy and the picked chat', () => {
-  const actions = [action('Post', { chats: ['Chat B'] })];
-  const before = settingsWith({ actions });
-  const plan = AAT.planTrust(before, actionEntry('Post', 'Chat A'), 'only');
-  assert.deepEqual(plan.patch.actions[0], actions[0]);
-  assert.deepEqual(plan.patch.actions.slice(1).map(r => [r.title, r.policy, r.site, r.chats, r.on]), [['Post', POLICY, undefined, ['Chat A'], true]]);
-  const growth = grown(before, apply(before, plan), ACTION_PROBES);
-  assert.ok(growth.every(id => id.endsWith('|Chat A')), growth.join(' '));
-  assert.ok(!growth.some(id => id.endsWith('|Chat B')));
-});
-
-test('finding: a disabled rule with another policy or scope is left alone and a new rule is appended', () => {
-  const actions = [action('Post', { policy: OTHER_POLICY, on: false })];
-  const plan = AAT.planTrust(settingsWith({ actions }), actionEntry('Post', 'Chat A'), 'any');
-  assert.deepEqual(plan.patch.actions[0], actions[0]);
-  assert.deepEqual(plan.patch.actions.slice(1).map(r => [r.policy, r.chats, r.on]), [[POLICY, [], true]]);
+test('a disabled rule with another scope is left alone and a new rule is appended', () => {
   const sites = [site('a.example', { sub: true, on: false }), site('a.example', { id: 's-2', chats: ['Chat B'], on: false })];
-  const sitePlan = AAT.planTrust(settingsWith({ sites }), siteEntry('a.example', 'Chat A'), 'only');
-  assert.deepEqual(sitePlan.patch.sites.slice(0, 2), sites);
-  assert.deepEqual(sitePlan.patch.sites.slice(2).map(r => [r.host, r.sub, r.chats]), [['a.example', false, ['Chat A']]]);
+  const plan = AAT.planTrust(settingsWith({ sites }), siteEntry('a.example', 'Chat A'), 'only');
+  assert.deepEqual(plan.patch.sites.slice(0, 2), sites);
+  assert.deepEqual(plan.patch.sites.slice(2).map(r => [r.host, r.sub, r.chats]), [['a.example', false, ['Chat A']]]);
 });
 
-test('merge: a disabled rule whose criteria and chats are exactly the pick is turned back on', () => {
+test('merge: a disabled rule whose host, sub and chats are exactly the pick is turned back on', () => {
   const sites = [site('www.a.example', { chats: ['Chat A'], on: false })];
   const plan = AAT.planTrust(settingsWith({ sites }), siteEntry('a.example', 'Chat A'), 'only');
   assert.deepEqual(plan.patch.sites, [{ ...sites[0], on: true }]);
   assert.deepEqual(plan.change.prev, sites[0]);
-  const actions = [action('Upload', { policy: UPLOAD, site: 'upload.example', on: false })];
-  assert.deepEqual(AAT.planTrust(settingsWith({ actions }), uploadEntry('upload.example', 'Chat A'), 'any').patch.actions, [{ ...actions[0], on: true }]);
 });
 
 test('merge: "only" adds the chat to an exact rule limited to other chats; "any" appends an any-chat rule', () => {
@@ -219,25 +166,24 @@ test('merge: "only" adds the chat to an exact rule limited to other chats; "any"
 });
 
 test('merge: an enabled any-chat rule means no button and the rule is never touched', () => {
-  const sites = [site('a.example')];
-  assert.equal(AAT.planTrust(settingsWith({ sites }), siteEntry('a.example', 'Chat A'), 'only'), null);
+  assert.equal(AAT.planTrust(settingsWith({ sites: [site('a.example')] }), siteEntry('a.example', 'Chat A'), 'only'), null);
   const disabled = [site('a.example', { on: false })];
   const plan = AAT.planTrust(settingsWith({ sites: disabled }), siteEntry('a.example', 'Chat A'), 'only');
   assert.deepEqual(plan.patch.sites[0], disabled[0]);
   assert.deepEqual(plan.patch.sites[1].chats, ['Chat A']);
 });
 
-test('finding: a subdomain rule limited to Chat B stays; Chat A gets an exact-host rule', () => {
+test('a subdomain rule limited to Chat B stays; Chat A gets an exact-host rule', () => {
   const sites = [site('a.example', { sub: true, chats: ['Chat B'] })];
   const before = settingsWith({ sites });
   const entry = siteEntry('a.example', 'Chat A');
   assert.deepEqual(offered(before, [entry]), [true]);
   const plan = AAT.planTrust(before, entry, 'only');
   assert.deepEqual(plan.patch.sites[0], sites[0]);
-  assert.deepEqual(grown(before, apply(before, plan), SITE_PROBES), ['a.example|Chat A', 'www.a.example|Chat A']);
+  assert.deepEqual(grown(before, apply(before, plan)), ['a.example|Chat A', 'www.a.example|Chat A']);
 });
 
-test('finding: duplicate ids are never the target, and a new rule gets an id nobody has', () => {
+test('duplicate ids are never the target, and a new rule gets an id nobody has', () => {
   const sites = [site('x.example', { id: 'dup' }), site('y.example', { id: 'dup' }), site('a.example', { id: 'dup2', on: false, chats: ['Chat A'] }), site('a.example', { id: 'dup2', host: 'z.example' })];
   const before = settingsWith({ sites });
   const plan = AAT.planTrust(before, siteEntry('a.example', 'Chat A'), 'only');
@@ -250,50 +196,29 @@ test('finding: duplicate ids are never the target, and a new rule gets an id nob
 
 // Over every starting state and pick, the trusted probes grow by at most the probes the pick names, written out literally
 test('never wider than the pick, for every starting rule', () => {
-  const siteStarts = [
+  const starts = [
     [], [site('a.example', { on: false })], [site('a.example', { on: false, sub: true })], [site('a.example', { chats: ['Chat B'] })],
     [site('a.example', { chats: ['Chat B'], on: false })], [site('a.example', { sub: true, chats: ['Chat B'] })],
     [site('www.a.example', { on: false, sub: true })], [site('a.example', { on: false, chats: ['Chat A'] })],
-    [site('a.example', { id: 'd' }), site('b.example', { id: 'd', on: false })],
+    [site('a.example', { id: 'd' }), site('b.example', { id: 'd', on: false })], [site('www.www.a.example', { chats: ['Chat B'] })],
   ];
-  const sitePick = { 'a.example': ['a.example', 'www.a.example'], 'www.a.example': ['a.example', 'www.a.example'], 'www.www.a.example': ['www.www.a.example'] };
-  for (const start of siteStarts) {
-    for (const host of ['a.example', 'www.a.example', 'www.www.a.example']) {
+  const pick = { 'a.example': ['a.example', 'www.a.example'], 'www.a.example': ['a.example', 'www.a.example'], 'www.www.a.example': ['www.www.a.example'] };
+  let checked = 0;
+  for (const start of starts) {
+    for (const host of Object.keys(pick)) {
       for (const scope of ['any', 'only']) {
         const before = settingsWith({ sites: start });
         const plan = AAT.planTrust(before, siteEntry(host, 'Chat A'), scope);
         if (!plan) continue;
-        for (const id of grown(before, apply(before, plan), SITE_PROBES)) {
+        checked++;
+        for (const id of grown(before, apply(before, plan))) {
           const [h, chat] = id.split('|');
-          assert.ok(sitePick[host].includes(h) && (scope === 'any' || chat === 'Chat A'), `${JSON.stringify(start)} ${host} ${scope}: ${id}`);
+          assert.ok(pick[host].includes(h) && (scope === 'any' || chat === 'Chat A'), `${JSON.stringify(start)} ${host} ${scope}: ${id}`);
         }
       }
     }
   }
-  const actionStarts = [
-    [], [action('Post', { chats: ['Chat B'] })], [action('Post', { policy: OTHER_POLICY, on: false })], [action('Post', { policy: POLICY, on: false, chats: ['Chat A'] })],
-    [action('Post', { policy: POLICY, chats: ['Chat B'] })], [action('Other', { policy: POLICY, chats: ['Chat B'] })],
-    [action('Upload', { policy: UPLOAD, site: 'upload.example', sub: true, chats: ['Chat B'] })], [action('Upload', { policy: UPLOAD, site: 'upload.example', on: false })],
-    [action('Upload', { policy: UPLOAD, chats: ['Chat B'] })],
-  ];
-  // Main's matcher reads an action rule as "same title, or same policy", at the rule's site when it has one
-  const actionPick = {
-    post: (title, policy) => title === 'Post' || policy === POLICY,
-    upload: (title, policy, dest) => (title === 'Upload' || policy === UPLOAD) && (dest === 'upload.example' || dest === 'www.upload.example'),
-  };
-  for (const start of actionStarts) {
-    for (const [kind, entry] of [['post', actionEntry('Post', 'Chat A')], ['upload', uploadEntry('upload.example', 'Chat A')], ['upload', uploadEntry('www.upload.example', 'Chat A')]]) {
-      for (const scope of ['any', 'only']) {
-        const before = settingsWith({ actions: start });
-        const plan = AAT.planTrust(before, entry, scope);
-        if (!plan) continue;
-        for (const id of grown(before, apply(before, plan), ACTION_PROBES)) {
-          const probe = ACTION_PROBES.find(p => p.id === id);
-          assert.ok(actionPick[kind](probe.action, probe.policy, probe.site) && (scope === 'any' || probe.chat === 'Chat A'), `${JSON.stringify(start)} ${entry.key} ${scope}: ${id}`);
-        }
-      }
-    }
-  }
+  assert.ok(checked > 40);
 });
 
 test('undo removes a rule the click created', () => {
@@ -312,12 +237,10 @@ test('undo puts back the earlier state of a reused rule', () => {
   assert.deepEqual(AAT.planUndo(reenable.patch, reenable.change).sites, off);
 });
 
-test('finding: undo does nothing once that rule was changed or deleted elsewhere', () => {
-  const sites = [site('a.example', { chats: ['Chat B'] })];
-  const before = settingsWith({ sites });
+test('undo does nothing once that rule was changed or deleted elsewhere', () => {
+  const before = settingsWith({ sites: [site('a.example', { chats: ['Chat B'] })] });
   const merged = AAT.planTrust(before, siteEntry('a.example', 'Chat A'), 'only');
-  const edited = { sites: [{ ...merged.patch.sites[0], chats: ['Chat A', 'Chat C'] }] };
-  assert.equal(AAT.planUndo(edited, merged.change), null);
+  assert.equal(AAT.planUndo({ sites: [{ ...merged.patch.sites[0], chats: ['Chat A', 'Chat C'] }] }, merged.change), null);
   const created = AAT.planTrust(settingsWith(), siteEntry('n.example', 'Chat A'), 'only');
   assert.equal(AAT.planUndo({ sites: [{ ...created.patch.sites[0], chats: ['Chat A', 'Chat C'] }] }, created.change), null);
   assert.equal(AAT.planUndo({ sites: [] }, created.change), null);
@@ -334,7 +257,7 @@ function fakeStorage(initial) {
   };
 }
 
-test('finding: trust and undo write over the stored lists, not the page copy, and keep changes made elsewhere', async () => {
+test('trust and undo write over the stored list, not the page copy, and keep changes made elsewhere', async () => {
   const storage = fakeStorage(settingsWith({ sites: [site('a.example', { chats: ['Chat B'] }), site('c.example')] }));
   // Another page turned c.example off after this page loaded; the page copy still has it on
   storage.data.sites[1].on = false;

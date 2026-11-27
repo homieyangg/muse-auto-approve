@@ -1,47 +1,29 @@
 'use strict';
 
-// "Trust" on a recent-activity row: which rows offer it, the rule it saves, and undoing that one change.
-// It never edits what an existing rule matches: it re-enables or extends a rule only when its criteria are exactly the
-// card's, and otherwise appends a new rule
+// "Trust" on a recent-activity website row: which rows offer it, the site rule it saves, and undoing that one change.
+// It never edits what an existing rule matches: it re-enables or extends a rule only when its host and sub are exactly the
+// card's, and otherwise appends a new rule. Action and upload rows don't offer it
 const AAT = (() => {
   const aam = typeof AAM !== 'undefined' ? AAM : require('./shared.js');
 
   // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
-  // Entry-level conditions. Action entries need a stored purchase answer and a policy: without a policy the rule would
-  // match by title alone, and an upload card read without its destination would then be trusted for any site
   function trustable(entry) {
-    if (!entry.host && !entry.action) return false;
-    if (aam.isPurchase(entry)) return false;
-    if (entry.host) return !!aam.normalizeHost(entry.host);
-    if (entry.purchase == null || !entry.policy) return false;
-    return entry.policy !== aam.UPLOAD_POLICY || !!aam.normalizeHost(entry.site);
+    return !!entry.host && !!aam.normalizeHost(entry.host) && !aam.isPurchase(entry);
   }
 
-  // True when this entry's card would still stop and ask with the current settings
+  // True when this website card would still stop and ask: Allow everything approves every website card
   function wouldAsk(settings, entry) {
-    if (aam.isTrusted(settings, entry)) return false;
-    return !(settings.mode === 'all' && (entry.host || entry.site || settings.includeActions));
+    return settings.mode !== 'all' && !aam.isTrusted(settings, entry);
   }
 
   function scopes(entry) {
     return entry.chat ? ['any', 'only'] : ['any'];
   }
 
-  // What the saved rule matches. Hosts are stored as normalizeHost gives them, so the rule covers the card's own host
-  function criteria(entry) {
-    if (entry.host) return { list: 'sites', match: { host: aam.normalizeHost(entry.host), sub: false } };
-    const site = aam.normalizeHost(entry.site);
-    return { list: 'actions', match: { title: entry.action, policy: entry.policy, ...(site && { site }) } };
-  }
-
   // Compared the way hostMatches compares, so a rule for www.a.example and one for a.example count as the same
-  function sameCriteria(list, rule, match) {
-    if (rule.sub) return false;
-    if (list === 'sites') return bare(rule.host) === bare(match.host);
-    return rule.title === match.title && (rule.policy || '') === match.policy && bare(rule.site) === bare(match.site);
-  }
+  const sameSite = (rule, host) => !rule.sub && bare(rule.host) === bare(host);
 
   const sameChats = (a, b) => a.length === b.length && a.every(c => b.includes(c));
   const canon = rule => JSON.stringify(Object.keys(rule).sort().map(k => [k, rule[k]]));
@@ -52,32 +34,34 @@ const AAT = (() => {
     return id;
   }
 
-  // Returns the settings patch and the undo record, or null when the row offers nothing for this scope.
-  // A rule is reused only when its id is unique and its criteria are the card's: a disabled one whose chats are exactly the
-  // pick is turned back on, and for "only" an enabled one limited to other chats gains this chat. Anything else is appended
+  // Returns the sites patch and the undo record, or null when the row offers nothing for this scope.
+  // addSiteRule isn't used because it merges into any rule for the host, including one with subdomains, a duplicate id, or
+  // a disabled one whose old scope comes back. Here a rule is reused only when its id is unique and its host and sub are the
+  // card's: a disabled one whose chats are exactly the pick is turned back on, and for "only" an enabled one limited to
+  // other chats gains this chat. Anything else is appended, with the host as normalizeHost gives it
   function planTrust(settings, entry, scope) {
     if (!scopes(entry).includes(scope) || !trustable(entry) || !wouldAsk(settings, entry)) return null;
-    const { list, match } = criteria(entry);
-    const rules = settings[list] || [];
+    const host = aam.normalizeHost(entry.host);
+    const rules = settings.sites || [];
     const chats = scope === 'only' ? [entry.chat] : [];
-    const exact = rules.filter(r => sameCriteria(list, r, match) && rules.filter(o => o.id === r.id).length === 1);
+    const exact = rules.filter(r => sameSite(r, host) && rules.filter(o => o.id === r.id).length === 1);
     const off = exact.find(r => !r.on && sameChats(r.chats, chats));
     const limited = scope === 'only' && exact.find(r => r.on && r.chats.length);
     const prev = off || limited || null;
     const after = off ? { ...off, on: true }
       : limited ? { ...limited, chats: [...limited.chats, entry.chat] }
-      : { id: freshId(rules), ...match, chats, on: true };
+      : { id: freshId(rules), host, sub: false, chats, on: true };
     const next = prev ? rules.map(r => (r.id === prev.id ? after : r)) : [...rules, after];
-    return { patch: { [list]: next }, change: { list, key: entry.key, id: after.id, prev, after } };
+    return { patch: { sites: next }, change: { key: entry.key, id: after.id, prev, after } };
   }
 
   // The inverse of one trust click, only while that rule is still exactly as the click left it; null otherwise
   function planUndo(settings, change) {
-    const rules = settings[change.list] || [];
+    const rules = settings.sites || [];
     const hits = rules.filter(r => r.id === change.id);
     if (hits.length !== 1 || canon(hits[0]) !== canon(change.after)) return null;
-    if (!change.prev) return { [change.list]: rules.filter(r => r.id !== change.id) };
-    return { [change.list]: rules.map(r => (r.id === change.id ? change.prev : r)) };
+    if (!change.prev) return { sites: rules.filter(r => r.id !== change.id) };
+    return { sites: rules.map(r => (r.id === change.id ? change.prev : r)) };
   }
 
   // Newest first; only the newest entry of each card gets the button
@@ -99,8 +83,9 @@ const AAT = (() => {
     return b.startsWith('www.') ? host : b;
   }
 
+  // Action and upload rows keep main's label
   function rowLabel(entry, t) {
-    return aam.cardLabel({ ...entry, host: shownHost(entry.host), site: shownHost(entry.site) }, t);
+    return aam.cardLabel(entry.host ? { ...entry, host: shownHost(entry.host) } : entry, t);
   }
 
   // Per shown entry: 'trusted' (undo on the first shown row of the card, while the rule is untouched since the click),
@@ -120,7 +105,7 @@ const AAT = (() => {
     return out;
   }
 
-  // storage is chrome.storage.sync. chrome.storage has no compare-and-set, so the lists are read right before the write,
+  // storage is chrome.storage.sync. chrome.storage has no compare-and-set, so the sites list is read right before the write,
   // with nothing awaited in between, instead of using the page's copy
   async function trust(storage, entry, scope) {
     const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), entry, scope);
@@ -130,7 +115,7 @@ const AAT = (() => {
   }
 
   async function undo(storage, change) {
-    const patch = planUndo(await storage.get({ [change.list]: [] }), change);
+    const patch = planUndo(await storage.get({ sites: [] }), change);
     if (patch) await storage.set(patch);
     return !!patch;
   }

@@ -83,7 +83,7 @@ Some services assign each account its own subdomain, such as Workday (`company.w
 
 **Checkouts and purchases.** Cards that spend money are never auto-approved, regardless of settings. The popup only offers "Just this once".
 
-**Trust from recent activity.** In the popup's Recent activity and on the Activity page in Settings, the newest row of a card that would still stop and ask has a "Trust" button. Pick "Any chat" or "Only <chat>" to save a rule for exactly that site or action. An existing rule is only reused when it matches the same thing; otherwise a new rule is added. Rows from an unknown chat only offer "Any chat", and checkouts and purchases never get the button. "Undo" puts that rule back the way it was, until you trust another row or close the page.
+**Trust from recent activity.** In the popup's Recent activity and on the Activity page in Settings, the newest row of a website card that would still stop and ask has a "Trust" button. Pick "Any chat" or "Only <chat>" to save a rule for exactly that site. An existing rule is only reused when it matches the same site without subdomains; otherwise a new rule is added. Rows from an unknown chat only offer "Any chat". Action, upload, checkout and purchase rows don't get the button. "Undo" puts that rule back the way it was, until you trust another row or close the page.
 
 **Trusted chats and Settings.** Open your muse side chat list once and the extension remembers the chat names, so you can pick a chat without typing. Settings holds the full lists: restrict a site to certain chats, disable entries without deleting them, view the activity log, and export or import your settings.
 
