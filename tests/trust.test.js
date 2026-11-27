@@ -31,10 +31,10 @@ function uploadEntry(dest, chat, result = 'handled', extra = {}) {
 const offered = (settings, log) => log.map(e => AAT.offers(settings, log).has(e));
 
 const CHATS = ['Chat A', 'Chat B', 'Chat C', ''];
-const SITE_PROBES = ['a.example', 'www.a.example', 'sub.a.example', 'wwwa.example', 'b.example']
+const SITE_PROBES = ['a.example', 'www.a.example', 'www.www.a.example', 'sub.a.example', 'wwwa.example', 'b.example']
   .flatMap(host => CHATS.map(chat => ({ id: `${host}|${chat}`, host, chat, action: '', policy: '', site: '' })));
 const ACTION_PROBES = ['Post', 'Upload', 'Other'].flatMap(title => [POLICY, UPLOAD, ''].flatMap(policy =>
-  ['', 'upload.example', 'www.upload.example', 'x.upload.example', 'other.example'].flatMap(dest => CHATS.map(chat =>
+  ['', 'upload.example', 'www.upload.example', 'www.www.upload.example', 'x.upload.example', 'other.example'].flatMap(dest => CHATS.map(chat =>
     ({ id: `${title}/${policy}@${dest}|${chat}`, host: '', chat, action: title, policy, site: dest })))));
 const trustedProbes = (settings, probes) => probes.filter(p => AAM.isTrusted(settings, p)).map(p => p.id);
 const grown = (before, after, probes) => {
@@ -127,16 +127,48 @@ test('finding: "Only Chat A" on www.a.example names and trusts exactly a.example
   const entry = siteEntry('www.a.example', 'Chat A');
   assert.equal(AAT.rowLabel(entry, k => k), 'a.example');
   const plan = AAT.planTrust(settingsWith(), entry, 'only');
-  assert.deepEqual(plan.patch.sites.map(r => [r.host, r.sub, r.chats, r.on]), [['a.example', false, ['Chat A'], true]]);
+  assert.deepEqual(plan.patch.sites.map(r => [r.host, r.sub, r.chats, r.on]), [['www.a.example', false, ['Chat A'], true]]);
   assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan), SITE_PROBES), ['a.example|Chat A', 'www.a.example|Chat A']);
 });
 
-test('finding: an upload to www.upload.example is shown and saved as upload.example, exact host only', () => {
+// The host is stored as normalizeHost gives it and the matcher strips one www, so a rule covers its own card and the hosts
+// normalizeHost-equivalent to it: a.example and www.a.example are one site, www.www.a.example is only itself
+test('finding: a double-www host is stored as is and covers only itself', () => {
+  const covers = { 'a.example': ['a.example', 'www.a.example'], 'www.a.example': ['a.example', 'www.a.example'], 'www.www.a.example': ['www.www.a.example'] };
+  for (const [raw, hosts] of Object.entries(covers)) {
+    const entry = siteEntry(raw, 'Chat A');
+    const plan = AAT.planTrust(settingsWith(), entry, 'only');
+    assert.equal(plan.patch.sites[0].host, raw);
+    const after = apply(settingsWith(), plan);
+    assert.ok(AAM.isTrusted(after, entry), raw);
+    assert.deepEqual(grown(settingsWith(), after, SITE_PROBES), hosts.map(h => `${h}|Chat A`), raw);
+  }
+  assert.equal(AAT.rowLabel(siteEntry('www.www.a.example', 'Chat A'), k => k), 'www.www.a.example');
+  const upload = uploadEntry('www.www.upload.example', 'Chat A');
+  const plan = AAT.planTrust(settingsWith(), upload, 'only');
+  assert.equal(plan.patch.actions[0].site, 'www.www.upload.example');
+  const after = apply(settingsWith(), plan);
+  assert.ok(AAM.isTrusted(after, upload));
+  assert.ok(grown(settingsWith(), after, ACTION_PROBES).every(id => id.includes('@www.www.upload.example|Chat A')));
+  assert.equal(AAT.rowLabel(upload, (k, v) => `${k} ${v}`), 'uploadTo www.www.upload.example');
+});
+
+test('finding: an older purchase row of the same card never shows Trusted or Undo', () => {
+  const newest = actionEntry('Post', 'Chat A');
+  const purchase = actionEntry('Post', 'Chat A', 'handled', { purchase: true, ts: 0 });
+  assert.equal(newest.key, purchase.key);
+  const log = [newest, purchase];
+  const plan = AAT.planTrust(settingsWith(), newest, 'only');
+  const states = AAT.rowStates(apply(settingsWith(), plan), log, log, { last: plan.change });
+  assert.deepEqual(log.map(e => states.get(e)), [{ state: 'trusted', undo: true }, { state: '' }]);
+});
+
+test('finding: an upload to www.upload.example is shown as upload.example and covers only that site', () => {
   const entry = uploadEntry('www.upload.example', 'Chat A');
   assert.equal(AAT.rowLabel(entry, (k, v) => `${k} ${v}`), 'uploadTo upload.example');
   const plan = AAT.planTrust(settingsWith(), entry, 'only');
   const [rule] = plan.patch.actions;
-  assert.deepEqual([rule.title, rule.policy, rule.site, rule.sub, rule.chats], ['Upload', UPLOAD, 'upload.example', undefined, ['Chat A']]);
+  assert.deepEqual([rule.title, rule.policy, rule.site, rule.sub, rule.chats], ['Upload', UPLOAD, 'www.upload.example', undefined, ['Chat A']]);
   assert.deepEqual(grown(settingsWith(), apply(settingsWith(), plan), ACTION_PROBES), [
     `Upload/${POLICY}@upload.example|Chat A`, `Upload/${POLICY}@www.upload.example|Chat A`,
     `Upload/${UPLOAD}@upload.example|Chat A`, `Upload/${UPLOAD}@www.upload.example|Chat A`,
@@ -224,16 +256,16 @@ test('never wider than the pick, for every starting rule', () => {
     [site('www.a.example', { on: false, sub: true })], [site('a.example', { on: false, chats: ['Chat A'] })],
     [site('a.example', { id: 'd' }), site('b.example', { id: 'd', on: false })],
   ];
-  const sitePick = { 'a.example': 1, 'www.a.example': 1 };
+  const sitePick = { 'a.example': ['a.example', 'www.a.example'], 'www.a.example': ['a.example', 'www.a.example'], 'www.www.a.example': ['www.www.a.example'] };
   for (const start of siteStarts) {
-    for (const host of ['a.example', 'www.a.example']) {
+    for (const host of ['a.example', 'www.a.example', 'www.www.a.example']) {
       for (const scope of ['any', 'only']) {
         const before = settingsWith({ sites: start });
         const plan = AAT.planTrust(before, siteEntry(host, 'Chat A'), scope);
         if (!plan) continue;
         for (const id of grown(before, apply(before, plan), SITE_PROBES)) {
           const [h, chat] = id.split('|');
-          assert.ok(sitePick[h] && (scope === 'any' || chat === 'Chat A'), `${JSON.stringify(start)} ${host} ${scope}: ${id}`);
+          assert.ok(sitePick[host].includes(h) && (scope === 'any' || chat === 'Chat A'), `${JSON.stringify(start)} ${host} ${scope}: ${id}`);
         }
       }
     }

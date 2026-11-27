@@ -6,6 +6,7 @@
 const AAT = (() => {
   const aam = typeof AAM !== 'undefined' ? AAM : require('./shared.js');
 
+  // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
   // Entry-level conditions. Action entries need a stored purchase answer and a policy: without a policy the rule would
@@ -13,9 +14,9 @@ const AAT = (() => {
   function trustable(entry) {
     if (!entry.host && !entry.action) return false;
     if (aam.isPurchase(entry)) return false;
-    if (entry.host) return true;
+    if (entry.host) return !!aam.normalizeHost(entry.host);
     if (entry.purchase == null || !entry.policy) return false;
-    return entry.policy !== aam.UPLOAD_POLICY || !!entry.site;
+    return entry.policy !== aam.UPLOAD_POLICY || !!aam.normalizeHost(entry.site);
   }
 
   // True when this entry's card would still stop and ask with the current settings
@@ -28,16 +29,18 @@ const AAT = (() => {
     return entry.chat ? ['any', 'only'] : ['any'];
   }
 
-  // What the saved rule matches. The matcher ignores a leading www, so the host is stored and shown without it
+  // What the saved rule matches. Hosts are stored as normalizeHost gives them, so the rule covers the card's own host
   function criteria(entry) {
-    if (entry.host) return { list: 'sites', match: { host: bare(entry.host), sub: false } };
-    return { list: 'actions', match: { title: entry.action, policy: entry.policy, ...(entry.site && { site: bare(entry.site) }) } };
+    if (entry.host) return { list: 'sites', match: { host: aam.normalizeHost(entry.host), sub: false } };
+    const site = aam.normalizeHost(entry.site);
+    return { list: 'actions', match: { title: entry.action, policy: entry.policy, ...(site && { site }) } };
   }
 
+  // Compared the way hostMatches compares, so a rule for www.a.example and one for a.example count as the same
   function sameCriteria(list, rule, match) {
     if (rule.sub) return false;
-    if (list === 'sites') return bare(rule.host) === match.host;
-    return rule.title === match.title && (rule.policy || '') === match.policy && bare(rule.site) === (match.site || '');
+    if (list === 'sites') return bare(rule.host) === bare(match.host);
+    return rule.title === match.title && (rule.policy || '') === match.policy && bare(rule.site) === bare(match.site);
   }
 
   const sameChats = (a, b) => a.length === b.length && a.every(c => b.includes(c));
@@ -89,9 +92,32 @@ const AAT = (() => {
     return out;
   }
 
-  // Row label with hosts as the matcher reads them, so the row names exactly what Trust saves
+  // a.example and www.a.example are one site to the matcher, so the label drops the www. A host that still starts with
+  // www after that (www.www.a.example) matches only itself and is shown as is
+  function shownHost(host) {
+    const b = bare(host);
+    return b.startsWith('www.') ? host : b;
+  }
+
   function rowLabel(entry, t) {
-    return aam.cardLabel({ ...entry, host: bare(entry.host), site: bare(entry.site) }, t);
+    return aam.cardLabel({ ...entry, host: shownHost(entry.host), site: shownHost(entry.site) }, t);
+  }
+
+  // Per shown entry: 'trusted' (undo on the first shown row of the card, while the rule is untouched since the click),
+  // 'offer' (open when its scope buttons show) or ''. Purchase rows sharing the card key never show Trusted
+  function rowStates(settings, log, shown, { last = null, openKey = '' } = {}) {
+    const offered = offers(settings, log);
+    const undoable = !!last && !!planUndo(settings, last);
+    const out = new Map();
+    let undoShown = false;
+    for (const entry of shown) {
+      if (last && entry.key === last.key && trustable(entry) && !wouldAsk(settings, entry)) {
+        out.set(entry, { state: 'trusted', undo: undoable && !undoShown });
+        undoShown = true;
+      } else if (offered.has(entry)) out.set(entry, { state: 'offer', open: entry.key === openKey });
+      else out.set(entry, { state: '' });
+    }
+    return out;
   }
 
   // storage is chrome.storage.sync. chrome.storage has no compare-and-set, so the lists are read right before the write,
@@ -121,22 +147,7 @@ const AAT = (() => {
       return b;
     };
 
-    // Per shown entry: 'trusted' (undo on the first shown row of that card, while the rule is untouched since),
-    // 'offer' (open when its scope buttons show) or ''
-    function states(settings, log, shown) {
-      const offered = offers(settings, log);
-      const undoable = !!last && !!planUndo(settings, last);
-      const out = new Map();
-      let undoShown = false;
-      for (const entry of shown) {
-        if (last && entry.key === last.key && !wouldAsk(settings, entry)) {
-          out.set(entry, { state: 'trusted', undo: undoable && !undoShown });
-          undoShown = true;
-        } else if (offered.has(entry)) out.set(entry, { state: 'offer', open: entry.key === openKey });
-        else out.set(entry, { state: '' });
-      }
-      return out;
-    }
+    const states = (settings, log, shown) => rowStates(settings, log, shown, { last, openKey });
 
     function trustButton(entry, open) {
       return button(open ? 'tb on' : 'tb', t('trust'), () => {
@@ -178,7 +189,7 @@ const AAT = (() => {
     return { states, trustButton, pickButtons, undoButton };
   }
 
-  return { trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, trust, undo, controls };
+  return { trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, rowStates, trust, undo, controls };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAT;
