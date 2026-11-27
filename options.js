@@ -64,7 +64,7 @@ function check(type, checked, text, onChange, name) {
   return el('label', { className: 'check' }, input, el('span', { textContent: text }));
 }
 
-const sep = () => (I18N.code === 'zh_TW' ? '、' : ', ');
+const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const sameHost = (a, b) => AAM.hostMatches({ host: a, sub: false }, b);
 
 // 可挑的聊天室：muse 側邊欄記下的，加上信任清單、網站限定的聊天室、紀錄和等你決定裡的
