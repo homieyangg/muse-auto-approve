@@ -22,53 +22,63 @@
 
 ### 說明（繁體中文）
 
-muse.ai 的助理存取新網站或敏感網站時，會跳一張審批卡等你按「允許」。沒人按，任務就停在那裡，排程任務特別常遇到。
+muse.ai 跳出審批卡時自動幫你按「允許」，人不在電腦前任務也不會卡住，跑排程特別有感。
 
-這個插件會幫你按。你可以選：
+有兩種模式可以選：
 
-・只允許我信任的（推薦）：第一次遇到新的網站、動作或聊天室會先問你。工具列圖示出現紅色數字時點開，選要信任到什麼範圍，按一次就記住
-・全部自動允許：Ren 要開什麼網站都直接允許；發文、傳訊息這類動作預設還是會先問你，可以在設定打開
+- 只允許我信任的（推薦）：第一次遇到的網站、動作或聊天室會先停著，工具列圖示顯示紅色數字。點開選好信任範圍，按一次就會記住。
+- 全部自動允許：Ren 要開的網站直接放行。發文、傳訊息這類動作預設還是會先問你，要一起自動按再到設定打開。
 
 其他功能：
 
-・信任範圍可以選「這個網站」「這個動作」「只限某個聊天室」「整個聊天室」或「只允許這一次」
-・發文到 Threads 這類動作卡也認得到，可以信任整個動作
-・設定頁可以管理完整清單、把網站限定在某些聊天室、先停用不刪掉、看紀錄、匯出匯入設定
-・審批來自其他聊天室時，會先按「檢閱」把卡片叫出來
-・有「一律允許」時優先按，同一個網站之後就不會再問
-・只在卡片裡同時有「允許」和「拒絕」、內容跟網站存取有關時才會按，卡片外的按鈕不會被點到
-・介面有繁體中文、英文和日文
+- 信任範圍可選這個網站、這個動作（像發文到 Threads）、只限特定聊天室、整個聊天室，或只允許這一次。
+- 卡片有「一律允許」就優先按，同一個網站之後不用再問。
+- 審批來自別的聊天室或排程時，會先按「檢閱」把卡片叫出來。
+- 設定頁可管理完整清單、把網站限定在特定聊天室、先停用不刪掉、看紀錄，也能匯出匯入設定。
+- 插件介面和 muse.ai 審批卡都支援繁體中文、英文、日文。
 
-插件沒有伺服器，不會把資料送出去。信任清單透過 Chrome 同步到你自己登入的瀏覽器，紀錄只存在本機。
+不會亂點：
 
-注意：muse.ai 的分頁要開著才有作用。自動允許等於跳過人工確認，請自行評估風險。
+只在同時有「允許」和「拒絕」、而且內容跟存取權限有關的審批卡裡動作。頁面上的其他按鈕不會碰，結帳和購買類的卡片也不會自動按。
 
-本插件為非官方工具，與 Meta、muse.ai 無關。原始碼：https://github.com/homieyangg/muse-auto-approve
+隱私：
+
+沒有伺服器，資料不會往外傳。模式和信任清單走 Chrome 同步，只存在你自己登入的瀏覽器；紀錄只留在本機電腦。
+
+提醒：muse.ai 分頁要開著插件才會動。自動允許等於跳過人工確認，請先評估風險。
+
+非官方工具，與 Meta、muse.ai 無關。
+原始碼：https://github.com/homieyangg/muse-auto-approve
 
 ### Description (English)
 
-When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody clicks, the task stalls, which happens a lot with scheduled tasks.
+Clicks Allow on muse.ai approval cards so your tasks do not stall while you are away, scheduled tasks most of all.
 
-This extension clicks it for you. Pick how it works:
+Pick one of two modes:
 
-- Only what I trust (recommended): the first time a new site, action, or chat shows up, it asks you. A red number appears on the toolbar icon. Open it, choose how far to trust the request, and it's remembered.
-- Allow everything: every website Ren asks for is allowed. Actions like posting or messaging still ask first unless you turn them on in Settings.
+- Only what I trust (recommended): New sites, actions, and chats pause and show a red number on the toolbar icon. Open the popup, choose how far to trust the request, and it is remembered.
+- Allow everything: Approves every website Ren asks to open. Actions like posting or sending messages still ask first unless you enable them in Settings.
 
-Also:
+What it does:
 
-- Trust a site, an action, either one only from one chat, a whole chat, or just allow once
-- Recognizes action cards such as posting to Threads
-- Settings has the full lists: limit a site to certain chats, turn entries off without deleting them, see the activity log, and export or import your settings
-- Opens review banners for approvals that come from other chats
-- Prefers "Always allow" when available, so the same site isn't asked again
-- Only clicks inside cards that have both Allow and Deny buttons and mention website access
-- English, Traditional Chinese, and Japanese interface
+- Trust a site, an action (like posting to Threads), either one only from a specific chat, a whole chat, or just once.
+- Picks "Always allow" when offered, so the same site does not ask again.
+- Opens Review banners for approvals coming from other chats or scheduled tasks.
+- Full controls in Settings: limit a site to specific chats, pause an entry without deleting it, check the activity log, and export or import your rules.
+- Supports English, Traditional Chinese, and Japanese for both the extension interface and muse.ai approval cards.
 
-No server, nothing sent anywhere. Trusted lists sync between your own signed-in Chrome browsers through Chrome sync; the activity log stays on your computer.
+What it will not click:
 
-Note: a muse.ai tab must be open for it to work. Auto-approving skips the human check, so evaluate the risk yourself.
+Only clicks inside approval cards that have both an Allow and a Deny button and are about access. Other buttons on the page are left alone, and checkouts or purchases are never auto-approved.
 
-This is an unofficial tool and is not affiliated with Meta or muse.ai. Source code: https://github.com/homieyangg/muse-auto-approve
+Privacy:
+
+No server and nothing sent anywhere. Your mode and trusted lists sync between your signed-in Chrome browsers through Chrome sync. The activity log stays on your computer.
+
+Note: A muse.ai tab must stay open for the extension to work. Auto-approving skips the human check, so make sure you are comfortable with that risk.
+
+Unofficial tool, not affiliated with Meta or muse.ai.
+Source code: https://github.com/homieyangg/muse-auto-approve
 
 ### 説明（日本語）
 

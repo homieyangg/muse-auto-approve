@@ -10,17 +10,17 @@
 
 <p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.ja.md">日本語</a></p>
 
-When the muse.ai assistant tries to open a new or sensitive website, it shows an approval card and waits for you to click "Allow". If nobody is around, the task just sits there, which happens a lot with scheduled tasks.
+Auto Approve for Muse clicks Allow on muse.ai approval cards so tasks do not stall while you are away, scheduled tasks most of all. You can approve everything, or limit it to the sites, actions, and chats you trust.
 
-This Chrome extension clicks Allow for you. You can let it approve everything, or only the sites, actions, and chats you trust. If the card offers "Always allow", it picks that one, so the same site won't ask again.
+When a card offers "Always allow", the extension picks that so the same site stops asking.
 
-> This is an unofficial tool and is not affiliated with Meta or muse.ai. Auto-approving removes the human check on what the assistant can access, so make sure you're fine with that.
+> Unofficial tool, not affiliated with Meta or muse.ai. Source code: https://github.com/homieyangg/muse-auto-approve. Auto-approving skips the human check on what the assistant can access, so make sure you are fine with that.
 
 ## Install
 
-Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii). The store version updates automatically.
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii) for automatic updates.
 
-If you'd rather not use the store, the install script and the manual steps below load the same extension from this repo. Pick one way. If you install both, two copies run on the same page.
+If you prefer not to use the store, the script and manual steps below load the same extension from this repo. Pick one method. Installing both runs two copies on the same page.
 
 ### Install script
 
@@ -36,9 +36,9 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.ps1 | iex
 ```
 
-The script downloads the latest release to `~/muse-auto-approve` (`%USERPROFILE%\muse-auto-approve` on Windows), opens `chrome://extensions`, and copies the folder path to your clipboard. Chrome doesn't let scripts install extensions on their own, so you still need to do steps 2 and 3 below. When the folder picker opens, paste the path instead of browsing for it.
+The script downloads the latest release to `~/muse-auto-approve` (`%USERPROFILE%\muse-auto-approve` on Windows), opens `chrome://extensions`, and copies the folder path to your clipboard. Chrome blocks scripts from installing extensions directly, so complete steps 2 and 3 below and paste the path into the folder picker.
 
-Run the same command again to update. The folder stays the same, so your settings are kept. After updating, click the reload icon on the extension's card in `chrome://extensions`.
+Run the same command again to update. Your folder and settings stay intact. After updating, click the reload icon on the extension card in `chrome://extensions`.
 
 ### Manual install
 
@@ -47,42 +47,43 @@ Run the same command again to update. The folder stays the same, so your setting
 
    <img src="docs/images/install-developer-mode.png" width="720" alt="Developer mode toggle on the Extensions page">
 
-3. Click "Load unpacked" and select the folder that contains `manifest.json`. Auto Approve for Muse then shows up in the list.
+3. Click "Load unpacked" and select the folder containing `manifest.json`. Auto Approve for Muse will appear in the list.
 
    <img src="docs/images/install-load-unpacked.png" width="720" alt="Load unpacked button and the loaded extension">
 
-4. Reload any open muse.ai tabs, then click the extension's toolbar icon to check that it's on. If the icon isn't in the toolbar, click the puzzle piece icon and pin it.
+4. Reload any open muse.ai tabs, then click the toolbar icon to verify it is on. If it is hidden, open the puzzle piece icon and pin it.
 
    <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The interface is in English, Traditional Chinese, and Japanese and follows your browser language. You can change it in Settings.
+The interface supports English, Traditional Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, and Japanese muse.ai accounts are supported.
 
-## Trusted sites and chats
+## Modes and trusted rules
 
-After you install it, a welcome page asks how it should work. "Only what I trust" is the recommended choice. "Allow everything" clicks every card, like version 1.0 did. If you're updating from 1.0, it stays on "Allow everything" until you change it.
+After install, a welcome page asks which mode to use:
 
-With "Only what I trust", a card for a site you haven't trusted yet is left alone and the toolbar icon shows a red number. Open the popup, tap the request, and pick how far to trust it:
+- **Only what I trust** (recommended): Unrecognized sites, actions, and chats wait for you.
+- **Allow everything**: Approves every website card, matching version 1.0. Upgrading from 1.0 keeps this mode until you change it.
+
+In "Only what I trust", a waiting card adds a red number to the toolbar icon. Open the popup, click the request, and choose how far to trust it:
 
 <img src="docs/images/popup-pending.png" width="300" alt="A request waiting for a decision">
 
 - This site, from any chat
 - This site, only from this chat
-- Everything from this chat. Anything that chat asks for gets allowed, including posts and messages (checkouts and purchases excepted), so keep this for scheduled tasks you're sure about.
-- Just this once, without remembering anything
+- Everything from this chat: approves every request from that chat, including posts and messages (except checkouts and purchases). Save this for scheduled tasks you are sure about.
+- Just this once, without saving
 
-The card gets clicked right away, and from then on matching cards are approved without asking. A card is approved if it comes from a trusted chat, or if its site or action is trusted and either has no chat limit or the card came from one of the chats it's limited to.
+The card is clicked immediately, and matching cards are approved automatically from then on. A card matches when it comes from a trusted chat, or when its site or action is trusted with either no chat limit or a matching chat limit.
 
-Some cards aren't about opening a website. They ask Ren to do something, like posting to Threads or sending a message. For those, the popup offers "This action" instead of "This site". The extension remembers the permission type muse attaches to the action (for example, sending Gmail), so it recognizes the same action on a single card and on a combined card that bundles several approvals. "Allow everything" leaves action cards alone unless you turn on "Include actions" under Settings > General > Advanced, because a post or a message can't be taken back.
+**Action cards.** Some cards ask Ren to perform an action, such as posting to Threads or sending a message. The popup offers "This action" instead of "This site". The extension stores the permission type muse attaches to the action (for example, sending Gmail), so it matches both single and combined cards. "Allow everything" leaves action cards alone by default because posts and messages cannot be undone. To auto-approve them, turn on "Include actions" under Settings > General > Advanced.
 
-Browser upload cards ("Allow Ren to use Browser to upload this file?") are tied by muse to the site the file goes to, so the extension treats them as a request to that site. "Allow everything" approves them and picks "Always allow uploads to this site". With "Only what I trust", the popup shows "Upload to tumblr.com", and trusting it only covers uploads to that site. Trusting a site for browsing doesn't cover uploads to it.
+**Browser upload cards.** Cards like "Allow Ren to use Browser to upload this file?" are tied by muse to a destination site, so the extension treats them per site. "Allow everything" approves them with "Always allow uploads to this site". In "Only what I trust", the popup shows "Upload to tumblr.com", and trusting it only covers uploads to that site. Browsing trust does not cover uploads.
 
-Some sites give every account its own subdomain. Workday job applications, for example, go to a different host for each company (`company.wd5.myworkdayjobs.com`), so each one would ask again. In Settings > Actions you can change an upload rule's site and turn on "Include subdomains". One rule for `myworkdayjobs.com` then covers uploads to every company's Workday host. That is broader than the original rule, so only do it for sites you're happy to have Ren upload files to.
+Some services assign each account its own subdomain, such as Workday (`company.wd5.myworkdayjobs.com`). In Settings > Actions, you can edit an upload rule's site and enable "Include subdomains" so one `myworkdayjobs.com` rule covers every company's Workday host. That scope is broader, so only use it for sites you are comfortable uploading to.
 
-Checkout, order, and purchase cards spend money, so the extension never approves them on its own, whatever the settings. The popup only offers "Just this once" for them.
+**Checkouts and purchases.** Cards that spend money are never auto-approved, regardless of settings. The popup only offers "Just this once".
 
-To trust a chat, you can pick it from your muse side chats. Open the chat list in muse once and the extension remembers the names, so there's nothing to type.
-
-Settings has the full lists. You can limit a site to certain chats, turn an entry off without deleting it, check the activity log, and export or import your settings.
+**Trusted chats and Settings.** Open your muse side chat list once and the extension remembers the chat names, so you can pick a chat without typing. Settings holds the full lists: restrict a site to certain chats, disable entries without deleting them, view the activity log, and export or import your settings.
 
 <img src="docs/images/options-sites.png" width="720" alt="Trusted sites in Settings">
 
@@ -104,56 +105,56 @@ Muse separates read actions (checking a calendar, reading email, listing GitHub 
 
 To use the GitHub connector, connect GitHub in Muse and grant the read permissions there first. The extension doesn't do OAuth or grant permissions. If a card isn't approved automatically, the popup says why (action not included, purchase card, and so on).
 
-## How it finds approval cards
+## What it clicks and what it skips
 
-- muse marks its approval cards with `data-testid="hatch-inline-approval-card"`, and the extension only clicks Allow or Always allow inside a marked card, so an Allow button anywhere else on the page is never clicked.
-- If muse ever drops that marker, it falls back to looking for Deny and Allow buttons in the same block, and only when the card text mentions a website, access, the browser, or permissions. Unrelated dialogs such as a delete confirmation are left alone.
-- Cards like "send this email" label their buttons with the action itself ("Send", "Don't send"). The extension finds the main button by the attribute muse puts on it, not by its text.
-- When several approvals are combined into one card ("Ren needs approval to continue"), it approves them one at a time and waits for the card to redraw before the next one.
-- A small script inside the muse page reads each card's approval ID, permission type, and upload destination, plus the list of all pending approvals. This is data the muse page already has. It stays in your browser and is never sent anywhere. With the approval ID, an approval shown both in the side panel and in the chat is only clicked once.
-- An approval that comes from another chat or a scheduled task only shows up as a banner with a Review button, and the extension clicks Review to open it. When the current chat has its own card waiting, muse hides that banner. If the extension sees approvals that aren't on screen, it opens the Approvals tab in the side panel instead. That tab expands one approval at a time, so a trusted one further down the list gets expanded first and then approved.
-- When "Always allow" is tucked into the "More allow options" menu (side panel, combined cards), the extension opens the menu to click it.
-- It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the cards it opened aren't trusted, it leaves the same set of approvals alone for 10 minutes instead of opening them again and again.
+- muse marks approval cards with `data-testid="hatch-inline-approval-card"`. The extension only clicks Allow or Always allow inside a marked card, leaving Allow buttons elsewhere on the page alone.
+- If that marker is ever removed, it falls back to finding Deny and Allow buttons in the same block, and only when the card text mentions a website, access, the browser, or permissions. Unrelated dialogs like delete confirmations are ignored.
+- Action-labeled buttons (such as "Send" and "Don't send") are matched by the attribute muse sets on the primary button, not by button text.
+- Combined cards ("Ren needs approval to continue") are approved one item at a time, waiting for the card to redraw between clicks.
+- A small in-page script reads each card's approval ID, permission type, upload destination, and the list of pending approvals from data already loaded on the muse page. Nothing leaves your browser. Approval IDs prevent clicking the same approval twice when it appears in both the side panel and the chat.
+- Approvals from another chat or a scheduled task appear as a banner with a Review button, which the extension clicks to open them. If the current chat has its own card waiting, muse hides that banner; when the extension sees pending approvals off-screen, it opens the Approvals tab in the side panel and expands matching items to approve them.
+- When "Always allow" sits inside the "More allow options" menu (side panel or combined cards), the extension opens the menu to click it.
+- Cooldowns: it will not click the same card twice within 5 seconds, clicks Review at most once every 10 seconds, and leaves the same set of untrusted approvals alone for 10 minutes instead of reopening them repeatedly.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese and Japanese. Checkout cards haven't been triggered for real; they're recognized from the checkout and payment fields in muse's approval data, which doesn't depend on language, with the card wording as a fallback. Japanese labels such as "許可する", "許可しない", "承認しない", "一度だけ許可", and "...を常に許可" are covered by automated tests.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese and Japanese. Checkout cards have not been triggered for real; they are recognized from the checkout and payment fields in muse's approval data, which does not depend on language, with the card wording as a fallback. Japanese labels such as "許可する", "許可しない", "承認しない", "一度だけ許可", and "...を常に許可" are covered by automated tests.
 
 ## Limitations
 
-- A muse.ai tab has to stay open. If you close it, nothing gets approved.
-- In "Allow everything" mode it approves every website card, including browser uploads to a site, and action cards too if you turn that on.
-- Actions are matched by muse's permission type. Rules saved by older versions only have the card title, and they pick up the permission type the next time that card shows up. Trusting "post to Threads" covers every post, whatever the text or account.
-- Cards that appear inside the chat that started the task often don't say which chat they came from, so the "only from this chat" options aren't offered for them.
-- A muse.ai redesign can break the matching. Button labels, the markup of the review banner, and the approval data read from the page are the parts most likely to change. Without that data it falls back to the card text, which handles combined and duplicate cards less well.
+- A muse.ai tab must stay open. If you close it, nothing gets approved.
+- "Allow everything" approves every website card, including browser uploads, plus action cards if you turn that option on.
+- Actions match by muse's permission type. Rules saved by older versions only store the card title and pick up the permission type the next time that card appears. Trusting "post to Threads" covers every post, regardless of text or account.
+- Cards shown inside the chat that started the task often do not state which chat they came from, so "only from this chat" is not offered for them.
+- A muse.ai redesign can break matching, especially button labels, review banner markup, or page approval data. Without that data, it falls back to card text, which handles combined and duplicate cards less reliably.
 
 ## Running it around the clock
 
-If your computer doesn't stay on, you can run Chromium on a server with the extension loaded. `deploy/compose.yml` uses [linuxserver/chromium](https://github.com/linuxserver/docker-chromium) and runs on both amd64 and arm64.
+If your computer does not stay on, you can run Chromium with the extension loaded on a server. `deploy/compose.yml` uses [linuxserver/chromium](https://github.com/linuxserver/docker-chromium) and supports amd64 and arm64.
 
 ```bash
 cd deploy
 docker compose up -d
 ```
 
-You need to sign in to muse.ai once through the web UI. The compose file binds it to `127.0.0.1:13000` on the server, so connect through an SSH tunnel:
+Sign in to muse.ai once through the web UI. The compose file binds it to `127.0.0.1:13000` on the server, so connect over an SSH tunnel:
 
 ```bash
 ssh -L 13000:127.0.0.1:13000 <your-server>
 # then open http://localhost:13000
 ```
 
-Once you're signed in, you can close the page and the SSH session. Chromium keeps running on the server, and the login is stored in the `muse-browser-config` Docker volume.
+Once signed in, close the page and the SSH session. Chromium keeps running on the server, and your login persists in the `muse-browser-config` Docker volume.
 
-A few things to keep in mind:
+Keep in mind:
 
 - The web UI includes a terminal with passwordless sudo. Never expose the port to the internet.
-- Chromium in the container defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that's the UI the extension was tested with. After signing in, also set Chromium's language to the one you want (Traditional Chinese, English, or Japanese) and turn off page translation, since a translated page changes the button labels the extension looks for.
-- Streaming the web UI takes a fair amount of CPU, so close it when you're done.
-- Chromium on the server isn't signed in to Google, so your trusted lists don't sync to it. Export them from Settings > Backup in your own browser and import the file on the server.
-- After updating the extension, run `docker compose restart` so Chromium loads the new version.
+- Container Chromium defaults to English, and muse.ai follows the browser language. The compose file passes `--lang=zh-TW` because that UI was tested with the extension. After signing in, also set Chromium's language to the one you want (Traditional Chinese, English, or Japanese) and turn off page translation so translated labels do not break matching.
+- Streaming the web UI uses noticeable CPU. Close it when you are done.
+- Server Chromium is not signed in to Google, so trusted lists do not sync automatically. Export them from Settings > Backup in your local browser and import the file on the server.
+- After updating the extension, run `docker compose restart` to load the new version.
 
 ## Privacy
 
-The extension has no server and makes no network requests of its own. Your mode and trusted lists are saved with `chrome.storage.sync`, so Chrome syncs them between browsers signed in to the same Google account. The activity log stays in `chrome.storage.local` on your computer. See [PRIVACY.md](PRIVACY.md) for details.
+The extension has no server and makes no network requests of its own. Your mode and trusted lists are stored in `chrome.storage.sync`, so Chrome syncs them between browsers signed in to the same Google account. The activity log stays in `chrome.storage.local` on your computer. See [PRIVACY.md](PRIVACY.md) for details.
 
 ## Testing
 
@@ -169,7 +170,7 @@ The tests cover approval-label matching in English, Traditional Chinese, Simplif
 ./scripts/pack.sh
 ```
 
-This writes a zip for the Chrome Web Store to `dist/`, containing only the files the extension needs.
+This writes a Chrome Web Store zip to `dist/` containing only the files the extension needs.
 
 ## License
 
