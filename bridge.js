@@ -177,30 +177,39 @@
 
   const sameMarks = marks => marks.every(mark => JSON.stringify(mark) === JSON.stringify(marks[0]));
 
-  // Reads one approval's buttons in a single pass into { state, missing, options, marks }. state 'clean': at least one keyed
-  // button, and every keyed button carries this approval's key and maps to the same option in every source holding the
-  // approval (the card's, the button's nearest one, the pending list's). 'anomalous': the options were read but a button is
-  // keyed to or sits under another approval, a key does not map, the sources disagree, a fiber can't be confirmed, or no
-  // button is keyed; nothing later in the pass resets it. '': no decisionOptions, main's text rules.
-  // Every button confirmed on its own is marked; content.js clicks only a confirmed once button on an anomalous card.
-  // A keyless primary is marked allow once only when it is the first allow option and a keyed button of this approval exists
+  // A source with no decisionOptions field has no data and is skipped; [] or different options is a veto
+  const hasData = approval => Array.isArray(approval?.serverPresentation?.decisionOptions);
+
+  // Reads one approval's buttons in a single pass into { state, missing, options, marks }. Sources are the card's approval,
+  // each button's nearest approval and the pending list's entry; only the ones with data count.
+  // '': no source has data, main's text rules. 'clean': at least one keyed button, and every keyed button carries this
+  // approval's key and maps to the same option in every source with data, at least one of them on the card side (the card's
+  // or the button's own approval), so the cache alone never makes a card clean. 'anomalous': anything else; nothing later in
+  // the pass resets it. Each button the sources agree on is marked; content.js clicks only a confirmed once button on an
+  // anomalous card. A keyless primary is marked allow once only when every source says the first allow option is allow once
+  // and a keyed button of this approval exists
   function optionMarks(approval, buttons, walk = newWalk(), pendingById = () => null) {
-    const options = approval?.serverPresentation?.decisionOptions;
-    if (!Array.isArray(options)) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
-    const cached = pendingById(approval.approvalId);
-    let anomalous = false, keyed = 0;
-    const found = buttons.map(({ fiber, primary }) => {
+    const id = approval?.approvalId;
+    const cached = pendingById(id);
+    const reads = buttons.map(({ fiber, primary }) => {
       const key = decisionKeyOf(fiber, walk);
-      const own = key === undefined ? null : approvalsOfFiber(fiber, walk);
+      return { key, primary, own: key === undefined ? null : approvalsOfFiber(fiber, walk) };
+    });
+    const withData = [approval, cached, ...reads.flatMap(r => r.own || [])].filter(a => a?.approvalId === id && hasData(a));
+    if (!withData.length) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
+    let anomalous = false, keyed = 0;
+    const found = reads.map(({ key, primary, own }) => {
       const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
-      if (!own || own.some(a => a.approvalId !== approval.approvalId) || (m && m[1] !== approval.approvalId)) {
+      if (!own || own.some(a => a.approvalId !== id) || (m && m[1] !== id)) {
         anomalous = true;
         return null;
       }
-      const sources = [approval, ...own, ...(cached ? [cached] : [])];
+      const cardSide = [approval, ...own].filter(hasData);
+      if (!cardSide.length) anomalous = true;
+      const sources = [...cardSide, ...(hasData(cached) ? [cached] : [])];
       if (key === null) return primary && own.length === 1 ? { sources } : null;
       const marks = m && own.length === 1 ? sources.map(a => keyMark(a, m)) : [null];
-      if (!marks[0] || !sameMarks(marks)) {
+      if (!marks.length || !marks[0] || !sameMarks(marks)) {
         anomalous = true;
         return null;
       }
@@ -212,25 +221,27 @@
       if (!f?.sources) return f;
       const all = f.sources.map(primaryMark);
       if (!sameMarks(all)) anomalous = true;
-      return keyed && sameMarks(all) ? all[0] : null;
+      return keyed && all.length && sameMarks(all) ? all[0] : null;
     });
-    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: options.map(o => markOf(o || {})), marks };
+    const list = withData[0].serverPresentation.decisionOptions.map(o => markOf(o || {}));
+    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: list, marks };
   }
 
   // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
-  // The same key must point at the same option in the pending list, in the cards showing that approval (cardsById) and in
-  // the portal's own approval ancestor if it has one; at least one card side must be reached. Any difference (one source
-  // may say broad) leaves the item unmarked. Returns { approvalId, kind, labelKind, scope }, or null
+  // The same key must point at the same option in every source with data: the cards showing that approval (cardsById), the
+  // portal's own approval ancestor if it has one, and the pending entry. At least one card side must have data, so the
+  // cache alone never marks an item. Any difference (one source may say broad) leaves the item unmarked.
+  // Returns { approvalId, kind, labelKind, scope }, or null
   function menuItemMark(start, walk = newWalk(), pendingById = () => null, cardsById = () => []) {
     const key = decisionKeyOf(start, walk);
     const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
     if (!m || m[2] !== 'compact-allow') return null;
     const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
     if (!own || own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
-    const cards = [...own, ...cardsById(m[1], walk)];
+    const cards = [...own, ...cardsById(m[1], walk)].filter(hasData);
     const pending = pendingById(m[1]);
     if (!pending || !cards.length) return null;
-    const marks = [pending, ...cards].map(a => keyMark(a, m));
+    const marks = [...cards, ...(hasData(pending) ? [pending] : [])].map(a => keyMark(a, m));
     if (!marks[0] || !sameMarks(marks)) return null;
     return { approvalId: m[1], ...marks[0] };
   }

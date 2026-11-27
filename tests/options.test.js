@@ -607,3 +607,60 @@ test('a menu item is marked only when the pending list and the card give the sam
   // No card reached: refused
   assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(cache), () => []), null);
 });
+
+// Codex re-review 5: a source without decisionOptions is skipped, [] or different options veto, and only when no source
+// has data does main's text path apply
+test('a card without options is still read from the pending entry or the button ancestor: they veto the text always', () => {
+  const texts = ['Allow once', 'Always allow uploads to this site', 'Deny'];
+  const keys = keysFor('appr-test-64', [ONCE, SCOPED, DENY]);
+  const card = approval('appr-test-64', null);
+  const read = (tree, pending) => optionMarks(card, asButtons(cardTree(tree, keys).hosts), undefined, pending);
+  // Pending broad, [] or safe: data exists, so no text pick; the cache alone never authorises always
+  const cases = {
+    broad: [[ONCE, BROAD, DENY], { always: null, once: 'button-0', data: true }],
+    empty: [[], null],
+    safe: [[ONCE, SCOPED, DENY], { always: null, once: 'button-0', data: true }],
+  };
+  for (const [name, [options, expected]] of Object.entries(cases)) {
+    const result = read(card, pendingOf(approval('appr-test-64', options)));
+    assert.deepEqual([result.state, result.missing], ['anomalous', true], name);
+    const p = pick(result, texts);
+    assert.deepEqual(core(p), expected, name);
+    if (p) assert.equal(p.alwaysInMenu, false, name);
+  }
+  // The button's own approval carries the options the card node lacks: it is card-side data and decides
+  const ancestorBroad = read(approval('appr-test-64', [ONCE, BROAD, DENY]), () => null);
+  assert.equal(ancestorBroad.state, 'clean');
+  assert.deepEqual(core(pick(ancestorBroad, texts)), { always: null, once: 'button-0', data: true });
+  // No source has data: main's text rules
+  const none = read(card, () => null);
+  assert.equal(none.state, '');
+  assert.deepEqual(core(pick(none, texts)), { always: 'button-1', once: 'button-0', data: false });
+  const nonePending = read(card, pendingOf(approval('appr-test-64', null)));
+  assert.equal(nonePending.state, '');
+});
+
+test('a pending entry without options is skipped: a clean card stays clean', () => {
+  const options = [ONCE, SCOPED, DENY];
+  const appr = approval('appr-test-65', options);
+  const result = optionMarks(appr, asButtons(cardTree(appr, keysFor('appr-test-65', options)).hosts), undefined, pendingOf(approval('appr-test-65', null)));
+  assert.deepEqual([result.state, result.missing], ['clean', false]);
+  assert.deepEqual(core(pick(result)), { always: 'button-1', once: 'button-0', data: true });
+  // The same with only a keyed once button
+  const onlyOnce = approval('appr-test-65', [ONCE, DENY]);
+  const once = optionMarks(onlyOnce, asButtons(cardTree(onlyOnce, ['appr-test-65-cta-0-allow_once']).hosts), undefined, pendingOf(approval('appr-test-65', null)));
+  assert.deepEqual([once.state, kinds(once)], ['clean', ['allow_once']]);
+  // A panel primary confirmed by the card keeps its mark too
+  const panel = optionMarks(appr, asButtons(cardTree(appr, [null, 'appr-test-65-compact-deny-0-deny']).hosts, 0), undefined, pendingOf(approval('appr-test-65', null)));
+  assert.deepEqual([panel.state, kinds(panel)], ['clean', ['allow_once', 'deny']]);
+});
+
+test('a menu item is never marked from the cache alone; a cache entry without options is skipped', () => {
+  const key = 'appr-test-66-compact-allow-0-allow_always';
+  const safe = approval('appr-test-66', [ONCE, SCOPED, DENY]);
+  const bare = approval('appr-test-66', null);
+  assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(safe), cardsOf(bare)), null);
+  assert.equal(menuItemMark(menuTree(key, { approvalAbove: bare }), undefined, pendingOf(safe), () => []), null);
+  assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(bare), cardsOf(safe)).scope, 'destination');
+  assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(approval('appr-test-66', [])), cardsOf(safe)), null);
+});
