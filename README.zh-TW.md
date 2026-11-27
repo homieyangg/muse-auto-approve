@@ -55,7 +55,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
    <img src="docs/images/zh-TW/popup.png" width="300" alt="插件的 popup">
 
-介面支援繁體中文、英文、日文，預設跟著瀏覽器語言，也可以在設定頁切換。繁體中文、英文、日文帳號的 muse.ai 審批卡都有支援。
+介面支援繁體中文、簡體中文、英文、日文，預設跟著瀏覽器語言，也可以在設定頁切換。繁體中文、簡體中文、英文、日文帳號的 muse.ai 審批卡都有支援。
 
 ## 模式與信任清單
 

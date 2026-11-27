@@ -35,7 +35,7 @@ muse.ai 跳出審批卡時自動幫你按「允許」，人不在電腦前任務
 - 卡片有「一律允許」就優先按，同一個網站之後不用再問。
 - 審批來自別的聊天室或排程時，會先按「檢閱」把卡片叫出來。
 - 設定頁可管理完整清單、把網站限定在特定聊天室、先停用不刪掉、看紀錄，也能匯出匯入設定。
-- 插件介面和 muse.ai 審批卡都支援繁體中文、英文、日文。
+- 插件介面和 muse.ai 審批卡都支援繁體中文、簡體中文、英文、日文。
 
 不會亂點：
 
@@ -95,7 +95,7 @@ What it does:
 - Picks "Always allow" when offered, so the same site does not ask again.
 - Opens Review banners for approvals coming from other chats or scheduled tasks.
 - Full controls in Settings: limit a site to specific chats, pause an entry without deleting it, check the activity log, and export or import your rules.
-- Supports English, Traditional Chinese, and Japanese for both the extension interface and muse.ai approval cards.
+- Supports English, Traditional Chinese, Simplified Chinese, and Japanese for both the extension interface and muse.ai approval cards.
 
 What it will not click:
 
@@ -128,7 +128,7 @@ muse.ai のアシスタントが新しいサイトや重要なサイトを開こ
 - 「常に許可」があれば優先するので、同じサイトで何度も確認されません
 - カード内に許可と拒否の両方のボタンがあり、内容がサイトへのアクセスや権限に関係するときだけ押します
 - 操作を誤らないよう、購入・決済のカードは自動で許可しません
-- 画面は日本語・英語・繁体字中国語に対応しています
+- 画面は日本語・英語・繁体字中国語・簡体字中国語に対応しています
 
 サーバーはなく、データをどこにも送信しません。信頼リストは Chrome の同期で、同じ Google アカウントでサインインしたブラウザ間に保存されます。アクティビティログはこのコンピューターにだけ残ります。
 

@@ -55,7 +55,7 @@ Run the same command again to update. Your folder and settings stay intact. Afte
 
    <img src="docs/images/popup.png" width="300" alt="Extension popup">
 
-The interface supports English, Traditional Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, and Japanese muse.ai accounts are supported.
+The interface supports English, Traditional Chinese, Simplified Chinese, and Japanese, following your browser language by default (changeable in Settings). Approval cards on English, Traditional Chinese, Simplified Chinese, and Japanese muse.ai accounts are supported.
 
 ## Modes and trusted rules
 

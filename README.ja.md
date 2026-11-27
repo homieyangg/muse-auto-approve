@@ -55,7 +55,7 @@ irm https://raw.githubusercontent.com/homieyangg/muse-auto-approve/main/install.
 
    <img src="docs/images/popup.png" width="300" alt="拡張機能のポップアップ">
 
-画面は英語・繁体字中国語・日本語に対応し、既定ではブラウザの言語に従います。設定ページで変更できます。
+画面は英語・繁体字中国語・簡体字中国語・日本語に対応し、既定ではブラウザの言語に従います。設定ページで変更できます。
 
 ## 信頼するサイトとチャット
 

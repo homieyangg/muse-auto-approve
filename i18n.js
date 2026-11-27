@@ -4,7 +4,7 @@
 const I18N = (() => {
   // Single source of truth for supported UI languages; order matches the options selector.
   const LANGUAGES = Object.freeze([
-    Object.freeze({ code: 'zh_TW', htmlLang: 'zh-Hant', dateLocale: 'zh-TW', label: '繁體中文', match: /^zh(?:$|[-_](?:tw|hk|mo|hant)(?:$|[-_]))/i }),
+    Object.freeze({ code: 'zh_TW', htmlLang: 'zh-Hant', dateLocale: 'zh-TW', label: '繁體中文', match: /^zh(?![-_](?:cn|sg|hans)(?:$|[-_]))/i }),
     Object.freeze({ code: 'zh_CN', htmlLang: 'zh-Hans', dateLocale: 'zh-CN', label: '简体中文', match: /^zh[-_](?:cn|sg|hans)(?:$|[-_])/i }),
     Object.freeze({ code: 'ja', htmlLang: 'ja', dateLocale: 'ja-JP', label: '日本語', match: /^ja/i }),
     Object.freeze({ code: 'en', htmlLang: 'en', dateLocale: 'en', label: 'English', match: /^en/i }),

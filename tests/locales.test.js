@@ -28,7 +28,7 @@ test('pickCode and sanitizeSettings follow the language list', () => {
   }
   assert.equal(AAM.sanitizeSettings({ lang: 'auto' }).lang, 'auto');
   assert.equal(AAM.sanitizeSettings({ lang: 'unknown' }).lang, 'auto');
-  for (const ui of ['zh', 'zh-TW', 'zh_TW', 'zh-HK', 'zh-MO', 'zh-Hant', 'zh-Hant-TW']) assert.equal(I18N.pickCode('auto', ui), 'zh_TW');
+  for (const ui of ['zh', 'zh-TW', 'zh_TW', 'zh-HK', 'zh-MO', 'zh-Hant', 'zh-Hant-TW', 'zh-MY', 'zh-yue']) assert.equal(I18N.pickCode('auto', ui), 'zh_TW');
   for (const ui of ['zh-CN', 'zh-cn', 'zh_CN', 'zh-Hans', 'zh-Hans-CN', 'zh-SG']) assert.equal(I18N.pickCode('auto', ui), 'zh_CN');
   for (const ui of ['ja', 'ja-JP']) assert.equal(I18N.pickCode('auto', ui), 'ja');
   for (const ui of ['en', 'en-US', 'fr', 'fr-FR', '']) assert.equal(I18N.pickCode('auto', ui), 'en');
