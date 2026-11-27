@@ -59,17 +59,21 @@ const AAM = (() => {
     return '';
   }
 
-  // When the "more allow options" items carry no option data, the menu is picked from by text. That is only allowed when
-  // every option muse offers for the approval is one the whitelist knows: then whatever always-allow item the text matches is safe
-  function menuAlwaysAllowed(options) {
-    if (!Array.isArray(options) || !options.length) return false;
-    const roles = options.map(optionRole);
-    return roles.includes('always') && !roles.includes('');
-  }
+  const isAllowKind = kind => typeof kind === 'string' && kind.startsWith('allow');
+  const sameOption = (a, b) => !!a && !!b && a.kind === b.kind && a.labelKind === b.labelKind && a.scope === b.scope;
 
-  // What the menu may offer on the data path: alwaysInMenu when the approval has a whitelisted always option at all
-  function menuPlan(options) {
-    return { alwaysInMenu: Array.isArray(options) && options.some(o => optionRole(o) === 'always'), menuTextOk: menuAlwaysAllowed(options) };
+  // Once the approval's options have been read, they keep a veto over the text rules even when the button keys did not match:
+  // text may pick always only when every option is whitelist-known, once only when a plain once option exists, and the
+  // primary button only when the first allow option is that once option. null when no options were read (main's text rules)
+  function textVeto(options) {
+    if (!Array.isArray(options) || !options.length) return null;
+    const roles = options.map(optionRole);
+    const firstAllow = options.find(o => isAllowKind(o?.kind));
+    return {
+      always: roles.includes('always') && !roles.includes(''),
+      once: roles.includes('once'),
+      primary: !!firstAllow && optionRole(firstAllow) === 'once',
+    };
   }
 
   // option is the fresh mark bridge.js wrote on a menu item: { approvalId, kind, labelKind, scope }
@@ -77,24 +81,18 @@ const AAM = (() => {
     return !!approvalId && option?.approvalId === approvalId && optionRole(option) === 'always';
   }
 
-  // items: [{ el, text, option }] of the open menu. On the data path, marked items decide alone; unmarked menus fall back
-  // to text only when menuTextOk. Returns { item, data } or null
-  function pickMenuItem(items, approvalId, byData, menuTextOk) {
-    if (byData) {
-      const marked = items.filter(i => i.option);
-      if (marked.length) {
-        const found = marked.find(i => menuItemAlways(i.option, approvalId));
-        return found ? { item: found.el, data: true } : null;
-      }
-      if (!menuTextOk) return null;
-    }
-    const found = items.find(i => ALWAYS_RE.test(i.text));
-    return found ? { item: found.el, data: false } : null;
+  // items: [{ el, text, option }] of the open menu. On the data path only an item freshly marked as a whitelisted always for
+  // this approval is picked, never by text. Returns { item, data } or null
+  function pickMenuItem(items, approvalId, byData) {
+    const found = byData ? items.find(i => menuItemAlways(i.option, approvalId)) : items.find(i => ALWAYS_RE.test(i.text));
+    return found ? { item: found.el, data: !!byData } : null;
   }
 
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
-  // byData picks from the option attributes only; otherwise the text rules apply as before. Returns null when nothing can be clicked
-  function pickAllowButtons(candidates, byData) {
+  // byData picks from the option attributes only; otherwise the text rules apply as before, within the veto when there is one.
+  // options is the approval's option list when it was read. Returns null when nothing can be clicked
+  function pickAllowButtons(candidates, byData, options = null) {
+    const veto = byData ? null : textVeto(options);
     let always = null, once = null;
     for (const c of candidates) {
       if (byData) {
@@ -102,20 +100,34 @@ const AAM = (() => {
         const role = optionRole(c);
         if (!always && role === 'always') always = c.el;
         else if (!once && role === 'once') once = c.el;
-      } else if (!always && ALWAYS_RE.test(c.text)) always = c.el;
-      else if (!once && (ONCE_RE.test(c.text) || c.primary)) once = c.el;
+      } else if (!always && ALWAYS_RE.test(c.text)) {
+        if (!veto || veto.always) always = c.el;
+      } else if (!once && (ONCE_RE.test(c.text) || c.primary)) {
+        if (!veto || (c.primary ? veto.primary : veto.once)) once = c.el;
+      }
     }
-    return always || once ? { always, once, data: !!byData } : null;
+    if (!always && !once) return null;
+    const known = !!byData || !!veto;
+    const alwaysInMenu = byData ? Array.isArray(options) && options.some(o => optionRole(o) === 'always') : !veto || veto.always;
+    return { always, once, data: !!byData, known, alwaysInMenu, options: known ? options : null };
+  }
+
+  // The button to click for the setting. Once data has been read, "once" never falls back to an always button
+  function clickTarget(buttons, preferAlways) {
+    if (!buttons) return null;
+    if (preferAlways) return buttons.always || buttons.once;
+    return buttons.once || (buttons.known ? null : buttons.always);
   }
 
   // Right before a click, the pick made on fresh attributes must match the earlier one: same path (data or text) and the
-  // target still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now
+  // target still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now;
+  // on the data path it must also still be a whitelisted always among the card's fresh options
   function samePick(before, after, target) {
-    if (!after || after.data !== before.data) return false;
+    if (!after || after.data !== before.data || after.known !== before.known) return false;
     if (target?.menu) {
-      if (after.always || !after.once) return false;
-      if (target.data) return after.data && menuItemAlways(target.option, target.approvalId);
-      return !after.data || !!after.menuTextOk;
+      if (after.always || !after.once || !after.alwaysInMenu || target.data !== after.data) return false;
+      if (!target.data) return true;
+      return menuItemAlways(target.option, target.approvalId) && after.options.some(o => sameOption(o, target.option));
     }
     const role = b => (target === b.always ? 'always' : target === b.once ? 'once' : '');
     return !!role(before) && role(before) === role(after);
@@ -275,7 +287,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, menuAlwaysAllowed, menuPlan, menuItemAlways, pickMenuItem, pickAllowButtons, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, textVeto, menuItemAlways, pickMenuItem, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

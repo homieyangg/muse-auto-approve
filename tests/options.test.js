@@ -64,11 +64,11 @@ function cardTree(appr, keys) {
 const asButtons = (hosts, primaryAt = -1) => hosts.map((fiber, i) => ({ fiber, primary: i === primaryAt }));
 const core = p => p && { always: p.always, once: p.once, data: p.data };
 
-// Mirrors content.js: candidates from the attributes bridge.js would write, data path when any button got one
-function pick(result, texts = TEXTS) {
-  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === 0, menu: false, kind: '', labelKind: '', scope: '', ...m }));
-  const buttons = AAM.pickAllowButtons(candidates, candidates.some(c => c.kind));
-  return buttons && { ...buttons, ...AAM.menuPlan(buttons.data ? result.options : null) };
+// Mirrors content.js: candidates from the attributes bridge.js would write; data path when any button got one, and the
+// option list passed along whenever bridge.js read it
+function pick(result, texts = TEXTS, primaryAt = 0) {
+  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === primaryAt, menu: false, kind: '', labelKind: '', scope: '', ...m }));
+  return AAM.pickAllowButtons(candidates, candidates.some(c => c.kind), result.options);
 }
 
 function read(id, options, keys = keysFor(id, options), primaryAt = -1) {
@@ -77,16 +77,23 @@ function read(id, options, keys = keysFor(id, options), primaryAt = -1) {
   return optionMarks(appr, asButtons(hosts, primaryAt));
 }
 
+
+const SCOPED = opt('allow_always', 'allow_always_scoped', 'destination');
+const BROAD = opt('allow_always', 'allow_always_scoped', 'connector_all_actions');
+const PANEL_TEXTS = ['允許一次', '更多允許選項', '拒絕'];
+const markList = options => options.map(o => ({ kind: o.kind, labelKind: o.label.kind, scope: o.label.scope || '' }));
+
 test('the live upload card: each button gets its option, label kind and scope', () => {
-  const options = [ONCE, opt('allow_always', 'allow_always_scoped', 'destination'), DENY];
-  const result = read('appr-test-1', options);
+  const result = read('appr-test-1', [ONCE, SCOPED, DENY]);
   assert.equal(result.missing, false);
   assert.deepEqual(result.marks, [
     { kind: 'allow_once', labelKind: 'allow_once', scope: '' },
     { kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' },
     { kind: 'deny', labelKind: 'deny_for_this_task', scope: '' },
   ]);
-  assert.deepEqual(pick(result), { always: 'button-1', once: 'button-0', data: true, alwaysInMenu: true, menuTextOk: true });
+  const p = pick(result);
+  assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: true });
+  assert.equal(p.known, true);
 });
 
 test('every option kind is read; deny kinds are never picked', () => {
@@ -129,7 +136,7 @@ test('every scope is read; only single-site scopes are picked as always', () => 
 
 test('broad, unknown kind and unknown scope: always is not picked, allow once is', () => {
   const cases = {
-    connector_all_actions: opt('allow_always', 'allow_always_scoped', 'connector_all_actions'),
+    connector_all_actions: BROAD,
     all_web_access: opt('allow_always', 'allow_all_web_access_for_this_task'),
     unknown_kind: opt('allow_forever', 'allow_always'),
     unknown_label_kind: opt('allow_always', 'allow_everything'),
@@ -139,38 +146,84 @@ test('broad, unknown kind and unknown scope: always is not picked, allow once is
   for (const [name, broad] of Object.entries(cases)) {
     const result = read('appr-test-6', [ONCE, broad, DENY]);
     assert.equal(result.missing, false, name);
-    assert.deepEqual(pick(result), { always: null, once: 'button-0', data: true, alwaysInMenu: false, menuTextOk: false }, name);
+    const p = pick(result);
+    assert.deepEqual(core(p), { always: null, once: 'button-0', data: true }, name);
+    assert.equal(p.alwaysInMenu, false, name);
   }
 });
 
+// Review P2
+test('a scope or label kind that is not a string is unknown, never "no scope"', () => {
+  for (const scope of [{ type: 'destination' }, ['destination'], 1, true]) {
+    const options = [ONCE, { kind: 'allow_always', label: { kind: 'allow_always', scope } }, DENY];
+    const result = read('appr-test-40', options);
+    assert.equal(result.marks[1].scope, '?');
+    assert.equal(pick(result).always, null, JSON.stringify(scope));
+    assert.equal(AAM.textVeto(result.options).always, false);
+  }
+  const objectLabel = read('appr-test-40', [ONCE, { kind: 'allow_always', label: { kind: { name: 'allow_always' } } }, DENY]);
+  assert.equal(pick(objectLabel).always, null);
+});
+
 test('no allow once option and a non-whitelisted always: nothing is picked', () => {
-  for (const broad of [opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), opt('allow_always', 'allow_all_web_access_for_this_task'), opt('allow_forever', 'allow_always')]) {
+  for (const broad of [BROAD, opt('allow_always', 'allow_all_web_access_for_this_task'), opt('allow_forever', 'allow_always')]) {
     assert.equal(pick(read('appr-test-7', [broad, DENY]), ['Always allow', 'Deny']), null);
   }
 });
 
-test('a key with another approval id or another kind at its index leaves every button unmarked', () => {
-  const options = [ONCE, opt('allow_always', 'allow_always_scoped', 'destination'), DENY];
+test('a key mismatch leaves every button unmarked but keeps the option list', () => {
+  const options = [ONCE, SCOPED, DENY];
   const wrongId = keysFor('appr-test-8', options).map((k, i) => (i === 1 ? k.replace('appr-test-8', 'appr-other') : k));
   const wrongKind = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-1-deny', 'appr-test-8-cta-2-deny'];
   const wrongIndex = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-7-allow_always', 'appr-test-8-cta-2-deny'];
   for (const keys of [wrongId, wrongKind, wrongIndex]) {
     const result = read('appr-test-8', options, keys);
     assert.equal(result.missing, true);
-    assert.equal(result.options, null);
+    assert.deepEqual(result.options, markList(options));
     assert.deepEqual(result.marks, [null, null, null]);
-    // Falls back to the text rules, unchanged
-    assert.deepEqual(pick(result), { always: 'button-1', once: 'button-0', data: false, alwaysInMenu: false, menuTextOk: false });
+    // Text rules within the veto: every option is whitelist-known, so the text picks stand
+    const p = pick(result);
+    assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: false });
+    assert.equal(p.known, true);
   }
 });
 
-test('decisionOptions null: the card is reported missing and the text rules pick', () => {
+// Review P1-a, second case
+test('a key mismatch never hands a broad option to the text rules', () => {
+  const options = [ONCE, BROAD, DENY];
+  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-other-cta-2-deny'];
+  const result = read('appr-test-41', options, keys);
+  assert.deepEqual(result.marks, [null, null, null]);
+  const p = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
+  assert.deepEqual(core(p), { always: null, once: 'button-0', data: false });
+  assert.equal(p.alwaysInMenu, false);
+  const fresh = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
+  assert.equal(AAM.samePick(p, fresh, 'button-1'), false);
+});
+
+// Review P1-a, first case
+test('a primary the data does not confirm is never clicked through the text rules', () => {
+  // Panel card whose only allow option is broad: the keyless primary, then a deny with a bad key
+  const options = [BROAD, DENY];
+  for (const keys of [[null, 'appr-test-42-compact-deny-0-deny'], [null, 'appr-other-compact-deny-0-deny'], [null]]) {
+    const result = read('appr-test-42', options, keys, 0);
+    assert.equal(pick(result, ['Always allow all actions', 'Deny']), null, JSON.stringify(keys));
+  }
+  // Text-only primary label ("Send"): main clicked it by its primary attribute; with data saying the first allow is broad it is vetoed
+  const send = read('appr-test-42', [opt('allow_always', 'allow_for_this_task'), DENY], [null], 0);
+  assert.equal(pick(send, ['Send']), null);
+});
+
+test('decisionOptions null: the card is reported missing and main\'s text rules pick', () => {
   for (const options of [null, undefined]) {
     const appr = approval('appr-test-9', options);
     const { hosts } = cardTree(appr, ['appr-test-9-cta-0-allow_once', 'appr-test-9-cta-1-allow_always']);
     const result = optionMarks(appr, asButtons(hosts));
     assert.equal(result.missing, true);
-    assert.deepEqual(pick(result), { always: 'button-1', once: 'button-0', data: false, alwaysInMenu: false, menuTextOk: false });
+    assert.equal(result.options, null);
+    const p = pick(result);
+    assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: false });
+    assert.equal(p.known, false);
   }
 });
 
@@ -184,8 +237,7 @@ test('buttons without a decision key stay unmarked; no keyed button at all is re
 });
 
 test('the key is searched upward below the approval component, not at a fixed depth', () => {
-  const options = [ONCE];
-  const appr = approval('appr-test-11', options);
+  const appr = approval('appr-test-11', [ONCE]);
   const { hosts, row, card } = cardTree(appr, [null]);
   row.key = 'appr-test-11-cta-0-allow_once';
   assert.equal(optionMarks(appr, asButtons(hosts)).marks[0].kind, 'allow_once');
@@ -209,10 +261,9 @@ test('a button whose own walk reaches another approval leaves every button unmar
 });
 
 test('a stale fiber gives no attributes and is not reported missing', () => {
-  const options = [ONCE, opt('allow_always', 'allow_always_scoped', 'destination'), DENY];
+  const options = [ONCE, SCOPED, DENY];
   const appr = approval('appr-test-14', options);
   const { hosts } = cardTree(appr, keysFor('appr-test-14', options));
-  // A host fiber from an old render that is neither in the current tree nor the alternate of a current fiber
   const staleHost = { memoizedProps: {}, return: hosts[1].return, sibling: null };
   const result = optionMarks(appr, asButtons([hosts[0], staleHost, hosts[2]]));
   assert.equal(result.missing, false);
@@ -221,7 +272,7 @@ test('a stale fiber gives no attributes and is not reported missing', () => {
 });
 
 test('the button walk reads the current side when the DOM points at the alternate', () => {
-  const options = [ONCE, opt('allow_always', 'allow_always', undefined), DENY];
+  const options = [ONCE, opt('allow_always', 'allow_always'), DENY];
   const appr = approval('appr-test-15', options);
   const { hosts } = cardTree(appr, keysFor('appr-test-15', options));
   const alternate = { memoizedProps: {}, alternate: hosts[1], return: hosts[1].return };
@@ -229,40 +280,36 @@ test('the button walk reads the current side when the DOM points at the alternat
   assert.equal(optionMarks(appr, asButtons([hosts[0], alternate, hosts[2]])).marks[1].kind, 'allow_always');
 });
 
-test('the menu is only opened when every option of the approval is known and one is a single-site always', () => {
-  const scoped = opt('allow_always', 'allow_always_scoped', 'destination_domain');
-  const toList = options => options.map(o => ({ kind: o.kind, labelKind: o.label.kind, scope: o.label.scope || '' }));
-  assert.equal(AAM.menuAlwaysAllowed(toList([ONCE, scoped, DENY])), true);
-  assert.equal(AAM.menuAlwaysAllowed(toList([ONCE, scoped, opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), DENY])), false);
-  assert.equal(AAM.menuAlwaysAllowed(toList([ONCE, scoped, opt('allow_once', 'allow_all_web_access_for_this_task')])), false);
-  assert.equal(AAM.menuAlwaysAllowed(toList([ONCE, DENY])), false);
-  assert.equal(AAM.menuAlwaysAllowed(null), false);
-});
-
 test('the pre-click re-check refuses when fresh attributes no longer back the target', () => {
-  const options = [ONCE, opt('allow_always', 'allow_always_scoped', 'destination'), DENY];
+  const options = [ONCE, SCOPED, DENY];
   const before = pick(read('appr-test-16', options));
   assert.equal(AAM.samePick(before, pick(read('appr-test-16', options)), 'button-1'), true);
-  // Fresh walk failed: the stale attribute must not authorize the click, even though the text would match
   const stale = { missing: false, options: null, marks: [null, null, null] };
   assert.equal(AAM.samePick(before, pick(stale), 'button-1'), false);
-  // The option at that button became a broad one
-  const broader = read('appr-test-16', [ONCE, opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), DENY]);
+  const broader = read('appr-test-16', [ONCE, BROAD, DENY]);
   assert.equal(AAM.samePick(before, pick(broader), 'button-1'), false);
   assert.equal(AAM.samePick(before, pick(broader), 'button-0'), true);
   assert.equal(AAM.samePick(before, null, 'button-0'), false);
 });
 
-test('text fallback is unchanged: always, once, and the primary action button', () => {
-  const text = (texts, primaryAt = -1) => AAM.pickAllowButtons(texts.map((t, i) => ({ el: `button-${i}`, text: t, primary: i === primaryAt, menu: false, kind: '' })), false);
+// Review P1-d
+test('"just this once" never clicks an always button once data has been read', () => {
+  const onlyAlways = pick(read('appr-test-43', [SCOPED, DENY]), ['Always allow uploads to this site', 'Deny']);
+  assert.equal(onlyAlways.always, 'button-0');
+  assert.equal(AAM.clickTarget(onlyAlways, true), 'button-0');
+  assert.equal(AAM.clickTarget(onlyAlways, false), null);
+  // Main's text-only fallback is unchanged when no data was read
+  const textOnly = AAM.pickAllowButtons([{ el: 'b0', text: 'Always allow', primary: false, menu: false, kind: '' }], false, null);
+  assert.equal(AAM.clickTarget(textOnly, false), 'b0');
+  assert.equal(AAM.clickTarget(null, true), null);
+});
+
+test('text fallback without data is main\'s: always, once, and the primary action button', () => {
+  const text = (texts, primaryAt = -1) => core(AAM.pickAllowButtons(texts.map((t, i) => ({ el: `button-${i}`, text: t, primary: i === primaryAt, menu: false, kind: '' })), false));
   assert.deepEqual(text(['允許', '一律允許上傳到此網站', '拒絕']), { always: 'button-1', once: 'button-0', data: false });
   assert.deepEqual(text(['傳送', '不要傳送'], 0), { always: null, once: 'button-0', data: false });
   assert.equal(text(['拒絕']), null);
 });
-
-// Approvals panel (compact layout): keyless primary button, `<id>-compact-deny-<i>-<kind>` on deny
-const SCOPED = opt('allow_always', 'allow_always_scoped', 'destination');
-const PANEL_TEXTS = ['允許一次', '更多允許選項', '拒絕'];
 
 test('panel surface: the keyless primary is allow once when it is the first allow option, deny is read from its compact key', () => {
   const result = read('appr-test-20', [ONCE, SCOPED, DENY], [null, 'appr-test-20-compact-deny-0-deny'], 0);
@@ -271,19 +318,18 @@ test('panel surface: the keyless primary is allow once when it is the first allo
     { kind: 'allow_once', labelKind: 'allow_once', scope: '' },
     { kind: 'deny', labelKind: 'deny_for_this_task', scope: '' },
   ]);
-  assert.deepEqual(pick(result, PANEL_TEXTS), { always: null, once: 'button-0', data: true, alwaysInMenu: true, menuTextOk: true });
+  const p = pick(result, PANEL_TEXTS);
+  assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
+  assert.equal(p.alwaysInMenu, true);
 });
 
 test('panel surface: a keyless primary the data does not confirm stays unmarked without failing the item', () => {
   const firstAlways = read('appr-test-21', [SCOPED, ONCE, DENY], [null, 'appr-test-21-compact-deny-0-deny'], 0);
   assert.equal(firstAlways.missing, false);
   assert.deepEqual(firstAlways.marks, [null, { kind: 'deny', labelKind: 'deny_for_this_task', scope: '' }]);
-  // Data path: the unconfirmed primary is not clicked by its primary attribute, so nothing is picked
   assert.equal(pick(firstAlways, PANEL_TEXTS), null);
-  // Without a keyed button next to it, the keyless primary alone is not trusted either
   const alone = read('appr-test-21', [ONCE, DENY], [null], 0);
   assert.deepEqual([alone.missing, alone.marks], [true, [null]]);
-  // A keyless button that is not the primary stays unmarked
   const plain = read('appr-test-21', [ONCE, DENY], [null, 'appr-test-21-compact-deny-0-deny']);
   assert.deepEqual(plain.marks, [null, { kind: 'deny', labelKind: 'deny_for_this_task', scope: '' }]);
 });
@@ -294,7 +340,6 @@ test('panel surface: a compact key that does not match the data leaves every but
     assert.deepEqual([result.missing, result.marks], [true, [null, null]], key);
   }
 });
-
 // Menu items are drawn in a portal: root -> portal -> twelve wrappers -> keyed item component -> wrappers -> menuitem
 function menuTree(key, { depth = 12, approvalAbove = null } = {}) {
   const fiberRoot = {};
@@ -315,6 +360,7 @@ function menuTree(key, { depth = 12, approvalAbove = null } = {}) {
 
 const pendingOf = (...approvals) => id => approvals.find(a => a.approvalId === id);
 
+
 test('a menu item maps to its option through the compact-allow key and the pending list', () => {
   const appr = approval('appr-test-23', [ONCE, SCOPED, DENY]);
   const mark = menuItemMark(menuTree('appr-test-23-compact-allow-0-allow_always'), undefined, pendingOf(appr));
@@ -327,7 +373,7 @@ test('a menu item maps to its option through the compact-allow key and the pendi
 });
 
 test('menu items for broad or unknown options are marked but never picked as always', () => {
-  for (const broad of [opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), opt('allow_always', 'allow_all_web_access_for_this_task'), opt('allow_always', 'allow_always_scoped', 'workspace')]) {
+  for (const broad of [BROAD, opt('allow_always', 'allow_all_web_access_for_this_task'), opt('allow_always', 'allow_always_scoped', 'workspace')]) {
     const appr = approval('appr-test-24', [ONCE, broad, DENY]);
     const mark = menuItemMark(menuTree('appr-test-24-compact-allow-0-allow_always'), undefined, pendingOf(appr));
     assert.equal(mark.kind, 'allow_always');
@@ -351,61 +397,60 @@ test('a menu item that can not be matched gets no mark', () => {
 });
 
 test('two options of the same kind that the compact key can not tell apart are not matched', () => {
-  const appr = approval('appr-test-26', [ONCE, SCOPED, opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), DENY]);
+  const appr = approval('appr-test-26', [ONCE, SCOPED, BROAD, DENY]);
   for (const index of [0, 1]) assert.equal(menuItemMark(menuTree(`appr-test-26-compact-allow-${index}-allow_always`), undefined, pendingOf(appr)), null);
   const twins = approval('appr-test-27', [ONCE, SCOPED, SCOPED, DENY]);
   assert.equal(menuItemMark(menuTree('appr-test-27-compact-allow-1-allow_always'), undefined, pendingOf(twins)).scope, 'destination');
 });
 
-test('menu pick: marked items decide alone, unmarked menus use text only when every option is known', () => {
+// Review P1-c
+test('menu pick on the data path needs a fresh whitelisted mark for this approval; text is never used there', () => {
   const always = { approvalId: 'appr-test-28', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' };
-  const broad = { ...always, scope: 'connector_all_actions' };
   const item = (el, text, option = null) => ({ el, text, option });
-  assert.deepEqual(AAM.pickMenuItem([item('m0', 'Always allow all actions', broad), item('m1', 'x', always)], 'appr-test-28', true, false), { item: 'm1', data: true });
-  // The text would match, but the data says the only always item is broad
-  assert.equal(AAM.pickMenuItem([item('m0', 'Always allow all actions', broad)], 'appr-test-28', true, true), null);
-  assert.equal(AAM.pickMenuItem([item('m0', 'Always allow uploads to this site')], 'appr-test-28', true, false), null);
-  assert.deepEqual(AAM.pickMenuItem([item('m0', 'Always allow uploads to this site')], 'appr-test-28', true, true), { item: 'm0', data: false });
-  assert.deepEqual(AAM.pickMenuItem([item('m0', '一律允許上傳到此網站')], '', false, false), { item: 'm0', data: false });
+  assert.deepEqual(AAM.pickMenuItem([item('m0', 'Always allow all actions', { ...always, scope: 'connector_all_actions' }), item('m1', 'x', always)], 'appr-test-28', true), { item: 'm1', data: true });
+  assert.equal(AAM.pickMenuItem([item('m0', 'Always allow all actions', { ...always, scope: 'connector_all_actions' })], 'appr-test-28', true), null);
+  // Every mark failed, or the item belongs to another approval: no text fallback
+  assert.equal(AAM.pickMenuItem([item('m0', 'Always allow uploads to this site')], 'appr-test-28', true), null);
+  assert.equal(AAM.pickMenuItem([item('m0', 'Always allow uploads to this site', { ...always, approvalId: 'appr-other' })], 'appr-test-28', true), null);
+  // Without data: main's text rule
+  assert.deepEqual(AAM.pickMenuItem([item('m0', '一律允許上傳到此網站')], '', false), { item: 'm0', data: false });
 });
 
-test('the pre-click re-check for a menu item uses the fresh mark of that item', () => {
-  const before = pick(read('appr-test-29', [ONCE, SCOPED, DENY], [null, 'appr-test-29-compact-deny-0-deny'], 0), PANEL_TEXTS);
+// Review P1-b
+test('the pre-click re-check for a menu item checks the fresh card options and the fresh item mark', () => {
+  const panel = options => pick(read('appr-test-29', options, [null, 'appr-test-29-compact-deny-0-deny'], 0), PANEL_TEXTS);
+  const before = panel([ONCE, SCOPED, DENY]);
   const fresh = { approvalId: 'appr-test-29', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' };
   const menu = option => ({ menu: true, data: true, approvalId: 'appr-test-29', option });
   assert.equal(AAM.samePick(before, before, menu(fresh)), true);
   assert.equal(AAM.samePick(before, before, menu(null)), false);
   assert.equal(AAM.samePick(before, before, menu({ ...fresh, scope: 'connector_all_actions' })), false);
   assert.equal(AAM.samePick(before, before, menu({ ...fresh, approvalId: 'appr-other' })), false);
+  // The card turned broad while the menu was open; the item still reports the old single-site option
+  assert.equal(AAM.samePick(before, panel([ONCE, BROAD, DENY]), menu(fresh)), false);
+  // The card now offers a different single-site option than the item claims
+  assert.equal(AAM.samePick(before, panel([ONCE, opt('allow_always', 'allow_always_scoped', 'destination_domain'), DENY]), menu(fresh)), false);
   assert.equal(AAM.samePick(before, { ...before, data: false }, menu(fresh)), false);
-  // A menu item picked by text needs the menu still allowed for text on fresh data
-  const text = { menu: true, data: false, approvalId: 'appr-test-29', option: null };
-  assert.equal(AAM.samePick(before, before, text), true);
-  assert.equal(AAM.samePick(before, { ...before, menuTextOk: false }, text), false);
 });
 
 test('panel surface end to end: keyless primary, compact-deny and a compact-allow menu item', () => {
   const appr = approval('appr-test-30', [ONCE, SCOPED, DENY]);
   const { hosts } = cardTree(appr, [null, 'appr-test-30-compact-deny-0-deny']);
-  const buttons = optionMarks(appr, asButtons(hosts, 0));
-  const picked = pick(buttons, PANEL_TEXTS);
+  const picked = pick(optionMarks(appr, asButtons(hosts, 0)), PANEL_TEXTS);
   assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
   assert.equal(picked.alwaysInMenu, true);
-  // The menu item's approval is only in the pending list
   const option = menuItemMark(menuTree('appr-test-30-compact-allow-0-allow_always'), undefined, pendingOf(appr));
-  const menuItem = AAM.pickMenuItem([{ el: 'm0', text: 'Toujours autoriser', option }], 'appr-test-30', picked.data, picked.menuTextOk);
-  assert.deepEqual(menuItem, { item: 'm0', data: true });
+  assert.deepEqual(AAM.pickMenuItem([{ el: 'm0', text: 'Toujours autoriser', option }], 'appr-test-30', picked.data), { item: 'm0', data: true });
   assert.equal(AAM.samePick(picked, picked, { menu: true, data: true, approvalId: 'appr-test-30', option }), true);
 });
 
 test('panel surface: a compact-allow item with a broad scope is never picked, Allow once is clicked instead', () => {
-  const appr = approval('appr-test-31', [ONCE, opt('allow_always', 'allow_always_scoped', 'connector_all_actions'), DENY]);
+  const appr = approval('appr-test-31', [ONCE, BROAD, DENY]);
   const picked = pick(read('appr-test-31', appr.serverPresentation.decisionOptions, [null, 'appr-test-31-compact-deny-0-deny'], 0), PANEL_TEXTS);
   assert.deepEqual(core(picked), { always: null, once: 'button-0', data: true });
-  // The menu is not even opened: the approval has no whitelisted always option
   assert.equal(picked.alwaysInMenu, false);
   const option = menuItemMark(menuTree('appr-test-31-compact-allow-0-allow_always'), undefined, pendingOf(appr));
-  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow all actions', option }], 'appr-test-31', true, picked.menuTextOk), null);
+  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow all actions', option }], 'appr-test-31', true), null);
 });
 
 test('an unknown kind in a compact key: matched when the data has it but never picked, refused when it does not', () => {

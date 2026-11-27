@@ -135,10 +135,11 @@
     return null;
   }
 
-  const optionText = v => (typeof v === 'string' ? v : '');
+  // A value that is not a string (an object scope, say) is unknown, never "no scope": it must not pass the whitelist as empty
+  const optionText = v => (v == null || v === '' ? '' : typeof v === 'string' ? v : '?');
   const isAllowKind = kind => typeof kind === 'string' && kind.startsWith('allow');
   const isDenyKind = kind => typeof kind === 'string' && kind.startsWith('deny');
-  const markOf = option => ({ kind: option.kind, labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
+  const markOf = option => ({ kind: optionText(option.kind), labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
 
   // The option a decision key points at, or null. cta indexes decisionOptions; compact-deny indexes the deny options and
   // compact-allow the allow options after the primary one. Compact keys carry only the kind, so when that kind appears more
@@ -166,9 +167,11 @@
   // sits next to it, otherwise it stays unmarked and so is never clicked on the data path.
   // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
   function optionMarks(approval, buttons, walk = newWalk()) {
-    const none = missing => ({ missing, options: null, marks: buttons.map(() => null) });
     const options = approval?.serverPresentation?.decisionOptions;
-    if (!Array.isArray(options)) return none(true);
+    // The option list is kept even when no button can be marked: content.js uses it to veto the text rules
+    const list = Array.isArray(options) ? options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) })) : null;
+    const none = missing => ({ missing, options: list, marks: buttons.map(() => null) });
+    if (!list) return none(true);
     const marks = [];
     let keyed = 0;
     for (const { fiber, primary } of buttons) {
@@ -189,7 +192,6 @@
       marks.push(markOf(option));
     }
     if (!keyed) return none(buttons.length > 0);
-    const list = options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) }));
     return { missing: false, options: list, marks };
   }
 

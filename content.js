@@ -78,9 +78,14 @@ function findAllowButtons(scope) {
     labelKind: b.getAttribute(LABEL_KIND_ATTR) || '',
     scope: b.getAttribute(SCOPE_ATTR) || '',
   }));
-  const byData = !!scope.closest(CARD_SELECTOR) && !!scope.getAttribute(ID_ATTR) && candidates.some(c => c.kind && !c.menu);
-  const buttons = AAM.pickAllowButtons(candidates, byData);
-  return buttons && { ...buttons, ...AAM.menuPlan(byData ? optionsOf(scope) : null) };
+  const marked = !!scope.closest(CARD_SELECTOR) && !!scope.getAttribute(ID_ATTR);
+  const byData = marked && candidates.some(c => c.kind && !c.menu);
+  return AAM.pickAllowButtons(candidates, byData, marked ? optionsOf(scope) : null);
+}
+
+// A muse card whose approval options were read but offer nothing that may be clicked; it is still listed as waiting
+function optionsKnown(scope) {
+  return !!scope.getAttribute(ID_ATTR) && Array.isArray(optionsOf(scope));
 }
 
 function optionsOf(scope) {
@@ -122,7 +127,8 @@ function approvalCards() {
     const scopes = items.length ? items.map(item => [item, subHeading(item)]) : [[card, '']];
     for (const [node, heading] of scopes) {
       // bridge 標了審批 ID 就確定是審批，不必再靠拒絕鈕的文字判斷
-      const buttons = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
+      const found = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
+      const buttons = found || (optionsKnown(node) && { always: null, once: null, data: false, known: true });
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
       cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true });
@@ -182,7 +188,8 @@ function scan() {
       continue;
     }
     const onceOnly = onceAllowed(key);
-    if (!AAG.canAutoApprove(settings, card, onceOnly)) {
+    const clickable = !!AAM.clickTarget(buttons, settings.preferAlways && !onceOnly);
+    if (!clickable || !AAG.canAutoApprove(settings, card, onceOnly)) {
       waiting.set(key, pendingItem(card, key));
       continue;
     }
@@ -359,12 +366,13 @@ function releaseRefused(node, buttons, key, onceOnly) {
 // allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
 // Returns null when nothing was clicked
 async function clickAllow(node, buttons, preferAlways, allowed) {
-  const { always, once, menu, data, alwaysInMenu, menuTextOk, approvalId } = buttons;
+  const { always, once, menu, data, alwaysInMenu, approvalId } = buttons;
   if (!allowed()) return null;
-  const useMenu = preferAlways && !always && once && menu && isClickable(menu) && (!data || alwaysInMenu);
-  const picked = useMenu ? await openAlwaysItem(menu, approvalId, data, menuTextOk) : null;
+  const useMenu = preferAlways && !always && once && menu && isClickable(menu) && alwaysInMenu;
+  const picked = useMenu ? await openAlwaysItem(menu, approvalId, data) : null;
   const item = picked?.item;
-  const target = item || (preferAlways ? (always || once) : (once || always));
+  const target = item || AAM.clickTarget(buttons, preferAlways);
+  if (!target) return null;
   const inPlace = item
     ? node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item)
     : target.isConnected && node.contains(target);
@@ -379,7 +387,7 @@ async function clickAllow(node, buttons, preferAlways, allowed) {
 
 // Radix 選單要 pointerdown 才會打開，選項渲染在卡片外，從 aria-controls 找；找不到一律允許就關掉選單
 // On the data path each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
-async function openAlwaysItem(menu, approvalId, byData, menuTextOk) {
+async function openAlwaysItem(menu, approvalId, byData) {
   if (menu.getAttribute('aria-expanded') !== 'true') {
     menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
   }
@@ -388,7 +396,7 @@ async function openAlwaysItem(menu, approvalId, byData, menuTextOk) {
     const list = document.getElementById(menu.getAttribute('aria-controls'));
     if (!list) continue;
     const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: byData ? freshMenuOption(el) : null }));
-    const picked = AAM.pickMenuItem(items, approvalId, byData, menuTextOk);
+    const picked = AAM.pickMenuItem(items, approvalId, byData);
     if (picked) return picked;
     break;
   }
