@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const AAM = require('../shared.js');
-const { optionMarks, marksFor, menuItemMark } = require('../bridge.js');
+const { optionMarks, marksFor, menuItemMark, markItem } = require('../bridge.js');
 
 const OPTION_KINDS = ['allow_once', 'allow_always', 'deny', 'deny_always'];
 const LABEL_KINDS = [
@@ -663,4 +663,89 @@ test('a menu item is never marked from the cache alone; a cache entry without op
   assert.equal(menuItemMark(menuTree(key, { approvalAbove: bare }), undefined, pendingOf(safe), () => []), null);
   assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(bare), cardsOf(safe)).scope, 'destination');
   assert.equal(menuItemMark(menuTree(key), undefined, pendingOf(approval('appr-test-66', [])), cardsOf(safe)), null);
+});
+
+// Codex re-review 6: the cache alone only backs a button with its own key, and a veto read anywhere on the card applies to
+// every button of the card
+test('with the cache as the only data, a keyless primary is never marked; a keyed once still is', () => {
+  const card = approval('appr-test-67', null);
+  const pending = pendingOf(approval('appr-test-67', [ONCE, SCOPED, DENY]));
+  const panel = optionMarks(card, asButtons(cardTree(card, [null, 'appr-test-67-compact-deny-0-deny']).hosts, 0), undefined, pending);
+  assert.deepEqual([panel.state, panel.missing], ['anomalous', true]);
+  assert.deepEqual(kinds(panel), [null, 'deny']);
+  assert.equal(pick(panel, PANEL_TEXTS), null);
+  const chat = optionMarks(card, asButtons(cardTree(card, keysFor('appr-test-67', [ONCE, SCOPED, DENY])).hosts), undefined, pending);
+  assert.deepEqual([chat.state, kinds(chat)], ['anomalous', ['allow_once', 'allow_always', 'deny']]);
+  assert.deepEqual(core(pick(chat)), { always: null, once: 'button-0', data: true });
+});
+
+test('a veto read from a sibling button\'s own approval applies to the whole card', () => {
+  const id = 'appr-test-68';
+  const keys = keysFor(id, [ONCE, SCOPED, DENY]);
+  const pending = pendingOf(approval(id, [ONCE, SCOPED, DENY]));
+  // Buttons 0 and 1 sit under the card's approval; button 2's nearest approval is another node of the same id
+  const mixed = (cardOptions, siblingOptions) => {
+    const card = approval(id, cardOptions);
+    const own = cardTree(card, keys).hosts;
+    const sibling = cardTree(approval(id, siblingOptions), [keys[2]]).hosts;
+    return optionMarks(card, asButtons([own[0], own[1], sibling[0]]), undefined, pending);
+  };
+  for (const cardOptions of [null, [ONCE, SCOPED, DENY]]) {
+    const name = cardOptions ? 'card with options' : 'card without options';
+    const vetoed = mixed(cardOptions, []);
+    assert.deepEqual([vetoed.state, kinds(vetoed)], ['anomalous', [null, null, null]], name);
+    assert.equal(pick(vetoed), null, name);
+    // A sibling listing another always vetoes the always; the once every source agrees on is the only pick
+    const other = mixed(cardOptions, [ONCE, DOMAIN, DENY]);
+    assert.deepEqual([other.state, kinds(other)], ['anomalous', ['allow_once', null, 'deny']], name);
+    assert.deepEqual(core(pick(other)), { always: null, once: 'button-0', data: true }, name);
+  }
+  // The same sibling veto reaches a keyless panel primary
+  const card = approval(id, [ONCE, SCOPED, DENY]);
+  const primary = cardTree(card, [null]).hosts[0];
+  const deny = cardTree(approval(id, []), [`${id}-compact-deny-0-deny`]).hosts[0];
+  const panel = optionMarks(card, asButtons([primary, deny], 0), undefined, pending);
+  assert.deepEqual([panel.state, kinds(panel)], ['anomalous', [null, null]]);
+  assert.equal(pick(panel, PANEL_TEXTS), null);
+});
+
+// Minimal element for markItem: attributes, a React fiber and the buttons under it
+function fakeEl(fiber, { buttons = [], card = true } = {}) {
+  const attrs = {};
+  return {
+    __reactFiber$test: fiber,
+    getAttribute: name => (name in attrs ? attrs[name] : null),
+    setAttribute: (name, value) => { attrs[name] = String(value); },
+    removeAttribute: name => { delete attrs[name]; },
+    hasAttribute: name => name in attrs,
+    closest: sel => (card && sel.includes('hatch-inline-approval-card') ? {} : null),
+    querySelectorAll: () => buttons,
+    matches: () => false,
+    attrs,
+  };
+}
+
+test('an option read that throws leaves the card anomalous, never on main\'s text rules', () => {
+  const options = [ONCE, SCOPED, DENY];
+  const appr = approval('appr-test-69', options);
+  const { hosts, row } = cardTree(appr, keysFor('appr-test-69', options));
+  const buttons = hosts.map(host => {
+    const b = fakeEl(host);
+    b.matches = sel => { if (sel.includes('primary-action')) throw new Error('boom'); return false; };
+    return b;
+  });
+  const el = fakeEl(row, { buttons });
+  const warn = console.warn;
+  console.warn = () => {};
+  try { markItem(el, undefined, () => null); } finally { console.warn = warn; }
+  assert.equal(el.attrs['data-maa-approval-id'], 'appr-test-69');
+  assert.equal(el.attrs['data-maa-state'], 'anomalous');
+  assert.equal(el.attrs['data-maa-data-path'], 'missing');
+  assert.equal(el.attrs['data-maa-options'], undefined);
+  for (const b of buttons) assert.equal(b.attrs['data-maa-option-kind'], undefined);
+  // The same card read without the fault is clean
+  for (const b of buttons) b.matches = () => false;
+  markItem(el, undefined, () => null);
+  assert.equal(el.attrs['data-maa-state'], 'clean');
+  assert.deepEqual(buttons.map(b => b.attrs['data-maa-option-kind']), ['allow_once', 'allow_always', 'deny']);
 });

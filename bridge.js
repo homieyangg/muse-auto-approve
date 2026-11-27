@@ -181,13 +181,14 @@
   const hasData = approval => Array.isArray(approval?.serverPresentation?.decisionOptions);
 
   // Reads one approval's buttons in a single pass into { state, missing, options, marks }. Sources are the card's approval,
-  // each button's nearest approval and the pending list's entry; only the ones with data count.
-  // '': no source has data, main's text rules. 'clean': at least one keyed button, and every keyed button carries this
-  // approval's key and maps to the same option in every source with data, at least one of them on the card side (the card's
-  // or the button's own approval), so the cache alone never makes a card clean. 'anomalous': anything else; nothing later in
-  // the pass resets it. Each button the sources agree on is marked; content.js clicks only a confirmed once button on an
-  // anomalous card. A keyless primary is marked allow once only when every source says the first allow option is allow once
-  // and a keyed button of this approval exists
+  // every button's nearest approval and the pending list's entry for the same id; only the ones with data count, and every
+  // button is checked against all of them, so a veto from any source ([] or a different option) applies to the whole card.
+  // '': no source has data, main's text rules. 'clean': card-side data exists (the card's or a button's own approval), at
+  // least one button is keyed, and every keyed button carries this approval's key and maps to the same option in every
+  // source. 'anomalous': anything else; nothing later in the pass resets it. Every keyed button the sources agree on is
+  // marked; content.js clicks only a confirmed once on an anomalous card. With the cache as the only data, only a button
+  // with its own key can be marked. The keyless primary has no key: it is marked allow once only when card-side data exists,
+  // every source says the first allow option is allow once, and a keyed button of this approval exists
   function optionMarks(approval, buttons, walk = newWalk(), pendingById = () => null) {
     const id = approval?.approvalId;
     const cached = pendingById(id);
@@ -195,21 +196,19 @@
       const key = decisionKeyOf(fiber, walk);
       return { key, primary, own: key === undefined ? null : approvalsOfFiber(fiber, walk) };
     });
-    const withData = [approval, cached, ...reads.flatMap(r => r.own || [])].filter(a => a?.approvalId === id && hasData(a));
-    if (!withData.length) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
-    let anomalous = false, keyed = 0;
+    const cardSide = [...new Set([approval, ...reads.flatMap(r => r.own || [])])].filter(a => a?.approvalId === id && hasData(a));
+    const sources = [...cardSide, ...(hasData(cached) ? [cached] : [])];
+    if (!sources.length) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
+    let anomalous = !cardSide.length, keyed = 0;
     const found = reads.map(({ key, primary, own }) => {
       const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
       if (!own || own.some(a => a.approvalId !== id) || (m && m[1] !== id)) {
         anomalous = true;
         return null;
       }
-      const cardSide = [approval, ...own].filter(hasData);
-      if (!cardSide.length) anomalous = true;
-      const sources = [...cardSide, ...(hasData(cached) ? [cached] : [])];
-      if (key === null) return primary && own.length === 1 ? { sources } : null;
+      if (key === null) return primary && own.length === 1 ? 'primary' : null;
       const marks = m && own.length === 1 ? sources.map(a => keyMark(a, m)) : [null];
-      if (!marks.length || !marks[0] || !sameMarks(marks)) {
+      if (!marks[0] || !sameMarks(marks)) {
         anomalous = true;
         return null;
       }
@@ -217,13 +216,11 @@
       return marks[0];
     });
     if (!keyed && buttons.length) anomalous = true;
-    const marks = found.map(f => {
-      if (!f?.sources) return f;
-      const all = f.sources.map(primaryMark);
-      if (!sameMarks(all)) anomalous = true;
-      return keyed && all.length && sameMarks(all) ? all[0] : null;
-    });
-    const list = withData[0].serverPresentation.decisionOptions.map(o => markOf(o || {}));
+    const primaries = sources.map(primaryMark);
+    if (found.includes('primary') && !sameMarks(primaries)) anomalous = true;
+    const primaryMarked = keyed && cardSide.length && sameMarks(primaries) ? primaries[0] : null;
+    const marks = found.map(f => (f === 'primary' ? primaryMarked : f));
+    const list = sources[0].serverPresentation.decisionOptions.map(o => markOf(o || {}));
     return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: list, marks };
   }
 
@@ -294,9 +291,11 @@
       markOptions(el, approvals, walk, pendingById);
     } catch (err) {
       console.warn('[MAA] bridge option read failed', err);
+      // A failed read may have hidden data, so the card must not fall back to main's text rules
       for (const b of el.querySelectorAll('button')) writeOption(b, null);
       el.removeAttribute(OPTIONS_ATTR);
-      el.removeAttribute(STATE_ATTR);
+      setAttr(el, STATE_ATTR, 'anomalous');
+      setAttr(el, DATA_PATH_ATTR, 'missing');
     }
     return !!marks?.found;
   }
@@ -398,7 +397,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor, optionMarks, menuItemMark };
+    module.exports = { isPurchaseApproval, marksFor, optionMarks, menuItemMark, markItem };
     return;
   }
 
