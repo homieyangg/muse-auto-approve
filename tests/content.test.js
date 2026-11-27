@@ -620,3 +620,40 @@ test('an approved row is mixed when what was read while it waited is not the sam
   const [entry] = await card.scan({ policy: SITE, host: 'a.example' });
   assert.deepEqual([entry.result, entry.mixed], ['allowed', true]);
 });
+
+test('a purchase seen by the re-read that refuses the click stays on the card\'s rows', async () => {
+  const card = siteCard(ACCESS, { policy: SITE, host: 'a.example' });
+  const [waiting] = await card.scan();
+  assert.deepEqual([waiting.result, waiting.purchase], ['pending', false]);
+  card.trustSite();
+  let marks = 0;
+  card.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-purchase', '1'); };
+  const log = await card.scan();
+  assert.deepEqual(Array.from(log, e => [e.result, e.purchase]), [['handled', true]]);
+  assert.equal(offered(log[0]), false);
+  // Back to waiting on the next scan, read without the purchase: the new row of that approval keeps it
+  card.hooks.onMark = () => {};
+  vm.runInContext('settings.sites = []', card.ctx);
+  const next = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.deepEqual(Array.from(next, e => [e.result, e.purchase]), [['pending', true], ['handled', true]]);
+});
+
+test('an approved row merges the rows another tab wrote for the same approval id', async () => {
+  const template = await loggedRow(ACCESS, { policy: SITE, host: 'a.example' });
+  const cases = [[{ purchase: true }, { purchase: true, mixed: false }], [{ mixed: true }, { purchase: false, mixed: true }], [{ approvalId: 'appr-test-81', purchase: true, mixed: true }, { purchase: false, mixed: false }]];
+  for (const [other, expected] of cases) {
+    const card = siteCard(ACCESS, { policy: SITE, host: 'a.example' });
+    card.store.local.log = [{ ...template, ...other }];
+    card.trustSite();
+    const [entry] = await card.scan();
+    assert.deepEqual([entry.result, entry.approvalId, entry.purchase, entry.mixed], ['allowed', 'appr-test-80', expected.purchase, expected.mixed], JSON.stringify(other));
+  }
+});
+
+test('a row whose first read had a site policy but no approval id is never trustable', async () => {
+  const card = siteCard(ACCESS, { id: '', policy: SITE, host: 'a.example' });
+  const [first] = await card.scan();
+  assert.deepEqual([first.approvalId, first.policy, offered(first)], ['', SITE, false]);
+  const [after] = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.deepEqual([after.approvalId, offered(after)], ['', false]);
+});

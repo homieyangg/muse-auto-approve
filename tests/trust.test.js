@@ -17,7 +17,7 @@ const apply = (settings, plan) => ({ ...settings, ...plan.patch });
 
 // Log entries shaped like the ones content.js writes, with the card key built the same way
 function siteEntry(host, chat, result = 'handled', extra = {}) {
-  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: SITE, approvalHost: host, mixed: false, site: '', result, ...extra };
+  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: SITE, approvalHost: host, approvalId: `appr-${host}-${chat}`, mixed: false, site: '', result, ...extra };
   return { ...e, key: AAM.cardKey(e) };
 }
 function actionEntry(title, chat, result = 'handled', extra = {}) {
@@ -91,7 +91,7 @@ test('website rows logged before the approval data was kept offer no Trust', () 
 });
 
 test('a website row offers Trust only with a website policy type that no scan contradicted', () => {
-  for (const extra of [{ policy: '' }, { policy: UPLOAD }, { policy: POLICY }, { policy: 'connector.example.unknown' }, { mixed: true }]) {
+  for (const extra of [{ policy: '' }, { policy: UPLOAD }, { policy: POLICY }, { policy: 'connector.example.unknown' }, { mixed: true }, { approvalId: '' }]) {
     const entry = siteEntry('a.example', 'Chat A', 'handled', extra);
     assert.deepEqual(offered(settingsWith(), [entry]), [false], JSON.stringify(extra));
     assert.equal(AAT.planTrust(settingsWith(), entry, 'any'), null, JSON.stringify(extra));

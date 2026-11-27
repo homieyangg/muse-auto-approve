@@ -17,8 +17,9 @@ const AAT = (() => {
   // a website only when muse's approval data, as content.js logged it, says so; an empty, ambiguous (several approvals) or
   // mixed read, and rows logged before the data was kept, say nothing. Only SITE_POLICIES counts for now. If website cards
   // turn out to carry no policy type, "the approval's own host (entry.approvalHost) equals the parsed host" goes here instead
+  // A row without an approval id can't be tied to the other reads of its approval, so it is never evidence
   function siteEvidence(entry) {
-    return !entry.mixed && SITE_POLICIES.includes(entry.policy);
+    return !!entry.approvalId && !entry.mixed && SITE_POLICIES.includes(entry.policy);
   }
 
   function trustable(entry) {

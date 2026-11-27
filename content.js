@@ -267,6 +267,14 @@ function mergeCards(a, b) {
   return out;
 }
 
+// Rows of one approval (same key and approval id) may be written by several tabs and scans. Writing one merges the
+// evidence of all of them and puts it on each, so a row never loses what another read of that approval saw
+function shareEvidence(log, item) {
+  const rows = log.filter(e => e.key === item.key && sameApproval(e, item));
+  const evidence = rows.map(loggedEvidence).reduce(mergeEvidence, evidenceOf(item));
+  return { evidence, log: rows.length ? log.map(e => (rows.includes(e) ? { ...e, ...logEvidence(evidence) } : e)) : log };
+}
+
 function addWaiting(waiting, item, keepEarlier = false) {
   const prev = waiting.get(item.key);
   waiting.set(item.key, prev ? { ...(keepEarlier ? prev : item), ...mergeCards(prev, item) } : item);
@@ -344,13 +352,14 @@ async function approve(node, buttons, card, key, onceOnly) {
   // Every read of this card goes into the log entry: the scan's, the pre-click re-reads, and what was read while it waited
   const reads = [card];
   const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target, reads));
-  if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   const evidence = [...reads, ...(waited ? [waited] : [])].reduce(mergeCards);
+  if (!kind) return releaseRefused(node, buttons, key, onceOnly, evidence);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(evidence), site: card.site, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
-    const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
+    const shared = shareEvidence(data.log, { key, ...evidence });
+    const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(shared.evidence), site: card.site, result: 'allowed', kind };
+    const log = shared.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
     if (onceOnly) patch.allowOnce = data.allowOnce.filter(k => k !== key);
     return patch;
@@ -376,8 +385,10 @@ function freshlyMarked(node) {
   return !!token && node.getAttribute(MARKED_ATTR) === token;
 }
 
-// The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting
-function releaseRefused(node, buttons, key, onceOnly) {
+// The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting. What the refusing
+// read saw (a purchase, say) goes onto the card's rows, which this scan may already have marked handled
+function releaseRefused(node, buttons, key, onceOnly, evidence) {
+  updateLocal({ log: [] }, data => ({ log: shareEvidence(data.log, { key, ...evidence }).log }));
   handledAt.delete(node);
   handledKeys.delete(key);
   if (buttons.approvalId) handledIds.delete(buttons.approvalId);
@@ -462,12 +473,13 @@ function refreshEvidence(waiting, added) {
 function recordWaitingChanges(added, gone, refreshed = []) {
   updateLocal({ log: [], dismissed: [] }, data => {
     // The log is shared by every muse tab, so a row is filled only by reads of the approval that wrote it
-    const log = data.log.map(e => {
-      if (gone.includes(e.key) && e.result === 'pending') return { ...e, result: 'handled' };
-      const w = e.result === 'pending' && refreshed.find(r => r.key === e.key && sameApproval(e, r));
-      return w ? { ...e, ...logEvidence(mergeEvidence(loggedEvidence(e), w)) } : e;
+    let log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
+    for (const w of refreshed) log = shareEvidence(log, w).log;
+    const fresh = added.map(w => {
+      const shared = shareEvidence(log, w);
+      log = shared.log;
+      return { ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(shared.evidence), site: w.site, result: 'pending' };
     });
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(w), site: w.site, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }
