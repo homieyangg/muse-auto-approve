@@ -169,12 +169,20 @@ const AAM = (() => {
     return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
   }
 
+  // Policy types a strict rule may stand for. Browser connector actions other than uploads act on a site the log doesn't
+  // keep (goto, download, credential_fill, ...), so a rule for their policy would cover every site. tool.* and other
+  // non-connector types never: tool.web_fetch is muse's task-wide web-access grant, which takes the text rules (PR #18)
+  function strictPolicy(policy) {
+    if (policy === UPLOAD_POLICY) return true;
+    return typeof policy === 'string' && /^connector\.[^.]+\./.test(policy) && !policy.startsWith('connector.browser.');
+  }
+
   // Rules saved from a recent-activity row carry match: 'strict'. They match only a card freshly read from muse's data
   // (content.js keeps approvalId only then) whose policy is the rule's, and for uploads whose destination is exactly the
   // rule's site, no subdomains or www twin; the title is only a label. Any other match value matches nothing, so a rule
   // never falls back to the title-or-policy match above
   function strictMatch(rule, card) {
-    if (rule.match !== 'strict' || !rule.policy || !card.approvalId || rule.policy !== card.policy) return false;
+    if (rule.match !== 'strict' || !strictPolicy(rule.policy) || !card.approvalId || rule.policy !== card.policy) return false;
     const site = card.site || '';
     return (rule.site || '') === site && (card.policy !== UPLOAD_POLICY || !!site);
   }
@@ -269,7 +277,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
+  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, strictPolicy, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

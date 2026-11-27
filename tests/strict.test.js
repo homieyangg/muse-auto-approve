@@ -16,8 +16,8 @@ const UPLOAD = 'connector.browser.page.upload';
 const GOTO = 'connector.browser.page.goto';
 const DOWNLOAD = 'connector.browser.page.download';
 
-// main before this change (PR #15 merged), for the parity checks
-const MAIN_COMMIT = 'e17f0e2';
+// main before this change (PR #18 merged), for the parity checks
+const MAIN_COMMIT = '51ace01';
 function mainShared() {
   try {
     const source = execFileSync('git', ['show', `${MAIN_COMMIT}:shared.js`], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
@@ -102,6 +102,13 @@ test('a match value other than strict matches nothing, never the title-or-policy
     const s = settingsWith({ actions: [{ ...legacy('Post to Example', { policy: POST }), match }] });
     assert.equal(AAM.isTrusted(s, card(POST)), false, JSON.stringify(match));
     assert.equal(AAM.isTrusted(s, card(SEND)), false, JSON.stringify(match));
+  }
+});
+
+test('a strict rule for a policy Trust never offers matches nothing, even imported or edited by hand', () => {
+  for (const policy of ['tool.web_fetch', GOTO, DOWNLOAD, 'connector.browser.page.credential_fill', 'example.post', 'connector.example']) {
+    const s = settingsWith({ actions: [strict(policy)] });
+    assert.equal(AAM.isTrusted(s, card(policy)), false, policy);
   }
 });
 

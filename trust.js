@@ -23,19 +23,11 @@ const AAT = (() => {
     return !!entry.approvalId && !entry.mixed && SITE_POLICIES.includes(entry.policy);
   }
 
-  // Browser connector actions other than uploads act on a site the log doesn't keep (goto, download, credential_fill, ...),
-  // so a rule for their policy would cover every site. tool.* and other non-connector types (tool.web_fetch is a task-wide
-  // network grant) get nothing either
-  function actionPolicyOffered(policy) {
-    if (policy === aam.UPLOAD_POLICY) return true;
-    return /^connector\.[^.]+\./.test(policy) && !policy.startsWith('connector.browser.');
-  }
-
   // An action or upload row, with muse's data for one approval read fresh, no purchase seen and purchase known to be false.
   // An upload also needs its destination as normalizeHost gives it
   function actionEvidence(entry) {
     if (!entry.action || !entry.approvalId || entry.mixed || entry.purchase !== false) return false;
-    if (!entry.policy || !actionPolicyOffered(entry.policy)) return false;
+    if (!aam.strictPolicy(entry.policy)) return false;
     if (entry.policy !== aam.UPLOAD_POLICY) return !entry.site;
     return !!entry.site && aam.normalizeHost(entry.site) === entry.site;
   }
