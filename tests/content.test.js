@@ -424,11 +424,13 @@ const UPLOAD = 'connector.browser.page.upload';
 AAT.SITE_POLICIES.push(SITE);
 const offered = entry => AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size === 1;
 
-// A chat card with the bridge.js attributes given; set() changes them as a later bridge read would
+// A chat card with the bridge.js attributes given; set() changes them as a later bridge read would, and onMark runs on each
+// fresh mark request
 function siteCard(text, marks = {}) {
   makeDocument();
-  fakeBridge();
-  const card = new El('div', { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-80', 'data-maa-state': 'clean' }, [
+  const hooks = { onMark: () => {} };
+  fakeBridge(el => hooks.onMark(el));
+  const card = new El('div', { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-state': 'clean' }, [
     new El('p', {}, [], text),
     new El('div', {}, [
       new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow'),
@@ -436,8 +438,9 @@ function siteCard(text, marks = {}) {
     ]),
   ]);
   doc.body.append(card);
-  const set = ({ policy = '', host = '' }) => {
-    for (const [name, value] of [['data-maa-policy', policy], ['data-maa-host', host]]) {
+  const set = ({ policy = '', host = '', id = 'appr-test-80', purchase = false }) => {
+    const attrs = [['data-maa-policy', policy], ['data-maa-host', host], ['data-maa-approval-id', id], ['data-maa-purchase', purchase ? '1' : '']];
+    for (const [name, value] of attrs) {
       if (value) card.setAttribute(name, value);
       else card.removeAttribute(name);
     }
@@ -450,7 +453,8 @@ function siteCard(text, marks = {}) {
     for (let i = 0; i < 6; i++) await tick();
     return loaded.store.local.log;
   };
-  return { ...loaded, scan };
+  const trustSite = () => vm.runInContext("settings.sites = [{ id: 's1', host: 'a.example', sub: false, chats: [], on: true }]", loaded.ctx);
+  return { ...loaded, scan, set, hooks, trustSite };
 }
 
 async function loggedRow(text, marks) {
@@ -518,12 +522,101 @@ test('scans that disagree mark the row mixed for good, and it offers no Trust', 
 });
 
 test('an approved row keeps the evidence read while it waited, never relaxed by the read at the click', async () => {
-  for (const [waited, clicked, policy, mixed] of [[{}, { policy: SITE }, SITE, false], [{ policy: UPLOAD }, { policy: SITE }, UPLOAD, true]]) {
+  for (const [waited, clicked, policy, mixed] of [[{}, { policy: SITE }, SITE, false], [{ policy: UPLOAD }, { policy: SITE }, SITE, true]]) {
     const card = siteCard(ACCESS, waited);
     await card.scan();
-    vm.runInContext("settings.sites = [{ id: 's1', host: 'a.example', sub: false, chats: [], on: true }]", card.ctx);
+    card.trustSite();
     const [entry] = await card.scan(clicked);
     assert.deepEqual([entry.result, entry.policy, entry.mixed], ['allowed', policy, mixed]);
     assert.equal(offered(entry), !mixed);
   }
+});
+
+test('a later read fills only the row its own approval wrote, never another tab\'s row with the same key', async () => {
+  const card = siteCard(ACCESS);
+  const [own] = await card.scan();
+  // Another muse tab logged a different approval with the same card key after this one
+  const other = { ...own, ts: own.ts + 1, approvalId: 'appr-test-81', policy: 'connector.example.unknown', approvalHost: '' };
+  card.store.local.log = [other, ...card.store.local.log];
+  const log = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.equal(log.length, 2);
+  assert.deepEqual([log[0].approvalId, log[0].policy, log[0].approvalHost, offered(log[0])], ['appr-test-81', 'connector.example.unknown', '', false]);
+  assert.deepEqual([log[1].approvalId, log[1].policy, log[1].approvalHost], ['appr-test-80', SITE, 'a.example']);
+});
+
+test('a card first read without an approval id is never filled by a later read', async () => {
+  const card = siteCard(ACCESS, { id: '' });
+  const [first] = await card.scan();
+  assert.deepEqual([first.result, first.approvalId, first.policy], ['pending', '', '']);
+  const [after] = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.deepEqual([after.approvalId, after.policy, after.approvalHost, offered(after)], ['', '', '', false]);
+});
+
+test('two cards with one key in one scan make a mixed row unless they hold the same approval id', async () => {
+  for (const [id, mixed] of [['appr-test-81', true], ['', true], ['appr-test-80', false]]) {
+    const card = siteCard(ACCESS, { policy: SITE, host: 'a.example' });
+    const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel', 'data-maa-state': 'clean', 'data-maa-policy': SITE, 'data-maa-host': 'a.example', ...(id && { 'data-maa-approval-id': id }) };
+    doc.body.append(new El('div', attrs, [
+      new El('p', {}, [], ACCESS),
+      new El('div', {}, [
+        new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow'),
+        new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny'),
+      ]),
+    ]));
+    const log = await card.scan();
+    assert.equal(log.length, 1, id);
+    assert.deepEqual([log[0].mixed, offered(log[0])], [mixed, !mixed], id);
+  }
+});
+
+test('an approved row merges the pre-click re-read: a policy or host that changed there makes it mixed', async () => {
+  for (const [change, mixed] of [[null, false], [['data-maa-policy', UPLOAD], true], [['data-maa-host', 'browser'], true]]) {
+    const card = siteCard(ACCESS, { policy: SITE, host: 'a.example' });
+    card.trustSite();
+    let marks = 0;
+    // The scan's own read is the first mark; the re-reads before the click come after it
+    card.hooks.onMark = el => { if (++marks === 2 && change) el.setAttribute(...change); };
+    const [entry] = await card.scan();
+    assert.ok(marks >= 2);
+    assert.deepEqual([entry.result, entry.mixed], ['allowed', mixed], JSON.stringify(change));
+    assert.equal(offered(entry), !mixed);
+  }
+});
+
+test('a purchase seen on any read stays a purchase on the row', async () => {
+  const waiting = siteCard(ACCESS, { policy: SITE, purchase: true });
+  await waiting.scan();
+  const [kept] = await waiting.scan({ policy: SITE, purchase: false });
+  assert.deepEqual([kept.result, kept.purchase, offered(kept)], ['pending', true, false]);
+
+  const later = siteCard(ACCESS, { policy: SITE });
+  const [before] = await later.scan();
+  assert.equal(before.purchase, false);
+  const [filled] = await later.scan({ policy: SITE, purchase: true });
+  assert.deepEqual([filled.purchase, offered(filled)], [true, false]);
+
+  const approved = siteCard(ACCESS, { policy: SITE, purchase: true });
+  await approved.scan();
+  approved.trustSite();
+  const [entry] = await approved.scan({ policy: SITE, purchase: false });
+  assert.deepEqual([entry.result, entry.purchase], ['allowed', true]);
+});
+
+test('an approved row is mixed when what was read while it waited is not the same approval id', async () => {
+  for (const [waitedId, mixed] of [['', true], ['appr-test-81', true], ['appr-test-80', false]]) {
+    const card = siteCard(ACCESS, { id: waitedId });
+    const [first] = await card.scan();
+    assert.equal(first.result, 'pending');
+    card.trustSite();
+    const [entry] = await card.scan({ policy: SITE, host: 'a.example' });
+    assert.deepEqual([entry.result, entry.approvalId, entry.mixed], ['allowed', 'appr-test-80', mixed], waitedId);
+    assert.equal(offered(entry), !mixed);
+  }
+  // A later waiting read with an id does not make the id-less first read count
+  const card = siteCard(ACCESS, { id: '' });
+  await card.scan();
+  await card.scan({ policy: SITE, host: 'a.example' });
+  card.trustSite();
+  const [entry] = await card.scan({ policy: SITE, host: 'a.example' });
+  assert.deepEqual([entry.result, entry.mixed], ['allowed', true]);
 });
