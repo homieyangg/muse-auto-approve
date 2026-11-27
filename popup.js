@@ -38,17 +38,11 @@ function saveSettings(patch) {
 const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
-const idsOf = item => {
-  const pair = AAM.cardPair(item);
-  return { ...(pair.threadId && { threadId: pair.threadId }), ...(pair.scheduleId && { scheduleId: pair.scheduleId }) };
-};
-const hasIds = item => Object.keys(idsOf(item)).length > 0;
-const hasSource = item => !!item.chat || hasIds(item);
+const hasIds = item => AAM.hasIds(AAM.cardPair(item));
 // Display only: rules always store the name read from the card, never the sidebar's
 const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
 const chatName = item => item.chat || sidebarName(AAM.cardPair(item).threadId);
-const chatLabel = entry => AAM.sourceName(entry) || sidebarName(AAM.sourceOf(entry)?.threadId) || t('fromUnknown');
-const chatList = chats => chats.map(chatLabel).join(sep());
+const chatLabel = entry => entry.name || sidebarName(entry.threadId) || t('fromUnknown');
 
 function pendingItems() {
   if (!tracking()) return [];
@@ -96,10 +90,10 @@ function scopeOptions(item) {
   if (AAM.isPurchase(item)) return ['once'];
   const scopes = [];
   if (item.host) scopes.push('site');
-  if (item.host && hasSource(item)) scopes.push('siteChat');
+  if (item.host && item.chat) scopes.push('siteChat');
   if (!item.host && item.action) scopes.push('action');
-  if (!item.host && item.action && hasSource(item)) scopes.push('actionChat');
-  if (hasSource(item)) scopes.push('chat');
+  if (!item.host && item.action && item.chat) scopes.push('actionChat');
+  if (item.chat || hasIds(item)) scopes.push('chat');
   scopes.push('once');
   return scopes;
 }
@@ -140,22 +134,23 @@ function renderPending() {
 }
 
 // 依選的範圍加進信任清單；「只允許這一次」交給 content script 按掉那張卡，但不記住
-// A card with source ids makes rules that store them; one without stays main's name-only rule. A chat scope needs a usable
-// source, otherwise the rule would cover every chat
+// A card with source ids makes rules that store them; one without stays main's name-only rule. A chat limit needs the
+// chat's name, and a chat rule a name or ids, otherwise the rule would cover every chat
 async function allowPending(item, scope) {
-  if (['chat', 'siteChat', 'actionChat'].includes(scope) && !hasSource(item)) return;
+  if (['siteChat', 'actionChat'].includes(scope) && !item.chat) return;
+  if (scope === 'chat' && !item.chat && !hasIds(item)) return;
   resolved.add(item.key);
-  const ids = idsOf(item);
-  const chat = AAM.ruleChatOf(item);
+  const ids = AAM.cardPair(item);
   if (scope === 'once') {
     render();
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
     await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat || '', ids) });
   } else if (scope === 'action' || scope === 'actionChat') {
-    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? chat || false : '', policy: item.policy, site: item.site }) });
+    const limit = scope === 'actionChat' ? { chat: item.chat, ids } : {};
+    await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { ...limit, policy: item.policy, site: item.site }) });
   } else {
-    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, { chat: scope === 'siteChat' ? chat || false : '' }) });
+    await saveSettings({ sites: AAM.addSiteRule(settings.sites, item.host, scope === 'siteChat' ? { chat: item.chat, ids } : {}) });
   }
 }
 
@@ -181,7 +176,7 @@ function row(title, sub, off, onRemove) {
 function renderSites() {
   const rows = settings.sites.map(site => row(
     site.sub ? t('withSub', site.host) : site.host,
-    site.chats.length ? t('onlyChats', chatList(site.chats)) : t('anyChat'),
+    site.chats.length ? t('onlyChats', site.chats.join(sep())) : t('anyChat'),
     !site.on,
     () => saveSettings({ sites: settings.sites.filter(s => s.id !== site.id) }),
   ));
@@ -193,7 +188,7 @@ function renderSites() {
 function renderActions() {
   const rows = settings.actions.map(action => row(
     label(action),
-    action.chats.length ? t('onlyChats', chatList(action.chats)) : t('anyChat'),
+    action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
     !action.on,
     () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),
   ));
@@ -202,11 +197,10 @@ function renderActions() {
   $('#actions-empty').hidden = rows.length > 0;
 }
 
+// Chats seen with ids are offered by their pair (see AAM.chatChoices)
 function recentChats() {
-  // A chat seen with ids is not offered as a plain name: that rule would trust every chat of the name
-  const plain = items => items.filter(i => !hasIds(i)).map(i => i.chat);
-  const names = [...local.museChats, ...plain(pendingItems()), ...plain(local.log)].filter(Boolean);
-  return [...new Set(names)].slice(0, 20);
+  const items = [...pendingItems(), ...local.log];
+  return AAM.chatChoices({ museChats: local.museChats, museChatNames: local.museChatNames, settings, items, fromRules: false }).slice(0, 20);
 }
 
 function renderChats() {
@@ -216,10 +210,10 @@ function renderChats() {
   $('#chat-list').hidden = !rows.length;
   $('#chats-empty').hidden = rows.length > 0;
   const recent = recentChats();
-  const addable = recent.filter(name => !settings.chats.some(c => AAM.sameSource(c, name)));
-  $('#recent-chats').replaceChildren(...addable.map(name => {
-    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${name}` });
-    link.addEventListener('click', () => saveSettings({ chats: AAM.addChatRule(settings.chats, name) }));
+  const addable = recent.filter(choice => !AAM.listsChat(settings.chats, choice));
+  $('#recent-chats').replaceChildren(...addable.map(choice => {
+    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${chatLabel(choice)}` });
+    link.addEventListener('click', () => saveSettings({ chats: AAM.addChatRule(settings.chats, choice.name, choice) }));
     return link;
   }));
   $('#recent-empty').hidden = recent.length > 0;

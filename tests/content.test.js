@@ -421,7 +421,7 @@ test('a chat trusted by id approves its card even under another name; the same n
   assert.deepEqual(sameName.pending, ['example.com|Research\nt:thread-test-2\ns:']);
   assert.deepEqual(sameName.items[0].threadId, 'thread-test-2');
   // A site limited to the chat by id
-  const site = { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: [{ name: 'Old name', ...T1 }] }] };
+  const site = { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: ['Old name'], sources: [{ name: 'Old name', ...T1 }] }] };
   assert.deepEqual((await runSource(site, { ids: T1 })).clicks, [0, 1, 0]);
   assert.deepEqual((await runSource(site, { ids: T2 })).clicks, [0, 0, 0]);
 });
@@ -435,6 +435,16 @@ test('ids are only used from a fresh mark: without an answer the card is matched
   // Invalid ids written on the card are ignored the same way
   const invalid = await runSource(byId, { ids: { threadId: 'bad id' } });
   assert.deepEqual(invalid.pending, ['example.com|Research']);
+});
+
+// Round 2 item 4: a valid thread with an invalid schedule is not read as that thread alone
+test('one invalid id voids the pair: the card has no ids and is matched by name', async () => {
+  const byId = { chats: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const half = await runSource(byId, { ids: { ...T1, scheduleId: 'bad id' } });
+  assert.deepEqual(half.clicks, [0, 0, 0]);
+  assert.deepEqual(half.pending, ['example.com|Research']);
+  assert.equal(half.items[0].threadId, undefined);
+  assert.equal(half.items[0].scheduleId, undefined);
 });
 
 test('a legacy name rule still approves a card that has ids', async () => {
@@ -470,11 +480,28 @@ test('cards without ids behave exactly as on main', { skip: !mainSources(BEFORE_
 test('sidebar names are recorded by thread id and kept when the sidebar collapses', async () => {
   makeDocument();
   const row = (id, name) => new El('div', { 'data-testid': 'hatch-thread-row', 'data-slot': 'context-menu-trigger', ...(id && { 'data-maa-thread-id': id }) }, [new El('span', { title: name })]);
-  doc.body.append(row('thread-test-1', 'Research'), row('', 'No id'), row('bad id', 'Bad'));
+  for (const r of [row('thread-test-1', 'Research'), row('', 'No id'), row('bad id', 'Bad')]) doc.body.append(r);
   const { ctx, store } = loadContent();
   store.local.museChatNames = { 'thread-test-9': 'Collapsed earlier' };
   ctx.scan();
   await tick();
   await tick();
   assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChatNames)), { 'thread-test-1': 'Research', 'thread-test-9': 'Collapsed earlier' });
+  // Round 2 item 3: a row known by id is not also recorded as a plain name
+  assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChats)), ['No id', 'Bad']);
+});
+
+test('the plain sidebar names drop a row once bridge.js finds its id', async () => {
+  makeDocument();
+  const row = new El('div', { 'data-testid': 'hatch-thread-row', 'data-slot': 'context-menu-trigger' }, [new El('span', { title: 'Research' })]);
+  doc.body.append(row);
+  const { ctx, store } = loadContent();
+  ctx.scan();
+  await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChats)), ['Research']);
+  row.setAttribute('data-maa-thread-id', 'thread-test-1');
+  ctx.scan();
+  await tick();
+  await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChats)), []);
 });

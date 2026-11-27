@@ -75,7 +75,7 @@ In "Only what I trust", a waiting card adds a red number to the toolbar icon. Op
 
 The card is clicked immediately, and matching cards are approved automatically from then on. A card matches when it comes from a trusted chat, or when its site or action is trusted with either no chat limit or a matching chat limit.
 
-When muse's approval data on a chat card names the chat or scheduled task it came from, chats you trust from that card are saved with that ID. Such an entry matches cards with the same ID even after the chat is renamed, and no longer matches a different chat that has the same name. Entries saved by older versions, and cards whose ID can't be read, match by chat name as before.
+When muse's approval data on a chat card names the chat or scheduled task it came from, chats you trust from that card are saved with that ID. Such an entry matches cards with the same ID even after the chat is renamed, and no longer matches a different chat that has the same name. Entries saved by older versions, and cards whose ID can't be read, match by chat name as before. Settings keep the format older versions read: the ID is stored next to the chat name, and an older version matches such an entry by its name only.
 
 **Action cards.** Some cards ask Ren to perform an action, such as posting to Threads or sending a message. The popup offers "This action" instead of "This site". The extension stores the permission type muse attaches to the action (for example, sending Gmail), so it matches both single and combined cards. "Allow everything" leaves action cards alone by default because posts and messages cannot be undone. To auto-approve them, turn on "Include actions" under Settings > General > Advanced.
 
@@ -126,7 +126,7 @@ Email, combined, side chat, scheduled task, and website cards have been tested o
 - A muse.ai tab must stay open. If you close it, nothing gets approved.
 - "Allow everything" approves every website card, including browser uploads, plus action cards if you turn that option on.
 - Actions match by muse's permission type. Rules saved by older versions only store the card title and pick up the permission type the next time that card appears. Trusting "post to Threads" covers every post, regardless of text or account.
-- Cards shown inside the chat that started the task often do not state which chat they came from. "Only from this chat" is offered for them only when muse's approval data identifies the chat.
+- Cards shown inside the chat that started the task often do not state which chat they came from, so "only from this chat" is not offered for them. "Everything from this chat" is offered when muse's approval data identifies the chat.
 - A muse.ai redesign can break matching, especially button labels, review banner markup, or page approval data. Without that data, it falls back to card text, which handles combined and duplicate cards less reliably.
 
 ## Running it around the clock

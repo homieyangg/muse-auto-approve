@@ -153,12 +153,14 @@ function contextAlive() {
 }
 
 // 側邊欄打開時記下副聊天室名稱給信任清單挑；收起來時整串不在 DOM，保留上次記的
+// A row bridge.js found the thread id of is only recorded by id, so its name is never offered as a plain name
 function recordChats() {
-  const names = [...document.querySelectorAll(CHAT_ROW_SELECTOR)]
-    .map(row => AAM.cleanText(row.querySelector('[title]')?.getAttribute('title')))
-    .filter(Boolean);
+  const rows = [...document.querySelectorAll(CHAT_ROW_SELECTOR)]
+    .map(row => [row, AAM.cleanText(row.querySelector('[title]')?.getAttribute('title'))])
+    .filter(([, name]) => name);
+  const names = rows.filter(([row]) => !AAM.sourceId(row.getAttribute(THREAD_ATTR))).map(([, name]) => name);
   const json = JSON.stringify([...new Set(names)]);
-  if (names.length && json !== lastChats) {
+  if (rows.length && json !== lastChats) {
     lastChats = json;
     chrome.storage.local.set({ museChats: JSON.parse(json) }).catch(() => {});
   }
@@ -250,10 +252,8 @@ function purchaseState(node, body) {
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  const fresh = buttons.muse && freshlyMarked(node);
-  const threadId = fresh ? AAM.sourceId(attr(THREAD_ATTR)) : '';
-  const scheduleId = fresh ? AAM.sourceId(attr(SCHEDULE_ATTR)) : '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), ...sourceFields({ threadId, scheduleId }), purchase };
+  const ids = buttons.muse && freshlyMarked(node) ? AAM.cardPair({ threadId: attr(THREAD_ATTR), scheduleId: attr(SCHEDULE_ATTR) }) : {};
+  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), ...sourceFields(ids), purchase };
 }
 
 // Only the ids a card has, so cards without them stay shaped as on main
