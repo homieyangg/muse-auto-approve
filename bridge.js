@@ -7,6 +7,11 @@
   const ITEM_SELECTOR = `${CARD_SELECTOR}, [aria-expanded]`;
   const MAX_UP = 12;
   const MAX_FIBERS = 50000;
+  // Matched against key names, not a fixed list, so checkout kinds muse adds later are still caught
+  const PURCHASE_RE = /checkout|purchase|payment/i;
+  const MARK_EVENT = 'maa-mark';
+  const MARK_REQUEST_ATTR = 'data-maa-mark-request';
+  const MARKED_ATTR = 'data-maa-marked';
   let timer = null;
   let queryClient = null;
 
@@ -19,17 +24,66 @@
     return !!v && typeof v === 'object' && typeof v.approvalId === 'string';
   }
 
-  // 往上找第一個 props 帶審批資料的元件：批次卡每一項和預覽列是單筆，整張卡是陣列
-  function approvalsOf(el) {
-    for (let f = fiberOf(el), i = 0; f && i < MAX_UP; f = f.return, i++) {
-      const props = f.memoizedProps;
-      if (!props || typeof props !== 'object') continue;
-      for (const v of Object.values(props)) {
-        if (isApproval(v)) return [v];
-        if (Array.isArray(v) && v.length && v.every(isApproval)) return v;
+  // 批次卡每一項和預覽列是單筆，整張卡是陣列
+  function approvalsInProps(fiber) {
+    const props = fiber?.memoizedProps;
+    if (!props || typeof props !== 'object') return null;
+    for (const v of Object.values(props)) {
+      if (isApproval(v)) return [v];
+      if (Array.isArray(v) && v.length && v.every(isApproval)) return v;
+    }
+    return null;
+  }
+
+  const newWalk = () => ({ memo: new Map(), steps: 0 });
+
+  // The DOM node may point at the fiber from the previous render. A fiber is current when it is the current root, or
+  // when it (or its alternate) sits among the children of its parent's current version, as React's findCurrentFiberUsingSlowPath
+  // does. Returns null when that can't be established (broken tree or step cap reached)
+  function currentOf(fiber, walk) {
+    if (!fiber) return null;
+    if (walk.memo.has(fiber)) return walk.memo.get(fiber);
+    let found = null;
+    if (!fiber.return) {
+      const root = fiber.stateNode?.current;
+      if (root && (root === fiber || root === fiber.alternate)) found = root;
+    } else {
+      const parent = currentOf(fiber.return, walk);
+      for (let c = parent?.child; c; c = c.sibling) {
+        if (++walk.steps > MAX_FIBERS) break;
+        if (c === fiber || c === fiber.alternate) { found = c; break; }
       }
     }
+    walk.memo.set(fiber, found);
+    return found;
+  }
+
+  // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established
+  function approvalsOfFiber(start, walk = newWalk()) {
+    let f = currentOf(start, walk);
+    if (!f) return null;
+    for (let i = 0; i < MAX_UP; i++) {
+      const approvals = approvalsInProps(f);
+      if (approvals) return approvals;
+      if (!f.return) return [];
+      f = currentOf(f.return, walk);
+      if (!f) return null;
+    }
     return [];
+  }
+
+  // Every data-maa-* value for a node comes from this one walk; null means unknown
+  function marksFor(start, walk) {
+    const approvals = approvalsOfFiber(start, walk);
+    if (!approvals) return null;
+    const one = approvals.length === 1 ? approvals[0] : null;
+    return {
+      approvalId: one?.approvalId || '',
+      policy: one?.policySubject || '',
+      site: one ? destinationOf(one) : '',
+      purchase: approvals.some(isPurchaseApproval),
+      found: approvals.length > 0,
+    };
   }
 
   // Upload approvals carry the target in payloadPreview, e.g. "Destination: https://tmpfiles.org"
@@ -39,19 +93,57 @@
     try { return new URL(m[1]).hostname; } catch { return ''; }
   }
 
+  function hasValue(v) {
+    return v !== null && v !== undefined && v !== false && v !== '' && !(Array.isArray(v) && !v.length);
+  }
+
+  // Decided from muse's structured approval data so it works whatever language the card title is in
+  function isPurchaseApproval(approval) {
+    if (!approval || typeof approval !== 'object') return false;
+    if (Object.keys(approval).some(k => PURCHASE_RE.test(k) && hasValue(approval[k]))) return true;
+    const p = approval.serverPresentation;
+    if (!p || typeof p !== 'object') return false;
+    return PURCHASE_RE.test(String(p.payloadType ?? '')) || p.paymentProvider != null || p.purchasePreapproval != null;
+  }
+
   function setAttr(el, name, value) {
     if (!value) el.removeAttribute(name);
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
+  // Unknown removes all four attributes. Returns whether the node got a verified answer from approval data
+  function markItem(el, walk = newWalk()) {
+    let marks = null;
+    try {
+      marks = marksFor(fiberOf(el), walk);
+    } catch (err) {
+      console.warn('[MAA] bridge read failed', err);
+    }
+    setAttr(el, 'data-maa-approval-id', marks?.approvalId);
+    setAttr(el, 'data-maa-policy', marks?.policy);
+    setAttr(el, 'data-maa-site', marks?.site);
+    setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
+    return !!marks?.found;
+  }
+
   function markItems() {
+    const walk = newWalk();
     for (const el of document.querySelectorAll(ITEM_SELECTOR)) {
       if (!el.matches(CARD_SELECTOR) && !el.closest('section, ' + CARD_SELECTOR)) continue;
-      const approvals = approvalsOf(el);
-      const one = approvals.length === 1 ? approvals[0] : null;
-      setAttr(el, 'data-maa-approval-id', one?.approvalId);
-      setAttr(el, 'data-maa-policy', one?.policySubject);
-      setAttr(el, 'data-maa-site', one && destinationOf(one));
+      markItem(el, walk);
+    }
+  }
+
+  // content.js asks for a fresh mark right before it clicks. Listeners run inside its dispatchEvent, so the answer is
+  // there when dispatchEvent returns; echoing its token proves this run read approval data for this node
+  function markOnRequest(e) {
+    const el = e.target;
+    if (!(el instanceof Element)) return;
+    el.removeAttribute(MARKED_ATTR);
+    try {
+      if (markItem(el)) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
+    } catch (err) {
+      console.warn('[MAA] bridge mark failed', err);
     }
   }
 
@@ -101,6 +193,13 @@
     if (!timer) timer = setTimeout(update, 50);
   }
 
+  // Loaded from node tests: export the predicate without touching the DOM
+  if (typeof window === 'undefined') {
+    module.exports = { isPurchaseApproval, marksFor };
+    return;
+  }
+
+  document.addEventListener(MARK_EVENT, markOnRequest, true);
   new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
   setInterval(update, 2000);
   schedule();
