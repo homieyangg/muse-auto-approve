@@ -479,6 +479,20 @@ test('without a website policy type from muse a row offers no Trust: none read, 
   assert.equal(offered(site), true);
 });
 
+// Browser connector approvals that can name a site in their title are not website access
+test('goto and download connector cards that name a site get no site Trust', async () => {
+  const cards = [
+    ['Open a.example? This task is from Chat A.', 'connector.browser.page.goto'],
+    ['Access a.example? This task is from Chat A.', 'connector.browser.page.goto'],
+    ['Open a.example to download a file? This task is from Chat A.', 'connector.browser.page.download'],
+  ];
+  for (const [text, policy] of cards) {
+    const entry = await loggedRow(text, { policy, host: 'browser' });
+    assert.deepEqual([entry.host, entry.policy], ['a.example', policy], text);
+    assert.equal(offered(entry), false, text);
+  }
+});
+
 test('a waiting card read without data first gets the data of a later scan on its one log row', async () => {
   const card = siteCard(ACCESS);
   const [first] = await card.scan();

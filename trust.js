@@ -9,7 +9,8 @@ const AAT = (() => {
   // The matcher strips one leading www from both sides; this is only for comparing rules and labels, never for storing
   const bare = host => aam.bareHost(host || '');
 
-  // muse policy types that mean "open this website"
+  // Verified muse policy types for website access; none yet, so no row offers Trust. Browser connector types such as
+  // connector.browser.page.goto or .download can name a site in the title but are not website access
   const SITE_POLICIES = [];
 
   // parseCard reads any card whose title says open plus a hostname as a website, so the title alone is no evidence. A row is
