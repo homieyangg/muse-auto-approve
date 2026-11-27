@@ -97,7 +97,7 @@ function renderHome() {
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
   $('#sites-n').textContent = settings.sites.length;
   $('#chats-n').textContent = settings.chats.length;
-  $('#actions-n').textContent = settings.actions.length;
+  $('#actions-n').textContent = settings.actions.length + settings.strictActions.length;
   $('#today-n').textContent = t('todayN', today);
   $('#prefer-always').checked = settings.preferAlways;
   $('#rate').hidden = !showRate();
@@ -204,13 +204,14 @@ function renderSites() {
   $('#sites-empty').hidden = rows.length > 0;
 }
 
+// Rules from the Waiting list (actions) and from Trust on a recent-activity row (strictActions)
 function renderActions() {
-  const rows = settings.actions.map(action => row(
+  const rows = ['actions', 'strictActions'].flatMap(list => settings[list].map(action => row(
     label(action),
     action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'),
     !action.on,
-    () => saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }),
-  ));
+    () => saveSettings({ [list]: settings[list].filter(a => a.id !== action.id) }),
+  )));
   $('#action-list').replaceChildren(...rows);
   $('#action-list').hidden = !rows.length;
   $('#actions-empty').hidden = rows.length > 0;

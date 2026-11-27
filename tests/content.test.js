@@ -108,10 +108,12 @@ function makeDocument() {
 }
 
 // Loads content.js with the given stored settings; returns the context and what it reported to the background.
-// sources replaces shared.js, guard.js and content.js with other versions of them
-function loadContent(sync = {}, sources = null) {
+// sources replaces shared.js, guard.js and content.js with other versions of them; local is what chrome.storage.local holds.
+// changed() runs the storage.onChanged listeners
+function loadContent(sync = {}, sources = null, local = {}) {
   const reports = [];
-  const store = { sync: { ...AAM.SETTINGS_DEFAULTS, ...sync }, local: { allowOnce: [] } };
+  const listeners = [];
+  const store = { sync: { ...AAM.SETTINGS_DEFAULTS, ...sync }, local: { allowOnce: [], ...local } };
   const area = name => ({
     get(defaults, cb) {
       const out = { ...defaults, ...Object.fromEntries(Object.keys(defaults).filter(k => k in store[name]).map(k => [k, store[name][k]])) };
@@ -122,7 +124,7 @@ function loadContent(sync = {}, sources = null) {
   });
   const chrome = {
     runtime: { id: 'test', sendMessage(msg) { reports.push(msg); return Promise.resolve(); } },
-    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener() {} } },
+    storage: { sync: area('sync'), local: area('local'), onChanged: { addListener(fn) { listeners.push(fn); } } },
   };
   class Ev { constructor(type, init = {}) { Object.assign(this, init); this.type = type; } }
   const ctx = {
@@ -133,7 +135,8 @@ function loadContent(sync = {}, sources = null) {
   };
   vm.createContext(ctx);
   for (const source of sources || [CONTENT]) vm.runInContext(source, ctx);
-  return { ctx, reports, store, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
+  const changed = (changes, area) => listeners.forEach(fn => fn(changes, area));
+  return { ctx, reports, store, changed, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
 }
 
 // Stand-in for bridge.js: answers maa-mark for cards holding an approval id. onMark may change attributes first, or return
@@ -426,7 +429,7 @@ const offered = entry => AAT.offers(AAM.SETTINGS_DEFAULTS, [entry]).size === 1;
 
 // A chat card with the bridge.js attributes given; set() changes them as a later bridge read would, and onMark runs on each
 // fresh mark request
-function siteCard(text, marks = {}) {
+function siteCard(text, marks = {}, local = {}) {
   makeDocument();
   const hooks = { onMark: () => {} };
   fakeBridge(el => hooks.onMark(el));
@@ -446,7 +449,7 @@ function siteCard(text, marks = {}) {
     }
   };
   set(marks);
-  const loaded = loadContent();
+  const loaded = loadContent({}, null, local);
   const scan = async next => {
     if (next) set(next);
     loaded.ctx.scan();
@@ -663,8 +666,8 @@ test('a row whose first read had a site policy but no approval id is never trust
 const POST = 'connector.example.post.create';
 const UPLOAD_TEXT = 'Allow the assistant to use Browser to upload this file? This task is from Chat A.';
 const UPLOAD_MARKS = { policy: UPLOAD, host: 'browser', site: 'a.example' };
-const strictRule = (policy, extra = {}) => ({ id: 'r1', title: 'Saved title', policy, match: 'strict', chats: [], on: true, ...extra });
-const setActions = (card, actions) => vm.runInContext(`settings.actions = ${JSON.stringify(actions)}`, card.ctx);
+const strictRule = (policy, extra = {}) => ({ id: 'r1', title: 'Saved title', policy, chats: [], on: true, ...extra });
+const setActions = (card, actions) => vm.runInContext(`settings.strictActions = ${JSON.stringify(actions)}`, card.ctx);
 const allowClicks = () => doc.querySelector('[data-hatch-approval-primary-action="true"]').clicks;
 
 test('a strict upload rule clicks only an upload to its exact site, read fresh, from a picked chat', async () => {
@@ -711,18 +714,19 @@ test('an upload row offers Trust, and the pick makes the next upload to that sit
   assert.deepEqual([row.result, row.policy, row.site, row.approvalId, row.purchase, row.mixed], ['pending', UPLOAD, 'a.example', 'appr-test-80', false, false]);
   assert.equal(offered(row), true);
   const plan = AAT.planTrust(AAM.SETTINGS_DEFAULTS, row, 'only');
-  assert.deepEqual(plan.patch.actions.map(a => [a.policy, a.site, a.match, a.chats]), [[UPLOAD, 'a.example', 'strict', ['Chat A']]]);
+  assert.deepEqual(Object.keys(plan.patch), ['strictActions']);
+  assert.deepEqual(plan.patch.strictActions.map(a => [a.policy, a.site, a.chats]), [[UPLOAD, 'a.example', ['Chat A']]]);
   const next = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id: 'appr-test-81' });
-  setActions(next, plan.patch.actions);
+  setActions(next, plan.patch.strictActions);
   await next.scan();
   assert.equal(allowClicks(), 1);
   const other = siteCard(UPLOAD_TEXT.replace('Chat A', 'Chat B'), { ...UPLOAD_MARKS, id: 'appr-test-82' });
-  setActions(other, plan.patch.actions);
+  setActions(other, plan.patch.strictActions);
   await other.scan();
   assert.equal(allowClicks(), 0);
 });
 
-// #15 follow-up, item 3
+// #15 follow-up, item 3; Codex round 1, item 1: the strict rule that was refused never clicks that approval later
 test('a purchase seen by a first-scan refused click is on the approval\'s later rows', async () => {
   for (const trustedLater of [false, true]) {
     const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
@@ -735,7 +739,8 @@ test('a purchase seen by a first-scan refused click is on the approval\'s later 
     card.hooks.onMark = () => {};
     if (!trustedLater) setActions(card, []);
     const [row] = await card.scan(UPLOAD_MARKS);
-    assert.deepEqual([row.result, row.approvalId, row.purchase], [trustedLater ? 'allowed' : 'pending', 'appr-test-80', true], String(trustedLater));
+    assert.equal(allowClicks(), 0, String(trustedLater));
+    assert.deepEqual([row.result, row.approvalId, row.purchase], ['pending', 'appr-test-80', true], String(trustedLater));
     assert.equal(offered(row), false);
   }
 });
@@ -755,4 +760,81 @@ test('a node bridge.js does not answer for logs no approval data, even when it s
   const log = await reused.scan();
   assert.deepEqual(Array.from(log, e => [e.chat, e.approvalId, e.policy]), [['Chat B', '', ''], ['Chat A', 'appr-test-80', UPLOAD]]);
   assert.equal(offered(log[0]), false);
+});
+
+// Codex round 1, item 1: what another read of the approval saw, in this tab or the shared log, keeps a strict rule off it
+test('a strict rule never clicks an approval a logged, waiting or refused read saw as a purchase or a mix', async () => {
+  const logged = extra => [{ ts: 1, key: 'connector.browser.page.upload@a.example|Chat A', approvalId: 'appr-test-80', purchase: false, mixed: false, result: 'pending', ...extra }];
+  const cases = [
+    ['logged purchase', { log: logged({ purchase: true }) }, 0],
+    ['logged mix', { log: logged({ mixed: true }) }, 0],
+    ['logged purchase on another approval', { log: logged({ purchase: true, approvalId: 'appr-test-81' }) }, 1],
+    ['clean log', { log: logged({}) }, 1],
+  ];
+  for (const [name, local, clicks] of cases) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, local);
+    setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+  }
+  // A row another tab writes after this one loaded
+  const later = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(later, [strictRule(UPLOAD, { site: 'a.example' })]);
+  later.changed({ log: { newValue: logged({ purchase: true }) } }, 'local');
+  await later.scan();
+  assert.equal(allowClicks(), 0, 'logged later');
+  // The log not read yet
+  const unread = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(unread, [strictRule(UPLOAD, { site: 'a.example' })]);
+  vm.runInContext('loggedDoubts = null', unread.ctx);
+  await unread.scan();
+  assert.equal(allowClicks(), 0, 'log not read');
+  // Waiting as a purchase, then read without it while the rule is on
+  const waiting = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, purchase: true });
+  await waiting.scan();
+  setActions(waiting, [strictRule(UPLOAD, { site: 'a.example' })]);
+  await waiting.scan(UPLOAD_MARKS);
+  assert.equal(allowClicks(), 0, 'waiting purchase');
+  // A rule under actions keeps main's behaviour
+  const old = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: logged({ purchase: true }) });
+  vm.runInContext(`settings.actions = ${JSON.stringify([{ id: 'a1', title: 'x', policy: UPLOAD, site: 'a.example', chats: [], on: true }])}`, old.ctx);
+  await old.scan();
+  assert.equal(allowClicks(), 1, 'old rule');
+});
+
+// Codex round 1, item 5: an upload item of a combined card with a fresh id and site, but no fresh reply for the card itself
+test('a strict rule never clicks a combined-card item unless the whole card answered not a purchase', async () => {
+  for (const [parentAnswers, clicks] of [[false, 0], [true, 1]]) {
+    makeDocument();
+    fakeBridge();
+    const allow = new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Allow');
+    const item = new El('div', { role: 'button', 'aria-expanded': 'true', 'data-maa-approval-id': 'appr-test-90', 'data-maa-state': 'clean', 'data-maa-policy': UPLOAD, 'data-maa-host': 'browser', 'data-maa-site': 'a.example' }, [
+      new El('p', {}, [], 'Upload this file'),
+      new El('div', {}, [allow, new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny')]),
+    ]);
+    const cardAttrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', ...(parentAnswers && { 'data-maa-approval-id': 'appr-test-91' }) };
+    doc.body.append(new El('div', cardAttrs, [new El('p', {}, [], 'Allow the assistant to use Browser? This task is from Chat A.'), item]));
+    const { ctx, store } = loadContent({ strictActions: [strictRule(UPLOAD, { site: 'a.example' })] });
+    ctx.scan();
+    for (let i = 0; i < 6; i++) await tick();
+    assert.equal(allow.clicks, clicks, String(parentAnswers));
+    assert.equal(store.local.log[0].site, 'a.example');
+  }
+});
+
+// Codex round 1, item 7
+test('rows carry the evidence version unless they share an approval with a row an earlier version wrote', async () => {
+  const [fresh] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS).scan();
+  assert.equal(fresh.evidenceVersion, AAM.EVIDENCE_VERSION);
+  assert.equal(offered(fresh), true);
+  const { evidenceVersion, ...old } = { ...fresh, ts: 1, result: 'handled' };
+  const [row, earlier] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [old] }).scan();
+  assert.deepEqual([row.result, row.approvalId, 'evidenceVersion' in row, 'evidenceVersion' in earlier], ['pending', 'appr-test-80', false, false]);
+  assert.equal(offered(row), false);
+  // A current row of the same approval loses the version once an older row is merged into it
+  const [again, current, oldest] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...fresh, ts: 2, result: 'handled' }, old] }).scan();
+  assert.deepEqual([again, current, oldest].map(e => 'evidenceVersion' in e), [false, false, false]);
+  // Another approval's old row leaves this one current
+  const [other] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...old, approvalId: 'appr-test-81' }] }).scan();
+  assert.equal(other.evidenceVersion, AAM.EVIDENCE_VERSION);
 });

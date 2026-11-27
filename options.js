@@ -73,7 +73,7 @@ function knownChats() {
     ...local.museChats,
     ...settings.chats.map(c => c.name),
     ...settings.sites.flatMap(s => s.chats),
-    ...settings.actions.flatMap(a => a.chats),
+    ...actionRules().flatMap(({ rule }) => rule.chats),
     ...AAM.mergePending(pendingByTab).map(i => i.chat),
     ...local.log.map(e => e.chat),
   ].filter(Boolean);
@@ -91,7 +91,7 @@ function renderNav() {
   document.querySelectorAll('.nav[href]').forEach(a => a.classList.toggle('on', a.getAttribute('href') === `#${page}`));
   $('#nav-sites-n').textContent = settings.sites.length;
   $('#nav-chats-n').textContent = settings.chats.length;
-  $('#nav-actions-n').textContent = settings.actions.length;
+  $('#nav-actions-n').textContent = actionRules().length;
 }
 
 function renderGeneral() {
@@ -269,20 +269,26 @@ function renderChats(force) {
   $('#chat-detail').replaceChildren(...(chat ? chatDetail(chat) : newChatForm()));
 }
 
-function updateAction(id, patch) {
-  return saveSettings({ actions: settings.actions.map(a => (a.id === id ? { ...a, ...patch } : a)) });
+// The Waiting list saves action rules under actions, Trust on a recent-activity row saves strict ones under strictActions.
+// The page lists both; a rule is picked by its list and id
+const ACTION_LISTS = ['actions', 'strictActions'];
+const actionRules = () => ACTION_LISTS.flatMap(list => (Array.isArray(settings[list]) ? settings[list] : []).map(rule => ({ list, rule })));
+const actionRef = (list, rule) => `${list}:${rule.id}`;
+
+function updateAction(list, id, patch) {
+  return saveSettings({ [list]: settings[list].map(a => (a.id === id ? { ...a, ...patch } : a)) });
 }
 
-function actionEntry(action) {
+function actionEntry({ list, rule: action }) {
   const chatScope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
   const scope = action.site && action.sub ? `${t('subShort')}・${chatScope}` : chatScope;
-  const entry = el('div', { className: `entry${action.id === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
+  const entry = el('div', { className: `entry${actionRef(list, action) === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
     el('div', {}, el('b', { textContent: AAM.cardLabel(action, t) }), el('small', { textContent: scope })),
-    toggle(action.on, on => updateAction(action.id, { on })));
+    toggle(action.on, on => updateAction(list, action.id, { on })));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
-    selectedAction = action.id;
+    selectedAction = actionRef(list, action);
     renderActions(true);
   });
   return entry;
@@ -290,7 +296,8 @@ function actionEntry(action) {
 
 // Upload rules can change their site and cover its subdomains, e.g. one myworkdayjobs.com rule for every company's Workday host.
 // Compares against the stored rule, not the one the panel was built from, because the panel isn't rebuilt while it has focus
-function uploadSiteFields(action, current) {
+// A strict rule matches its exact site only, so it has no subdomain option
+function uploadSiteFields(list, action, current) {
   const input = el('input', { className: 'text-input', value: action.site });
   const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
   input.addEventListener('change', () => {
@@ -300,10 +307,9 @@ function uploadSiteFields(action, current) {
     error.hidden = !!site;
     if (!site) return;
     input.value = site;
-    if (site !== current().site) updateAction(action.id, { site });
+    if (site !== current().site) updateAction(list, action.id, { site });
   });
-  // A strict rule from recent activity matches its exact site only, so it has no subdomain option
-  const sub = action.match === undefined ? check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on })) : null;
+  const sub = list === 'actions' ? check('checkbox', !!action.sub, t('includeSub'), on => updateAction(list, action.id, { sub: on })) : null;
   // Only an unsaved edit in the focused input is kept; otherwise the input follows the stored site
   let shown = action.site;
   const refresh = rule => {
@@ -317,9 +323,9 @@ function uploadSiteFields(action, current) {
   return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, ...(sub ? [sub] : [])], refresh };
 }
 
-function actionStatsText(action) {
+function actionStatsText(list, action) {
   const sameSite = e => !action.site || AAM.hostMatches({ host: action.site, sub: !!action.sub }, e.site || '');
-  const same = e => (action.match === undefined ? e.action === action.title && sameSite(e) : AAM.strictMatch(action, e));
+  const same = list === 'actions' ? e => e.action === action.title && sameSite(e) : e => AAM.strictMatch({ ...action, on: true, chats: [] }, e);
   const hits = local.log.filter(e => e.result === 'allowed' && same(e) && Date.now() - e.ts < WEEK_MS);
   return hits.length ? t('siteStats', hits.length, I18N.clock(hits[0].ts)) : t('siteStatsNone');
 }
@@ -330,27 +336,27 @@ let actionPanel = null;
 // What the chat checkboxes were built from: the rule's chats and every chat that can be picked
 const chatPickKey = action => JSON.stringify([action.chats, [...new Set([...action.chats, ...knownChats()])].sort()]);
 
-function actionDetail(action) {
-  const current = () => settings.actions.find(a => a.id === action.id) || action;
+function actionDetail({ list, rule: action }) {
+  const current = () => settings[list].find(a => a.id === action.id) || action;
   const heading = el('b', { textContent: AAM.cardLabel(action, t) });
-  const stats = el('p', { className: 'stats', textContent: actionStatsText(action) });
-  const site = action.site ? uploadSiteFields(action, current) : null;
+  const stats = el('p', { className: 'stats', textContent: actionStatsText(list, action) });
+  const site = action.site ? uploadSiteFields(list, action, current) : null;
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
-  remove.addEventListener('click', () => { saveSettings({ actions: settings.actions.filter(a => a.id !== action.id) }); renderActions(true); });
+  remove.addEventListener('click', () => { saveSettings({ [list]: settings[list].filter(a => a.id !== action.id) }); renderActions(true); });
   actionPanel = {
-    id: action.id,
+    id: actionRef(list, action),
     upload: !!action.site,
     chatKey: chatPickKey(action),
     refresh: rule => {
       heading.textContent = AAM.cardLabel(rule, t);
-      stats.textContent = actionStatsText(rule);
+      stats.textContent = actionStatsText(list, rule);
       site?.refresh(rule);
     },
   };
   return [
     el('div', { className: 'detail-head' }, glyph(BOLT), heading),
     ...(site ? site.nodes : []),
-    ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
+    ...chatScopeFields(action.chats, chats => updateAction(list, action.id, { chats })),
     stats,
     el('div', { className: 'detail-foot' }, el('span'), remove),
   ];
@@ -380,13 +386,15 @@ function renderActions(force) {
     renderOnRelease = true;
     return;
   }
-  if (!settings.actions.some(a => a.id === selectedAction)) selectedAction = settings.actions[0]?.id ?? null;
-  $('#action-items').replaceChildren(...settings.actions.map(actionEntry));
-  $('#actions-empty').hidden = settings.actions.length > 0;
-  $('#action-detail').hidden = !settings.actions.length;
-  const action = settings.actions.find(a => a.id === selectedAction);
+  const items = actionRules();
+  if (!items.some(({ list, rule }) => actionRef(list, rule) === selectedAction)) selectedAction = items[0] ? actionRef(items[0].list, items[0].rule) : null;
+  $('#action-items').replaceChildren(...items.map(actionEntry));
+  $('#actions-empty').hidden = items.length > 0;
+  $('#action-detail').hidden = !items.length;
+  const item = items.find(({ list, rule }) => actionRef(list, rule) === selectedAction);
+  const action = item?.rule;
   const focused = $('#action-detail').contains(document.activeElement);
-  const sameRule = !force && action && actionPanel?.id === action.id;
+  const sameRule = !force && action && actionPanel?.id === selectedAction;
   // A rule that gained or lost its site (import, sync) needs the Site field added or removed, so it's always rebuilt
   if (sameRule && actionPanel.upload === !!action.site && (focused || actionPanel.chatKey === chatPickKey(action))) {
     actionPanel.refresh(action);
@@ -394,7 +402,7 @@ function renderActions(force) {
   }
   if (!force && focused && !sameRule) return;
   actionPanel = null;
-  $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
+  $('#action-detail').replaceChildren(...(item ? actionDetail(item) : []));
 }
 
 const trustControls = AAT.controls({ t, storage: chrome.storage.sync, logStorage: chrome.storage.local, render: () => renderLog() });

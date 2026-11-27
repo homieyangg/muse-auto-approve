@@ -17,7 +17,7 @@ const apply = (settings, plan) => ({ ...settings, ...plan.patch });
 
 // Log entries shaped like the ones content.js writes, with the card key built the same way
 function siteEntry(host, chat, result = 'handled', extra = {}) {
-  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: SITE, approvalHost: host, approvalId: `appr-${host}-${chat}`, mixed: false, site: '', result, ...extra };
+  const e = { ts: Date.now(), host, chat, title: `Access ${host}`, action: '', policy: SITE, approvalHost: host, approvalId: `appr-${host}-${chat}`, mixed: false, evidenceVersion: AAM.EVIDENCE_VERSION, site: '', result, ...extra };
   return { ...e, key: AAM.cardKey(e) };
 }
 function actionEntry(title, chat, result = 'handled', extra = {}) {

@@ -3,7 +3,7 @@
 // "Trust" on a recent-activity row: which rows offer it, the rule it saves, and undoing that one change.
 // It never edits what an existing rule matches: it re-enables or extends a rule only when its criteria are exactly the
 // card's, and otherwise appends a new rule. Website rows offer nothing until SITE_POLICIES has a value; action and upload
-// rows save a strict action rule (AAM.strictMatch)
+// rows save a strict rule under strictActions (AAM.strictMatch)
 const AAT = (() => {
   const aam = typeof AAM !== 'undefined' ? AAM : require('./shared.js');
 
@@ -36,8 +36,11 @@ const AAT = (() => {
   // website path, so an action rule would never cover them
   const isSiteRow = entry => !!entry.host;
 
+  // Rows logged before EVIDENCE_VERSION may hold evidence read from a node muse had reused, so they offer nothing
+  const currentEvidence = entry => entry.evidenceVersion === aam.EVIDENCE_VERSION;
+
   function trustable(entry) {
-    if (aam.isPurchase(entry)) return false;
+    if (aam.isPurchase(entry) || !currentEvidence(entry)) return false;
     if (isSiteRow(entry)) return siteEvidence(entry) && !!aam.normalizeHost(entry.host);
     return actionEvidence(entry);
   }
@@ -74,13 +77,14 @@ const AAT = (() => {
     return planRule(settings.sites || [], 'sites', chats, r => sameSite(r, host), id => ({ id, host, sub: false, chats, on: true }));
   }
 
-  // Same merge for action and upload rows, over strict rules with the same policy and site only. addActionRule isn't used:
-  // it merges into a title-or-policy rule and widens what it matches
+  // Same merge for action and upload rows, over valid strict rules with the same policy and site only. addActionRule isn't
+  // used: it merges into a title-or-policy rule under actions and widens what it matches
   function planAction(settings, entry, chats) {
     const { policy, site } = entry;
-    const same = r => r.match === 'strict' && r.policy === policy && (r.site || '') === site && !r.sub;
-    return planRule(settings.actions || [], 'actions', chats, same,
-      id => ({ id, title: entry.action.slice(0, 120), policy, ...(site && { site }), match: 'strict', chats, on: true }));
+    const same = r => aam.validStrictRule(r) && r.policy === policy && (r.site || '') === site;
+    const rules = Array.isArray(settings.strictActions) ? settings.strictActions : [];
+    return planRule(rules, 'strictActions', chats, same,
+      id => ({ id, title: entry.action.slice(0, 120), policy, ...(site && { site }), chats, on: true }));
   }
 
   function planRule(rules, list, chats, same, make) {

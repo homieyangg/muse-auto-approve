@@ -57,6 +57,8 @@ const linkedTitles = new Set();
 // Evidence of reads that refused a click, by approval id, for the rows the approval gets later
 const refusedEvidence = new Map();
 const REFUSED_LIMIT = 200;
+// Approval ids that any tab's log has shown as a purchase or a mix of approvals; null until the log has been read
+let loggedDoubts = null;
 const settleUntil = new WeakMap();
 const waitingState = new Map();
 const unreadableSince = new Map();
@@ -257,7 +259,27 @@ function purchaseState(node, body) {
 function cardOf(node, buttons) {
   const purchase = buttons.muse ? purchaseState(node, buttons.body) : null;
   const attr = name => (buttons.muse && node.getAttribute(name)) || '';
-  return { ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, ...freshEvidence(buttons.muse ? node : null) };
+  return withDoubt({ ...AAM.parseCard(labelOf(buttons.body), buttons.heading, attr(POLICY_ATTR), attr(SITE_ATTR)), purchase, ...freshEvidence(buttons.muse ? node : null) });
+}
+
+const doubtful = evidence => evidence.purchase === true || !!evidence.mixed;
+
+// Marks the card tainted when an earlier read of its approval (a refused click, a waiting item, any tab's log row) saw a
+// purchase or a mix of approvals, or before the log is read. Only strict rules look at it (AAM.strictMatch)
+function withDoubt(card) {
+  const id = card.approvalId;
+  const held = id && refusedEvidence.get(id);
+  const tainted = !loggedDoubts || (!!id && (loggedDoubts.has(id) || (!!held && doubtful(held)) || [...waitingState.values()].some(w => w.approvalId === id && doubtful(w))));
+  return { ...card, tainted };
+}
+
+function rememberDoubts(log) {
+  loggedDoubts ||= new Set();
+  for (const e of log || []) if (e && e.approvalId && doubtful(e)) loggedDoubts.add(e.approvalId);
+  for (const id of loggedDoubts) {
+    if (loggedDoubts.size <= SEEN_LIMIT) break;
+    loggedDoubts.delete(id);
+  }
 }
 
 // Only a fresh bridge.js reply counts: without one the attributes may be left from an earlier mark, on a node muse has
@@ -319,8 +341,13 @@ function mergeCards(a, b) {
 function shareEvidence(log, item) {
   const rows = log.filter(e => e.key === item.key && sameApproval(e, item));
   const evidence = rows.map(loggedEvidence).reduce(mergeEvidence, evidenceOf(item));
-  return { evidence, log: rows.length ? log.map(e => (rows.includes(e) ? { ...e, ...logEvidence(evidence) } : e)) : log };
+  // A row an earlier version wrote may hold stale evidence, so no row of that approval is current once they are merged
+  const current = rows.every(e => e.evidenceVersion === AAM.EVIDENCE_VERSION);
+  const update = ({ evidenceVersion, ...e }) => ({ ...e, ...logEvidence(evidence), ...(current && { evidenceVersion }) });
+  return { evidence, current, log: rows.length ? log.map(e => (rows.includes(e) ? update(e) : e)) : log };
 }
+
+const versionOf = shared => (shared.current ? { evidenceVersion: AAM.EVIDENCE_VERSION } : {});
 
 function addWaiting(waiting, item, keepEarlier = false) {
   const prev = waiting.get(item.key);
@@ -338,12 +365,10 @@ function handledElsewhere({ approvalId, surface }, key, now) {
 // 舊版信任的動作只記標題；看到同標題的卡就把權限種類補進規則，之後標題寫法不同的批次卡也認得
 function linkActionPolicy(card) {
   if (!card.policy || linkedTitles.has(card.action)) return;
-  // Strict rules from recent activity never take a policy from a card title
-  const legacy = a => a.match === undefined && a.title === card.action && !a.policy;
-  if (!settings.actions.some(legacy)) return;
+  if (!settings.actions.some(a => a.title === card.action && !a.policy)) return;
   linkedTitles.add(card.action);
   chrome.storage.sync.get({ actions: [] })
-    .then(({ actions }) => chrome.storage.sync.set({ actions: actions.map(a => (legacy(a) ? { ...a, policy: card.policy } : a)) }))
+    .then(({ actions }) => chrome.storage.sync.set({ actions: actions.map(a => (a.title === card.action && !a.policy ? { ...a, policy: card.policy } : a)) }))
     .catch(() => {});
 }
 
@@ -375,7 +400,7 @@ function reviewPreviews(previews, now, waiting, canExpand) {
   for (const preview of previews) {
     const purchase = purchaseState(preview, preview);
     const policy = preview.getAttribute(POLICY_ATTR) || '';
-    const card = { ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, ...freshEvidence(preview) };
+    const card = withDoubt({ ...AAM.parseCard(labelOf(preview), '', policy, preview.getAttribute(SITE_ATTR) || ''), purchase, ...freshEvidence(preview) });
     const key = AAM.cardKey(card);
     if (!AAG.canAutoApprove(settings, card, onceAllowed(key))) {
       addWaiting(waiting, pendingItem(card, key), true);
@@ -407,7 +432,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   console.info('[MAA] approved', card.host || card.action, card.chat);
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const shared = shareEvidence(data.log, { key, ...evidence });
-    const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(shared.evidence), site: card.site, result: 'allowed', kind };
+    const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, ...logEvidence(shared.evidence), ...versionOf(shared), site: card.site, result: 'allowed', kind };
     const log = shared.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
     if (onceOnly) patch.allowOnce = data.allowOnce.filter(k => k !== key);
@@ -530,7 +555,7 @@ function recordWaitingChanges(added, gone, refreshed = []) {
     const fresh = added.map(w => {
       const shared = shareEvidence(log, w);
       log = shared.log;
-      return { ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(shared.evidence), site: w.site, result: 'pending' };
+      return { ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, ...logEvidence(shared.evidence), ...versionOf(shared), site: w.site, result: 'pending' };
     });
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
@@ -628,8 +653,9 @@ chrome.storage.sync.get(AAM.SETTINGS_DEFAULTS, stored => {
   settings = stored;
   scheduleScan();
 });
-chrome.storage.local.get({ allowOnce: [] }, stored => {
+chrome.storage.local.get({ allowOnce: [], log: [] }, stored => {
   allowOnce = stored.allowOnce;
+  rememberDoubts(stored.log);
   forgetUsedOnce();
   scheduleScan();
 });
@@ -637,6 +663,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync') {
     for (const key of Object.keys(AAM.SETTINGS_DEFAULTS)) if (changes[key]) settings[key] = changes[key].newValue ?? AAM.SETTINGS_DEFAULTS[key];
   }
+  if (area === 'local' && changes.log) rememberDoubts(changes.log.newValue);
   if (area === 'local' && changes.allowOnce) {
     allowOnce = changes.allowOnce.newValue || [];
     forgetUsedOnce();

@@ -505,7 +505,7 @@ test('the task-wide web-access card offers no Trust, and a strict rule for its p
     const [row] = untrusted.env.store.local.log;
     assert.deepEqual([row.result, row.host, row.policy, row.approvalId], ['pending', '', 'tool.web_fetch', ID], surface);
     assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [row]).size, 0, surface);
-    const strict = { actions: [{ id: 'r1', title: TITLE, policy: 'tool.web_fetch', match: 'strict', chats: [], on: true }] };
+    const strict = { strictActions: [{ id: 'r1', title: TITLE, policy: 'tool.web_fetch', chats: [], on: true }] };
     const { clicks } = await run(() => grantCard({ surface }), strict, HEAD_SOURCES);
     assert.deepEqual(clicks, [0, 0], surface);
   }

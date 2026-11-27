@@ -2,9 +2,11 @@
 
 // popup、設定頁、背景和 content script 共用的設定結構與判斷規則
 const AAM = (() => {
-  const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [] };
+  const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [], strictActions: [] };
   const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [], unreadable: { count: 0, lastSeen: 0, lang: '' } };
   const LOG_LIMIT = 200;
+  // Stamped on log rows whose approval evidence comes from fresh bridge.js replies only; older rows never offer Trust
+  const EVIDENCE_VERSION = 1;
   const STORE_URL = 'https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii';
   const REPO_URL = 'https://github.com/homieyangg/muse-auto-approve';
 
@@ -165,26 +167,40 @@ const AAM = (() => {
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
     const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
-    const sameAction = a => (a.match === undefined ? sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy)) : strictMatch(a, card));
-    return !!card.action && (settings.actions || []).some(a => scoped(a) && sameAction(a));
+    const sameAction = a => sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
+    return !!card.action && ((settings.actions || []).some(a => scoped(a) && sameAction(a)) || strictRules(settings).some(a => strictMatch(a, card)));
   }
 
-  // Policy types a strict rule may stand for. Browser connector actions other than uploads act on a site the log doesn't
-  // keep (goto, download, credential_fill, ...), so a rule for their policy would cover every site. tool.* and other
-  // non-connector types never: tool.web_fetch is muse's task-wide web-access grant, which takes the text rules (PR #18)
+  // Rules saved from a recent-activity row live under their own key, which versions without strict matching never read
+  const strictRules = settings => (Array.isArray(settings.strictActions) ? settings.strictActions : []);
+
+  const CONNECTOR_POLICY_RE = /^connector\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
+
+  // Policy types a strict rule may stand for: connector.<connector>.<method>. Browser connector actions other than uploads
+  // act on a site the log doesn't keep (goto, download, credential_fill, ...), so a rule for their policy would cover every
+  // site. tool.* and other types never: tool.web_fetch is muse's task-wide web-access grant, which takes the text rules (PR #18)
   function strictPolicy(policy) {
-    if (policy === UPLOAD_POLICY) return true;
-    return typeof policy === 'string' && /^connector\.[^.]+\./.test(policy) && !policy.startsWith('connector.browser.');
+    if (typeof policy !== 'string' || policy.length > 200 || !CONNECTOR_POLICY_RE.test(policy)) return false;
+    return policy === UPLOAD_POLICY || !policy.startsWith('connector.browser.');
   }
 
-  // Rules saved from a recent-activity row carry match: 'strict'. They match only a card freshly read from muse's data
-  // (content.js keeps approvalId only then) whose policy is the rule's, and for uploads whose destination is exactly the
-  // rule's site, no subdomains or www twin; the title is only a label. Any other match value matches nothing, so a rule
-  // never falls back to the title-or-policy match above
+  // A strict rule as stored or imported, every field already in its final form: nothing is trimmed, cut or normalized, so a
+  // value that would need it makes the rule invalid. An upload rule names its site as normalizeHost gives it, others none
+  function validStrictRule(rule) {
+    if (!rule || typeof rule !== 'object' || typeof rule.id !== 'string' || !rule.id) return false;
+    if (typeof rule.title !== 'string' || !rule.title || rule.title.length > 120 || typeof rule.on !== 'boolean') return false;
+    if (!strictPolicy(rule.policy) || !Array.isArray(rule.chats) || !rule.chats.every(c => typeof c === 'string' && c)) return false;
+    if (rule.policy !== UPLOAD_POLICY) return rule.site === undefined;
+    return typeof rule.site === 'string' && !!rule.site && normalizeHost(rule.site) === rule.site;
+  }
+
+  // A strict rule matches only a card read fresh from muse's data (content.js keeps approvalId only then), known not to be a
+  // purchase for the whole card, never seen as a purchase or a mix of approvals on any read of that approval (tainted), with
+  // the rule's policy, and for uploads exactly the rule's site: no subdomains or www twin. The title is only a label
   function strictMatch(rule, card) {
-    if (rule.match !== 'strict' || !strictPolicy(rule.policy) || !card.approvalId || rule.policy !== card.policy) return false;
-    const site = card.site || '';
-    return (rule.site || '') === site && (card.policy !== UPLOAD_POLICY || !!site);
+    if (!validStrictRule(rule) || !rule.on || (rule.chats.length && !rule.chats.includes(card.chat))) return false;
+    if (card.host || !card.action || !card.approvalId || card.purchase !== false || card.mixed || card.tainted) return false;
+    return rule.policy === card.policy && (rule.site || '') === (card.site || '');
   }
 
   // 結帳、下單、購買的卡會花到錢，不管信任設定都不自動按，只接受使用者在 popup 按的「只允許這一次」
@@ -212,8 +228,7 @@ const AAM = (() => {
 
   function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
-    // Rules from recent activity are left alone, so the result is the one main writes
-    const found = next.find(a => a.match === undefined && (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
+    const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
     if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
@@ -261,23 +276,27 @@ const AAM = (() => {
       out.chats = raw.chats.filter(c => c && typeof c.name === 'string' && c.name).map(c => ({ id: String(c.id || newId()), name: c.name, on: c.on !== false }));
     }
     if (Array.isArray(raw.actions)) {
-      // A match value this version doesn't know drops the rule rather than letting it match like an old rule
       out.actions = raw.actions
-        .filter(a => a && typeof a.title === 'string' && a.title && (a.match === undefined || a.match === 'strict'))
+        .filter(a => a && typeof a.title === 'string' && a.title)
         .map(a => ({
           id: String(a.id || newId()),
           title: a.title.slice(0, 120),
           ...(typeof a.policy === 'string' && a.policy && { policy: a.policy.slice(0, 200) }),
-          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && a.match === undefined && { sub: true }) }),
-          ...(a.match === 'strict' && { match: 'strict' }),
+          ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
           on: a.on !== false,
           chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
         }));
     }
+    // Kept only as they are: an invalid strict rule is dropped, never repaired into one that matches something else
+    if (Array.isArray(raw.strictActions)) {
+      out.strictActions = raw.strictActions
+        .filter(validStrictRule)
+        .map(a => ({ id: a.id, title: a.title, policy: a.policy, ...(a.site !== undefined && { site: a.site }), chats: [...a.chats], on: a.on }));
+    }
     return out;
   }
 
-  return { UPLOAD_POLICY, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictMatch, strictPolicy, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
+  return { UPLOAD_POLICY, EVIDENCE_VERSION, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictPolicy, validStrictRule, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;
