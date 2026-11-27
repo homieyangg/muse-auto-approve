@@ -488,3 +488,25 @@ test('a menu item whose ancestor approval and pending list disagree is not marke
   assert.equal(fresh.alwaysInMenu, false);
   assert.equal(AAM.samePick(panel([ONCE, SCOPED, DENY]), fresh, { menu: true, data: true, approvalId: 'appr-test-44', option }), false);
 });
+
+// Codex re-review P1-3
+test('an empty option list that was read vetoes every text pick', () => {
+  assert.deepEqual(AAM.textVeto([]), { always: false, once: false, primary: false });
+  assert.equal(AAM.textVeto(null), null);
+  const candidates = TEXTS.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: false, kind: '', labelKind: '', scope: '' }));
+  assert.equal(AAM.pickAllowButtons(candidates, false, []), null);
+});
+
+// Codex re-review P1-2
+test('once options were read, a menu item is picked only by its fresh whitelisted mark', () => {
+  const always = { approvalId: 'appr-test-45', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' };
+  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow uploads to this site', option: null }], 'appr-test-45', true), null);
+  assert.deepEqual(AAM.pickMenuItem([{ el: 'm0', text: 'x', option: always }], 'appr-test-45', true), { item: 'm0', data: true });
+  // Text path with the options known: a text-picked menu target is refused, a mark-picked one is checked against the options
+  const candidates = PANEL_TEXTS.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: i === 1, kind: '', labelKind: '', scope: '' }));
+  const known = AAM.pickAllowButtons(candidates, false, markList([ONCE, SCOPED, DENY]));
+  assert.deepEqual([known.known, known.data, known.alwaysInMenu], [true, false, true]);
+  assert.equal(AAM.samePick(known, known, { menu: true, data: false, approvalId: 'appr-test-45', option: null }), false);
+  assert.equal(AAM.samePick(known, known, { menu: true, data: true, approvalId: 'appr-test-45', option: always }), true);
+  assert.equal(AAM.samePick(known, known, { menu: true, data: true, approvalId: 'appr-test-45', option: { ...always, scope: 'destination_domain' } }), false);
+});

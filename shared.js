@@ -64,9 +64,10 @@ const AAM = (() => {
 
   // Once the approval's options have been read, they keep a veto over the text rules even when the button keys did not match:
   // text may pick always only when every option is whitelist-known, once only when a plain once option exists, and the
-  // primary button only when the first allow option is that once option. null when no options were read (main's text rules)
+  // primary button only when the first allow option is that once option. An empty list that was read allows nothing.
+  // null when no options were read (main's text rules)
   function textVeto(options) {
-    if (!Array.isArray(options) || !options.length) return null;
+    if (!Array.isArray(options)) return null;
     const roles = options.map(optionRole);
     const firstAllow = options.find(o => isAllowKind(o?.kind));
     return {
@@ -81,11 +82,11 @@ const AAM = (() => {
     return !!approvalId && option?.approvalId === approvalId && optionRole(option) === 'always';
   }
 
-  // items: [{ el, text, option }] of the open menu. On the data path only an item freshly marked as a whitelisted always for
-  // this approval is picked, never by text. Returns { item, data } or null
-  function pickMenuItem(items, approvalId, byData) {
-    const found = byData ? items.find(i => menuItemAlways(i.option, approvalId)) : items.find(i => ALWAYS_RE.test(i.text));
-    return found ? { item: found.el, data: !!byData } : null;
+  // items: [{ el, text, option }] of the open menu. Once the card's options were read (known), only an item freshly marked
+  // as a whitelisted always for this approval is picked, never by text. Returns { item, data } or null
+  function pickMenuItem(items, approvalId, known) {
+    const found = known ? items.find(i => menuItemAlways(i.option, approvalId)) : items.find(i => ALWAYS_RE.test(i.text));
+    return found ? { item: found.el, data: !!known } : null;
   }
 
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
@@ -121,11 +122,11 @@ const AAM = (() => {
 
   // Right before a click, the pick made on fresh attributes must match the earlier one: same path (data or text) and the
   // target still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now;
-  // on the data path it must also still be a whitelisted always among the card's fresh options
+  // data tells it was picked by that mark, which then must still be a whitelisted always among the card's fresh options
   function samePick(before, after, target) {
     if (!after || after.data !== before.data || after.known !== before.known) return false;
     if (target?.menu) {
-      if (after.always || !after.once || !after.alwaysInMenu || target.data !== after.data) return false;
+      if (after.always || !after.once || !after.alwaysInMenu || target.data !== after.known) return false;
       if (!target.data) return true;
       return menuItemAlways(target.option, target.approvalId) && after.options.some(o => sameOption(o, target.option));
     }

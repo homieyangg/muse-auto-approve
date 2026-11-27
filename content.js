@@ -341,7 +341,8 @@ function stillAllowed(node, buttons, key, onceOnly, target) {
   const card = cardOf(node, buttons);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
-  if (buttons.data && !freshlyMarked(node)) return false;
+  // Read options steer the text path too, so they must come from this fresh mark
+  if (buttons.known && !freshlyMarked(node)) return false;
   if (target.menu && (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
   return AAM.samePick(buttons, findAllowButtons(node), target);
 }
@@ -366,28 +367,30 @@ function releaseRefused(node, buttons, key, onceOnly) {
 // allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
 // Returns null when nothing was clicked
 async function clickAllow(node, buttons, preferAlways, allowed) {
-  const { always, once, menu, data, alwaysInMenu, approvalId } = buttons;
+  const { always, once, menu, known, alwaysInMenu, approvalId } = buttons;
   if (!allowed()) return null;
   const useMenu = preferAlways && !always && once && menu && isClickable(menu) && alwaysInMenu;
-  const picked = useMenu ? await openAlwaysItem(menu, approvalId, data) : null;
-  const item = picked?.item;
-  const target = item || AAM.clickTarget(buttons, preferAlways);
-  if (!target) return null;
-  const inPlace = item
-    ? node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item)
-    : target.isConnected && node.contains(target);
-  const check = item ? { menu: true, data: picked.data, approvalId, option: picked.data ? freshMenuOption(item) : null } : target;
-  if (!inPlace || !allowed(check)) {
-    if (item) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    return null;
+  const picked = useMenu ? await openAlwaysItem(menu, approvalId, known) : null;
+  if (picked) {
+    const { item } = picked;
+    const inPlace = node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item);
+    if (inPlace && allowed({ menu: true, data: picked.data, approvalId, option: picked.data ? freshMenuOption(item) : null })) {
+      item.click();
+      return 'always';
+    }
+    // A refused item (e.g. card and pending list disagree on its scope) settles for allow once, re-checked below,
+    // instead of reopening the menu on every scan
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   }
+  const target = picked ? once : AAM.clickTarget(buttons, preferAlways);
+  if (!target || !target.isConnected || !node.contains(target) || !allowed(target)) return null;
   target.click();
-  return (item || target === always) ? 'always' : 'once';
+  return target === always ? 'always' : 'once';
 }
 
 // Radix 選單要 pointerdown 才會打開，選項渲染在卡片外，從 aria-controls 找；找不到一律允許就關掉選單
-// On the data path each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
-async function openAlwaysItem(menu, approvalId, byData) {
+// Once the card's options were read, each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
+async function openAlwaysItem(menu, approvalId, known) {
   if (menu.getAttribute('aria-expanded') !== 'true') {
     menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
   }
@@ -395,8 +398,8 @@ async function openAlwaysItem(menu, approvalId, byData) {
     await new Promise(resolve => setTimeout(resolve, 100));
     const list = document.getElementById(menu.getAttribute('aria-controls'));
     if (!list) continue;
-    const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: byData ? freshMenuOption(el) : null }));
-    const picked = AAM.pickMenuItem(items, approvalId, byData);
+    const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: known ? freshMenuOption(el) : null }));
+    const picked = AAM.pickMenuItem(items, approvalId, known);
     if (picked) return picked;
     break;
   }

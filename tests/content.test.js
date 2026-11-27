@@ -123,23 +123,25 @@ function loadContent(sync = {}) {
   return { ctx, reports, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
 }
 
-// Stand-in for bridge.js: answers maa-mark for nodes holding an approval id; onMark may change attributes first
+// Stand-in for bridge.js: answers maa-mark for cards holding an approval id and for marked menu items. onMark may change
+// attributes first, or return false to leave the request unanswered while the old attributes stay
 function fakeBridge(onMark = () => {}) {
   doc.addEventListener('maa-mark', e => {
     const el = e.target;
     el.removeAttribute('data-maa-marked');
-    onMark(el);
-    if (el.hasAttribute('data-maa-approval-id')) el.setAttribute('data-maa-marked', el.getAttribute('data-maa-mark-request'));
+    if (onMark(el) === false) return;
+    if (el.hasAttribute('data-maa-approval-id') || el.hasAttribute('data-maa-option-approval')) el.setAttribute('data-maa-marked', el.getAttribute('data-maa-mark-request'));
   });
 }
 
 const optAttrs = (kind, labelKind, scope = '') => ({ 'data-maa-option-kind': kind, 'data-maa-label-kind': labelKind, ...(scope && { 'data-maa-scope': scope }) });
 
-// A chat-surface card for a website access approval. withData false leaves out every bridge.js option attribute
-function accessCard(buttons, { withData = true, options = null } = {}) {
+// A chat-surface card for a website access approval. withData false leaves out every bridge.js option attribute;
+// marked false keeps the card's option list but leaves its buttons unmarked, as when the keys did not match
+function accessCard(buttons, { withData = true, options = null, marked = withData } = {}) {
   const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-50' };
   if (withData && options) attrs['data-maa-options'] = JSON.stringify(options);
-  const els = buttons.map(([text, option, extra = {}]) => new El('button', { ...(withData ? option : {}), ...extra }, [], text));
+  const els = buttons.map(([text, option, extra = {}]) => new El('button', { ...(marked ? option : {}), ...extra }, [], text));
   const card = new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, els)]);
   doc.body.append(card);
   return { card, buttons: els };
@@ -233,4 +235,73 @@ test('with Prefer "Always allow" off, a data card with only an always button is 
   await tick();
   assert.deepEqual(buttons.map(b => b.clicks), [0, 0]);
   assert.deepEqual(pending(), ['example.com|']);
+});
+
+// Codex re-review P1-3
+test('an empty option list that was read clicks nothing, even by text', async () => {
+  makeDocument();
+  fakeBridge();
+  const { buttons } = accessCard(SAFE_BUTTONS, { options: [], marked: false });
+  const { ctx, pending } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await tick();
+  assert.deepEqual(buttons.map(b => b.clicks), [0, 0, 0]);
+  assert.deepEqual(pending(), ['example.com|']);
+});
+
+// Codex re-review P1-4
+test('with options read but the buttons unmarked, the text pick still needs the fresh mark token', async () => {
+  for (const answering of [true, false]) {
+    makeDocument();
+    let marks = 0;
+    fakeBridge(() => answering || ++marks <= 1);
+    const { buttons } = accessCard(SAFE_BUTTONS, { options: SAFE_OPTIONS, marked: false });
+    const { ctx } = loadContent({ mode: 'all' });
+    ctx.scan();
+    await tick();
+    assert.deepEqual(buttons.map(b => b.clicks), answering ? [0, 1, 0] : [0, 0, 0], `answering=${answering}`);
+  }
+});
+
+const DOMAIN_OPTIONS = [SAFE_OPTIONS[0], { ...SAFE_OPTIONS[1], scope: 'destination_domain' }, SAFE_OPTIONS[2]];
+const menuItemAttrs = scope => ({ 'data-maa-option-approval': 'appr-test-50', ...optAttrs('allow_always', 'allow_always_scoped', scope) });
+
+// A panel card: keyless primary, a "more allow options" menu holding one always item, and deny. marked false leaves the
+// card's buttons unmarked; itemAttrs is what bridge.js wrote on the menu item
+function panelCard(options, { marked = true, itemAttrs = {} } = {}) {
+  const item = new El('div', { role: 'menuitem', ...itemAttrs }, [], 'Always allow this site');
+  doc.body.append(new El('div', { id: 'menu-test-1', role: 'menu' }, [item]));
+  const primary = new El('button', { 'data-hatch-approval-primary-action': 'true', ...(marked ? optAttrs('allow_once', 'allow_once') : {}) }, [], 'Allow once');
+  const menu = new El('button', { 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': 'menu-test-1' }, [], 'More allow options');
+  const deny = new El('button', marked ? optAttrs('deny', 'deny_for_this_task') : {}, [], 'Deny');
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel', 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options) };
+  doc.body.append(new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, [primary, menu, deny])]));
+  return { primary, deny, item };
+}
+const menuWait = () => new Promise(resolve => setTimeout(resolve, 300));
+
+// Codex re-review P1-2
+test('with options read but the buttons unmarked, the menu item is picked by its fresh mark, never by text', async () => {
+  for (const [itemAttrs, clicks] of [[{}, [1, 0]], [menuItemAttrs('connector_all_actions'), [1, 0]], [menuItemAttrs('destination'), [0, 1]]]) {
+    makeDocument();
+    fakeBridge();
+    const { primary, item } = panelCard(SAFE_OPTIONS, { marked: false, itemAttrs });
+    const { ctx } = loadContent({ mode: 'all' });
+    ctx.scan();
+    await menuWait();
+    assert.deepEqual([primary.clicks, item.clicks], clicks, JSON.stringify(itemAttrs));
+  }
+});
+
+// Codex re-review P2
+test('a menu item refused because the card and the pending list disagree falls back to allow once', async () => {
+  makeDocument();
+  fakeBridge();
+  const { primary, deny, item } = panelCard(DOMAIN_OPTIONS, { itemAttrs: menuItemAttrs('destination') });
+  const { ctx } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await menuWait();
+  ctx.scan();
+  await menuWait();
+  assert.deepEqual([primary.clicks, item.clicks, deny.clicks], [1, 0, 0]);
 });
