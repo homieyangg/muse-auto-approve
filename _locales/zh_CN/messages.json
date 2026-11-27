@@ -445,5 +445,20 @@
   },
   "uploadToWithSub": {
     "message": "上传到 $1 及子域名"
+  },
+  "trust": {
+    "message": "信任"
+  },
+  "onlyChat": {
+    "message": "仅限 $1"
+  },
+  "trusted": {
+    "message": "已信任"
+  },
+  "undo": {
+    "message": "撤销"
+  },
+  "cancel": {
+    "message": "取消"
   }
 }

@@ -395,15 +395,31 @@ function renderActions(force) {
   $('#action-detail').replaceChildren(...(action ? actionDetail(action) : []));
 }
 
+const trustControls = AAT.controls({ t, storage: chrome.storage.sync, render: () => renderLog() });
+
+function trustCell({ state, undo, open }, entry) {
+  if (state === 'offer') return trustControls.trustButton(entry, open);
+  if (state !== 'trusted') return null;
+  return el('span', { className: 'ok', textContent: t('trusted') }, undo ? trustControls.undoButton('') : null);
+}
+
+function logRows(entry, row) {
+  const tr = el('tr', { className: row.open ? 'open' : '' },
+    el('td', { textContent: I18N.clock(entry.ts) }),
+    el('td', { textContent: AAM.cardLabel(entry, t) }),
+    el('td', { textContent: entry.chat || t('fromUnknown') }),
+    el('td', { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') }),
+    el('td', { className: 'act' }, trustCell(row, entry)));
+  return row.open ? [tr, el('tr', { className: 'pick' }, el('td', { colSpan: 5 }, trustControls.pickButtons(entry)))] : [tr];
+}
+
+// Trust is offered on the newest row of each card in the whole log, so a filter can hide it
 function renderLog() {
   $('#log-lead').textContent = t('logLead', AAM.LOG_LIMIT);
   document.querySelectorAll('#log-filter [data-filter]').forEach(a => a.classList.toggle('on', a.dataset.filter === logFilter));
   const entries = local.log.filter(e => !logFilter || e.result === logFilter);
-  $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
-    el('td', { textContent: I18N.clock(e.ts) }),
-    el('td', { textContent: AAM.cardLabel(e, t) }),
-    el('td', { textContent: e.chat || t('fromUnknown') }),
-    el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
+  const states = trustControls.states(settings, local.log, entries);
+  $('#log-rows').replaceChildren(...entries.flatMap(e => logRows(e, states.get(e))));
   $('#log-empty').hidden = entries.length > 0;
 }
 

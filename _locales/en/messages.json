@@ -445,5 +445,20 @@
   },
   "uploadToWithSub": {
     "message": "Upload to $1 and subdomains"
+  },
+  "trust": {
+    "message": "Trust"
+  },
+  "onlyChat": {
+    "message": "Only $1"
+  },
+  "trusted": {
+    "message": "Trusted"
+  },
+  "undo": {
+    "message": "Undo"
+  },
+  "cancel": {
+    "message": "Cancel"
   }
 }

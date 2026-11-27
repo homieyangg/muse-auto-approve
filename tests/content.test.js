@@ -133,7 +133,7 @@ function loadContent(sync = {}, sources = null) {
   };
   vm.createContext(ctx);
   for (const source of sources || [CONTENT]) vm.runInContext(source, ctx);
-  return { ctx, reports, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
+  return { ctx, reports, store, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
 }
 
 // Stand-in for bridge.js: answers maa-mark for cards holding an approval id. onMark may change attributes first, or return
@@ -383,4 +383,36 @@ test('a chat card read from data never opens a menu: it clicks its once button i
   ctx.scan();
   await menuWait();
   assert.deepEqual([...buttons.map(b => b.clicks), item.clicks], [1, 0, 0]);
+});
+
+// An action card bridge.js marked with its policy; the log keeps policy and purchase so a row can be trusted later
+function postCard() {
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-70', 'data-maa-state': 'clean', 'data-maa-policy': 'connector.example.post.create' };
+  const buttons = [
+    new El('button', { ...optAttrs('allow_once', 'allow_once'), 'data-hatch-approval-primary-action': 'true' }, [], 'Post'),
+    new El('button', optAttrs('deny', 'deny_for_this_task'), [], 'Deny'),
+  ];
+  doc.body.append(new El('div', attrs, [new El('p', {}, [], 'Post to Example? This task is from Chat A.'), new El('div', {}, buttons)]));
+  return buttons;
+}
+
+test('log entries store the policy and purchase state of waiting and approved cards', async () => {
+  makeDocument();
+  fakeBridge();
+  postCard();
+  const waiting = loadContent();
+  waiting.ctx.scan();
+  for (let i = 0; i < 4; i++) await tick();
+  const [pendingEntry] = waiting.store.local.log;
+  assert.deepEqual([pendingEntry.result, pendingEntry.action, pendingEntry.chat, pendingEntry.policy, pendingEntry.purchase], ['pending', 'Post to Example', 'Chat A', 'connector.example.post.create', false]);
+
+  makeDocument();
+  fakeBridge();
+  const buttons = postCard();
+  const trusted = loadContent({ actions: [{ id: 'a1', title: 'Post to Example', chats: [], on: true }] });
+  trusted.ctx.scan();
+  for (let i = 0; i < 4; i++) await tick();
+  assert.equal(buttons[0].clicks, 1);
+  const [allowedEntry] = trusted.store.local.log;
+  assert.deepEqual([allowedEntry.result, allowedEntry.policy, allowedEntry.purchase], ['allowed', 'connector.example.post.create', false]);
 });

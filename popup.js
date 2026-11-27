@@ -207,21 +207,32 @@ function renderChats() {
   $('#recent-empty').hidden = recent.length > 0;
 }
 
-function logRow(entry) {
+const trustControls = AAT.controls({ t, storage: chrome.storage.sync, render: () => renderLog() });
+
+// The result sits under the label so the Trust button fits on the right
+function logRow(entry, { state, undo, open }) {
   const el = document.createElement('div');
   el.className = 'row';
   const time = Object.assign(document.createElement('time'), { textContent: I18N.clock(entry.ts) });
   const text = document.createElement('div');
   text.textContent = label(entry);
-  text.append(Object.assign(document.createElement('small'), { textContent: entry.chat || t('fromUnknown') }));
-  const result = Object.assign(document.createElement('span'), { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') });
-  el.append(time, text, result);
-  return el;
+  const sub = Object.assign(document.createElement('small'), { textContent: `${entry.chat || t('fromUnknown')}・` });
+  sub.append(Object.assign(document.createElement('span'), { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') }));
+  if (state === 'trusted') sub.append('・', Object.assign(document.createElement('span'), { className: 'now', textContent: t('trusted') }));
+  text.append(sub);
+  el.append(time, text);
+  if (state === 'trusted' && undo) el.append(trustControls.undoButton('tb'));
+  if (state === 'offer') el.append(trustControls.trustButton(entry, open));
+  if (!open) return [el];
+  const pick = Object.assign(document.createElement('div'), { className: 'pick' });
+  pick.append(trustControls.pickButtons(entry));
+  return [el, pick];
 }
 
 function renderLog() {
   const entries = local.log.slice(0, 30);
-  $('#log-list').replaceChildren(...entries.map(logRow));
+  const states = trustControls.states(settings, local.log, entries);
+  $('#log-list').replaceChildren(...entries.flatMap(e => logRow(e, states.get(e))));
   $('#log-list').hidden = !entries.length;
   $('#log-empty').hidden = entries.length > 0;
   $('#clear-log').hidden = !entries.length;

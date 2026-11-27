@@ -303,7 +303,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
-  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, site: card.site, result: 'allowed', kind };
+  const entry = { ts: Date.now(), key, host: card.host, chat: card.chat, title: card.title, action: card.action, policy: card.policy, site: card.site, purchase: card.purchase, result: 'allowed', kind };
   updateLocal({ log: [], approvals: 0, allowOnce: [] }, data => {
     const log = data.log.filter(e => !(e.key === key && e.result === 'pending'));
     const patch = { log: [entry, ...log].slice(0, AAM.LOG_LIMIT), approvals: data.approvals + 1 };
@@ -399,7 +399,7 @@ function syncWaiting(waiting, now, tracking) {
 function recordWaitingChanges(added, gone) {
   updateLocal({ log: [], dismissed: [] }, data => {
     const log = data.log.map(e => (gone.includes(e.key) && e.result === 'pending' ? { ...e, result: 'handled' } : e));
-    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, site: w.site, result: 'pending' }));
+    const fresh = added.map(w => ({ ts: Date.now(), key: w.key, host: w.host, chat: w.chat, title: w.title, action: w.action, policy: w.policy, site: w.site, purchase: w.purchase, result: 'pending' }));
     return { log: [...fresh, ...log].slice(0, AAM.LOG_LIMIT), dismissed: data.dismissed.filter(k => waitingState.has(k)) };
   });
 }
