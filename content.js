@@ -1,7 +1,7 @@
 'use strict';
 
 // 按鈕文字與卡片本文的判斷集中在 shared.js，介面語言和審批卡的語言可以分開加
-const { ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE } = AAM;
+const { ALWAYS_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE } = AAM;
 const MAX_DEPTH = 6;
 const MAX_CONTEXT_TEXT = 1500;
 const RETRY_AFTER_MS = 5000;
@@ -28,6 +28,11 @@ const MARKED_ATTR = 'data-maa-marked';
 const POLICY_ATTR = 'data-maa-policy';
 const PENDING_ATTR = 'data-maa-pending';
 const SITE_ATTR = 'data-maa-site';
+// Set by bridge.js on each decision button of a chat card from muse's decisionOptions, and the card state on the card or item
+const OPTION_KIND_ATTR = 'data-maa-option-kind';
+const LABEL_KIND_ATTR = 'data-maa-label-kind';
+const SCOPE_ATTR = 'data-maa-scope';
+const STATE_ATTR = 'data-maa-state';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -60,15 +65,23 @@ function isClickable(el) {
   return el.getClientRects().length > 0;
 }
 
+// Picks by the card state and option attributes bridge.js wrote on a marked muse card; without them by button text as on main
 function findAllowButtons(scope) {
-  let always = null, once = null;
-  for (const b of scope.querySelectorAll(BUTTON_SELECTOR)) {
-    if (!isClickable(b)) continue;
-    const text = labelOf(b);
-    if (!always && ALWAYS_RE.test(text)) always = b;
-    else if (!once && (ONCE_RE.test(text) || b.matches(PRIMARY_SELECTOR))) once = b;
-  }
-  return always || once ? { always, once } : null;
+  const candidates = [...scope.querySelectorAll(BUTTON_SELECTOR)].filter(isClickable).map(b => ({
+    el: b,
+    text: labelOf(b),
+    primary: b.matches(PRIMARY_SELECTOR),
+    menu: b.matches(MENU_SELECTOR),
+    kind: b.getAttribute(OPTION_KIND_ATTR) || '',
+    labelKind: b.getAttribute(LABEL_KIND_ATTR) || '',
+    scope: b.getAttribute(SCOPE_ATTR) || '',
+  }));
+  return AAM.pickAllowButtons(candidates, cardState(scope));
+}
+
+// 'clean' or 'anomalous' when bridge.js read this card's options, '' otherwise
+function cardState(scope) {
+  return (scope.closest(CARD_SELECTOR) && scope.getAttribute(ID_ATTR) && scope.getAttribute(STATE_ATTR)) || '';
 }
 
 // 從按鈕區往上找第一層有按鈕以外文字的容器（卡片本體），只用它判斷是不是外聯審批，不再往外爬
@@ -102,7 +115,10 @@ function approvalCards() {
     const scopes = items.length ? items.map(item => [item, subHeading(item)]) : [[card, '']];
     for (const [node, heading] of scopes) {
       // bridge 標了審批 ID 就確定是審批，不必再靠拒絕鈕的文字判斷
-      const buttons = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
+      const found = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
+      // A card whose options were read but offer nothing that may be clicked is still listed as waiting
+      const state = cardState(node);
+      const buttons = found || (state && { always: null, once: null, data: true, state });
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
       cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true });
@@ -162,7 +178,8 @@ function scan() {
       continue;
     }
     const onceOnly = onceAllowed(key);
-    if (!AAG.canAutoApprove(settings, card, onceOnly)) {
+    const clickable = !!AAM.clickTarget(buttons, settings.preferAlways && !onceOnly);
+    if (!clickable || !AAG.canAutoApprove(settings, card, onceOnly)) {
       waiting.set(key, pendingItem(card, key));
       continue;
     }
@@ -282,7 +299,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   handledKeys.set(key, { at: Date.now(), surface: buttons.surface });
   if (buttons.approvalId) handledIds.set(buttons.approvalId, Date.now());
   settleUntil.set(buttons.body, Date.now() + SETTLE_MS);
-  const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, () => stillAllowed(node, buttons, key, onceOnly));
+  const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, target => stillAllowed(node, buttons, key, onceOnly, target));
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
@@ -295,11 +312,22 @@ async function approve(node, buttons, card, key, onceOnly) {
   });
 }
 
-// Re-reads the card on fresh bridge data; a different key means the node now holds another approval
-function stillAllowed(node, buttons, key, onceOnly) {
+// Re-reads the card on fresh bridge data; a different key means the node now holds another approval.
+// With a target, the buttons are picked again from the attributes that same fresh mark wrote, and the target must still be the pick
+function stillAllowed(node, buttons, key, onceOnly, target) {
   if (!node.isConnected) return false;
   const card = cardOf(node, buttons);
-  return AAM.cardKey(card) === key && AAG.canAutoApprove(settings, card, onceOnly);
+  if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
+  if (!target) return true;
+  // Without data the check stays main's, except that data turning up since the scan sends the card back to the next scan
+  if (!buttons.data) return !cardState(node);
+  if (!freshlyMarked(node) || (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
+  return AAM.samePick(buttons, findAllowButtons(node), target);
+}
+
+function freshlyMarked(node) {
+  const token = node.getAttribute(MARK_REQUEST_ATTR);
+  return !!token && node.getAttribute(MARKED_ATTR) === token;
 }
 
 // The click was refused on fresh data: forget it was handled so the next scan lists the card as waiting
@@ -316,14 +344,16 @@ function releaseRefused(node, buttons, key, onceOnly) {
 // 右側面板和批次卡把一律允許收進「更多允許選項」選單，要的話打開選單去按；選單裡沒有才按允許一次
 // allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
 // Returns null when nothing was clicked
-async function clickAllow(node, { always, once, menu }, preferAlways, allowed) {
+async function clickAllow(node, buttons, preferAlways, allowed) {
+  const { always, once, menu, data } = buttons;
   if (!allowed()) return null;
-  const item = preferAlways && !always && once && menu && isClickable(menu) ? await openAlwaysItem(menu) : null;
-  const target = item || (preferAlways ? (always || once) : (once || always));
+  // Menu items are not read from approval data, so a card read from data never opens the menu
+  const item = preferAlways && !always && once && menu && !data && isClickable(menu) ? await openAlwaysItem(menu) : null;
+  const target = item || AAM.clickTarget(buttons, preferAlways);
   const inPlace = item
     ? node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item)
-    : target.isConnected && node.contains(target);
-  if (!inPlace || !allowed()) {
+    : !!target && target.isConnected && node.contains(target);
+  if (!inPlace || !allowed(target)) {
     if (item) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     return null;
   }

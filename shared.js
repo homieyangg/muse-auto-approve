@@ -40,6 +40,58 @@ const AAM = (() => {
   // 右側面板の分頁按鈕は「承認」「承認待ち」。「許可」は他のボタンにもあるため使わない
   const APPROVALS_TAB_RE = /^(?:核可工具|批准|approvals|承認(?:待ち)?)$/i;
 
+  // Button options read by bridge.js from muse's decisionOptions. Always-allow is a whitelist: anything muse adds later,
+  // or anything wider than one site, is never picked as always
+  const ALWAYS_SCOPES = ['destination', 'destination_domain'];
+  const BROAD_LABEL_KINDS = ['allow_all_web_access_for_this_task'];
+  const BROAD_SCOPES = ['connector_all_actions'];
+
+  // Returns 'always', 'once', 'deny', or '' for an option nobody may auto-pick
+  function optionRole({ kind, labelKind, scope } = {}) {
+    if (kind === 'deny' || kind === 'deny_always') return 'deny';
+    if (BROAD_LABEL_KINDS.includes(labelKind) || BROAD_SCOPES.includes(scope)) return '';
+    if (kind === 'allow_always') {
+      if (labelKind === 'allow_always' && !scope) return 'always';
+      if (labelKind === 'allow_always_scoped' && ALWAYS_SCOPES.includes(scope)) return 'always';
+      return '';
+    }
+    if (kind === 'allow_once' && (!scope || ALWAYS_SCOPES.includes(scope))) return 'once';
+    return '';
+  }
+
+  // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
+  // state is bridge.js's read of a chat card: 'clean' picks by the whitelist; 'anomalous' (options read, but a button belongs
+  // to another approval, a key does not map, the sources disagree or a fiber can't be confirmed) picks only a confirmed once
+  // button; '' means no data and main's text rules. Returns null when nothing can be clicked
+  function pickAllowButtons(candidates, state = '') {
+    let always = null, once = null;
+    for (const c of candidates) {
+      if (state) {
+        if (c.menu || !c.kind) continue;
+        const role = optionRole(c);
+        if (!always && role === 'always' && state === 'clean') always = c.el;
+        else if (!once && role === 'once') once = c.el;
+      } else if (!always && ALWAYS_RE.test(c.text)) always = c.el;
+      else if (!once && (ONCE_RE.test(c.text) || c.primary)) once = c.el;
+    }
+    return always || once ? { always, once, data: !!state, state } : null;
+  }
+
+  // The button to click for the setting. Once data has been read, "once" never falls back to an always button
+  function clickTarget(buttons, preferAlways) {
+    if (!buttons) return null;
+    if (preferAlways) return buttons.always || buttons.once;
+    return buttons.once || (buttons.data ? null : buttons.always);
+  }
+
+  // Right before a click, the pick made on fresh attributes must match the earlier one: same card state and the target
+  // still in the same role
+  function samePick(before, after, target) {
+    if (!after || after.state !== before.state) return false;
+    const role = b => (target === b.always ? 'always' : target === b.once ? 'once' : '');
+    return !!role(before) && role(before) === role(after);
+  }
+
   function cleanText(text) {
     return (text || '').replace(INVISIBLE_RE, '').replace(/\s+/g, ' ').trim();
   }
@@ -194,7 +246,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;
