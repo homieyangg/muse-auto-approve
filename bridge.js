@@ -14,10 +14,15 @@
   const MARKED_ATTR = 'data-maa-marked';
   const BACKGROUND_SELECTOR = '[data-hatch-background-approval-surface="true"]';
   const MENU_SELECTOR = '[aria-haspopup="menu"]';
-  // muse keys each decision Button `<approvalId>-cta-<index>-<kind>`, two fibers above the <button>
-  const CTA_KEY_RE = /^(.+)-cta-(\d+)-([a-z_]+)$/;
-  const KEY_UP = 4;
+  const PRIMARY_SELECTOR = '[data-hatch-approval-primary-action="true"]';
+  const MENU_ITEM_SELECTOR = '[role="menuitem"]';
+  // Decision keys seen on muse's components a few fibers above the element: `<approvalId>-cta-<index>-<kind>` in the chat
+  // layout, `-compact-deny-` / `-compact-allow-` in the approvals panel. Searched upward, never at a fixed depth
+  const DECISION_KEY_RE = /^(.+)-(cta|compact-deny|compact-allow)-(\d+)-([a-z_]+)$/;
+  const DECISION_KEY_HINT = /-(?:cta|compact-deny|compact-allow)-/;
+  const KEY_UP = 24;
   const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
+  const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
   const OPTIONS_ATTR = 'data-maa-options';
   const DATA_PATH_ATTR = 'data-maa-data-path';
   let timer = null;
@@ -67,10 +72,10 @@
   }
 
   // 往上找第一個 props 帶審批資料的元件，只讀確認是 current 的 fiber；null means the current tree could not be established
-  function approvalsOfFiber(start, walk = newWalk()) {
+  function approvalsOfFiber(start, walk = newWalk(), maxUp = MAX_UP) {
     let f = currentOf(start, walk);
     if (!f) return null;
-    for (let i = 0; i < MAX_UP; i++) {
+    for (let i = 0; i < maxUp; i++) {
       const approvals = approvalsInProps(f);
       if (approvals) return approvals;
       if (!f.return) return [];
@@ -117,13 +122,13 @@
     return PURCHASE_RE.test(String(p.payloadType ?? '')) || p.paymentProvider != null || p.purchasePreapproval != null;
   }
 
-  // undefined: the fiber is not current; null: no decision key within KEY_UP fibers
-  function ctaKeyOf(start, walk) {
+  // undefined: the fiber is not current; null: no decision key below the approval component within KEY_UP fibers
+  function decisionKeyOf(start, walk) {
     let f = currentOf(start, walk);
     if (!f) return undefined;
     for (let i = 0; i < KEY_UP; i++) {
-      if (typeof f.key === 'string' && f.key.includes('-cta-')) return f.key;
-      if (!f.return) return null;
+      if (typeof f.key === 'string' && DECISION_KEY_HINT.test(f.key)) return f.key;
+      if (approvalsInProps(f) || !f.return) return null;
       f = currentOf(f.return, walk);
       if (!f) return undefined;
     }
@@ -131,32 +136,79 @@
   }
 
   const optionText = v => (typeof v === 'string' ? v : '');
+  const isAllowKind = kind => typeof kind === 'string' && kind.startsWith('allow');
+  const isDenyKind = kind => typeof kind === 'string' && kind.startsWith('deny');
+  const markOf = option => ({ kind: option.kind, labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
 
-  // Maps each button fiber of one approval to its decisionOptions entry. All or nothing: a key that does not match the
-  // approval or the option at its index, or a button whose own walk reaches another approval, leaves every button unmarked.
+  // The option a decision key points at, or null. cta indexes decisionOptions; compact-deny indexes the deny options and
+  // compact-allow the allow options after the primary one. Compact keys carry only the kind, so when that kind appears more
+  // than once with different labels or scopes the key can't tell them apart and nothing is returned
+  function optionForKey(options, form, index, kind) {
+    let group = options;
+    if (form === 'compact-deny') group = options.filter(o => isDenyKind(o?.kind));
+    else if (form === 'compact-allow') group = options.filter(o => isAllowKind(o?.kind)).slice(1);
+    const option = group[index];
+    if (!option || typeof option.kind !== 'string' || option.kind !== kind) return null;
+    if (form === 'cta') return option;
+    const same = group.filter(o => o.kind === kind).map(o => JSON.stringify(markOf(o)));
+    return new Set(same).size === 1 ? option : null;
+  }
+
+  // The panel's primary button has no key: it is allow once only when that is the first allow option in the data
+  function primaryOption(options) {
+    const first = options.find(o => isAllowKind(o?.kind));
+    return first?.kind === 'allow_once' ? first : null;
+  }
+
+  // Maps each button of one approval to its decisionOptions entry. All or nothing: a key that does not match the approval or
+  // the option it points at, or a button whose own walk reaches another approval, leaves every button unmarked. A keyless
+  // primary button is marked only when the data confirms it and at least one keyed button sits next to it.
   // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
-  function optionMarks(approval, buttonFibers, walk = newWalk()) {
-    const none = missing => ({ missing, options: null, marks: buttonFibers.map(() => null) });
+  function optionMarks(approval, buttons, walk = newWalk()) {
+    const none = missing => ({ missing, options: null, marks: buttons.map(() => null) });
     const options = approval?.serverPresentation?.decisionOptions;
     if (!Array.isArray(options)) return none(true);
     const marks = [];
     let keyed = 0;
-    for (const start of buttonFibers) {
-      const key = ctaKeyOf(start, walk);
+    for (const { fiber, primary } of buttons) {
+      const key = decisionKeyOf(fiber, walk);
       if (key === undefined) return none(false);
-      if (key === null) { marks.push(null); continue; }
-      const own = approvalsOfFiber(start, walk);
+      const own = approvalsOfFiber(fiber, walk);
       if (!own) return none(false);
-      const m = key.match(CTA_KEY_RE);
-      const option = m ? options[Number(m[2])] : null;
+      if (key === null && !primary) { marks.push(null); continue; }
+      if (key === null) {
+        const option = own.length === 1 && own[0].approvalId === approval.approvalId ? primaryOption(options) : null;
+        if (!option) return none(true);
+        marks.push(markOf(option));
+        continue;
+      }
+      const m = key.match(DECISION_KEY_RE);
       if (!m || m[1] !== approval.approvalId || own.length !== 1 || own[0].approvalId !== approval.approvalId) return none(true);
-      if (!option || typeof option.kind !== 'string' || option.kind !== m[3]) return none(true);
+      const option = optionForKey(options, m[2], Number(m[3]), m[4]);
+      if (!option) return none(true);
       keyed++;
-      marks.push({ kind: option.kind, labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
+      marks.push(markOf(option));
     }
-    if (!keyed) return none(buttonFibers.length > 0);
+    if (!keyed) return none(buttons.length > 0);
     const list = options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) }));
     return { missing: false, options: list, marks };
+  }
+
+  // A "more allow options" item is drawn in a portal, so its approval comes from the key's id: the approval found walking up
+  // when there is one, else the pending list. Returns { approvalId, kind, labelKind, scope }, or null when it can't be matched
+  function menuItemMark(start, walk = newWalk(), pendingById = () => null) {
+    const key = decisionKeyOf(start, walk);
+    const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
+    if (!m || m[2] !== 'compact-allow') return null;
+    // Walks past the key, where the approval component would sit if the portal's React parents reach it
+    const own = approvalsOfFiber(start, walk, KEY_UP + MAX_UP);
+    if (!own) return null;
+    if (own.length > 1 || (own.length === 1 && own[0].approvalId !== m[1])) return null;
+    const approval = own[0] || pendingById(m[1]);
+    const options = approval?.serverPresentation?.decisionOptions;
+    if (!Array.isArray(options)) return null;
+    const option = optionForKey(options, m[2], Number(m[3]), m[4]);
+    return option ? { approvalId: m[1], ...markOf(option) } : null;
   }
 
   function setAttr(el, name, value) {
@@ -178,7 +230,7 @@
       const missing = approvals.some(a => !Array.isArray(a.serverPresentation?.decisionOptions));
       result = { missing, options: null, marks: null };
     } else if (approvals?.length === 1) {
-      result = optionMarks(approvals[0], buttons.map(fiberOf), walk);
+      result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b), primary: b.matches(PRIMARY_SELECTOR) })), walk);
     } else {
       // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
       result = { missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
@@ -220,6 +272,19 @@
     }
   }
 
+  function markMenuItem(el) {
+    let mark = null;
+    try {
+      const pending = findPending() || [];
+      mark = menuItemMark(fiberOf(el), newWalk(), id => pending.find(a => isApproval(a) && a.approvalId === id && !a.decidedAtMs));
+    } catch (err) {
+      console.warn('[MAA] bridge menu read failed', err);
+    }
+    writeOption(el, mark);
+    setAttr(el, OPTION_APPROVAL_ATTR, mark?.approvalId);
+    return !!mark;
+  }
+
   // content.js asks for a fresh mark right before it clicks. Listeners run inside its dispatchEvent, so the answer is
   // there when dispatchEvent returns; echoing its token proves this run read approval data for this node
   function markOnRequest(e) {
@@ -227,7 +292,8 @@
     if (!(el instanceof Element)) return;
     el.removeAttribute(MARKED_ATTR);
     try {
-      if (markItem(el)) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
+      const marked = el.matches(MENU_ITEM_SELECTOR) ? markMenuItem(el) : markItem(el);
+      if (marked) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
     } catch (err) {
       console.warn('[MAA] bridge mark failed', err);
     }
@@ -281,7 +347,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor, optionMarks };
+    module.exports = { isPurchaseApproval, marksFor, optionMarks, menuItemMark };
     return;
   }
 

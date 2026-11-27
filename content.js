@@ -1,7 +1,7 @@
 'use strict';
 
 // 按鈕文字與卡片本文的判斷集中在 shared.js，介面語言和審批卡的語言可以分開加
-const { ALWAYS_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE } = AAM;
+const { DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE } = AAM;
 const MAX_DEPTH = 6;
 const MAX_CONTEXT_TEXT = 1500;
 const RETRY_AFTER_MS = 5000;
@@ -33,6 +33,7 @@ const OPTION_KIND_ATTR = 'data-maa-option-kind';
 const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const OPTIONS_ATTR = 'data-maa-options';
+const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -79,7 +80,7 @@ function findAllowButtons(scope) {
   }));
   const byData = !!scope.closest(CARD_SELECTOR) && !!scope.getAttribute(ID_ATTR) && candidates.some(c => c.kind && !c.menu);
   const buttons = AAM.pickAllowButtons(candidates, byData);
-  return buttons && { ...buttons, menuAlways: byData && AAM.menuAlwaysAllowed(optionsOf(scope)) };
+  return buttons && { ...buttons, ...AAM.menuPlan(byData ? optionsOf(scope) : null) };
 }
 
 function optionsOf(scope) {
@@ -211,12 +212,24 @@ function onceAllowed(key) {
   return allowOnce.includes(key) && !usedOnce.has(key);
 }
 
-// Asks bridge.js to re-mark the node now: true/false is its fresh answer, null means it did not answer (not loaded, no React data)
-function freshPurchase(node) {
+// Asks bridge.js to re-mark the node now; true when it answered (it is loaded and found React data for the node)
+function requestMark(node) {
   const token = Math.random().toString(36).slice(2);
   node.setAttribute(MARK_REQUEST_ATTR, token);
   node.dispatchEvent(new CustomEvent(MARK_EVENT));
-  return node.getAttribute(MARKED_ATTR) === token ? node.hasAttribute(PURCHASE_ATTR) : null;
+  return node.getAttribute(MARKED_ATTR) === token;
+}
+
+// true/false is bridge.js's fresh answer, null means it did not answer
+function freshPurchase(node) {
+  return requestMark(node) ? node.hasAttribute(PURCHASE_ATTR) : null;
+}
+
+// The option of a "more allow options" item, re-marked just now; null when bridge.js could not match it
+function freshMenuOption(item) {
+  if (!requestMark(item) || !item.hasAttribute(OPTION_KIND_ATTR)) return null;
+  const attr = name => item.getAttribute(name) || '';
+  return { approvalId: attr(OPTION_APPROVAL_ATTR), kind: attr(OPTION_KIND_ATTR), labelKind: attr(LABEL_KIND_ATTR), scope: attr(SCOPE_ATTR) };
 }
 
 // A purchase anywhere in a combined card holds back its other items too
@@ -322,6 +335,7 @@ function stillAllowed(node, buttons, key, onceOnly, target) {
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
   if (buttons.data && !freshlyMarked(node)) return false;
+  if (target.menu && (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
   return AAM.samePick(buttons, findAllowButtons(node), target);
 }
 
@@ -344,15 +358,18 @@ function releaseRefused(node, buttons, key, onceOnly) {
 // 右側面板和批次卡把一律允許收進「更多允許選項」選單，要的話打開選單去按；選單裡沒有才按允許一次
 // allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
 // Returns null when nothing was clicked
-async function clickAllow(node, { always, once, menu, data, menuAlways }, preferAlways, allowed) {
+async function clickAllow(node, buttons, preferAlways, allowed) {
+  const { always, once, menu, data, alwaysInMenu, menuTextOk, approvalId } = buttons;
   if (!allowed()) return null;
-  const useMenu = preferAlways && !always && once && menu && isClickable(menu) && (!data || menuAlways);
-  const item = useMenu ? await openAlwaysItem(menu) : null;
+  const useMenu = preferAlways && !always && once && menu && isClickable(menu) && (!data || alwaysInMenu);
+  const picked = useMenu ? await openAlwaysItem(menu, approvalId, data, menuTextOk) : null;
+  const item = picked?.item;
   const target = item || (preferAlways ? (always || once) : (once || always));
   const inPlace = item
     ? node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item)
     : target.isConnected && node.contains(target);
-  if (!inPlace || !allowed(item ? AAM.MENU_PICK : target)) {
+  const check = item ? { menu: true, data: picked.data, approvalId, option: picked.data ? freshMenuOption(item) : null } : target;
+  if (!inPlace || !allowed(check)) {
     if (item) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     return null;
   }
@@ -361,7 +378,8 @@ async function clickAllow(node, { always, once, menu, data, menuAlways }, prefer
 }
 
 // Radix 選單要 pointerdown 才會打開，選項渲染在卡片外，從 aria-controls 找；找不到一律允許就關掉選單
-async function openAlwaysItem(menu) {
+// On the data path each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
+async function openAlwaysItem(menu, approvalId, byData, menuTextOk) {
   if (menu.getAttribute('aria-expanded') !== 'true') {
     menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
   }
@@ -369,8 +387,9 @@ async function openAlwaysItem(menu) {
     await new Promise(resolve => setTimeout(resolve, 100));
     const list = document.getElementById(menu.getAttribute('aria-controls'));
     if (!list) continue;
-    const item = [...list.querySelectorAll('[role="menuitem"]')].find(i => ALWAYS_RE.test(labelOf(i)));
-    if (item) return item;
+    const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: byData ? freshMenuOption(el) : null }));
+    const picked = AAM.pickMenuItem(items, approvalId, byData, menuTextOk);
+    if (picked) return picked;
     break;
   }
   if (menu.getAttribute('aria-expanded') === 'true') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

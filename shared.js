@@ -59,12 +59,37 @@ const AAM = (() => {
     return '';
   }
 
-  // The "more allow options" menu is picked from by text, so it is only opened when every option muse offers for the
-  // approval is one the whitelist knows: then whatever always-allow item the text matches is a single-site one
+  // When the "more allow options" items carry no option data, the menu is picked from by text. That is only allowed when
+  // every option muse offers for the approval is one the whitelist knows: then whatever always-allow item the text matches is safe
   function menuAlwaysAllowed(options) {
     if (!Array.isArray(options) || !options.length) return false;
     const roles = options.map(optionRole);
     return roles.includes('always') && !roles.includes('');
+  }
+
+  // What the menu may offer on the data path: alwaysInMenu when the approval has a whitelisted always option at all
+  function menuPlan(options) {
+    return { alwaysInMenu: Array.isArray(options) && options.some(o => optionRole(o) === 'always'), menuTextOk: menuAlwaysAllowed(options) };
+  }
+
+  // option is the fresh mark bridge.js wrote on a menu item: { approvalId, kind, labelKind, scope }
+  function menuItemAlways(option, approvalId) {
+    return !!approvalId && option?.approvalId === approvalId && optionRole(option) === 'always';
+  }
+
+  // items: [{ el, text, option }] of the open menu. On the data path, marked items decide alone; unmarked menus fall back
+  // to text only when menuTextOk. Returns { item, data } or null
+  function pickMenuItem(items, approvalId, byData, menuTextOk) {
+    if (byData) {
+      const marked = items.filter(i => i.option);
+      if (marked.length) {
+        const found = marked.find(i => menuItemAlways(i.option, approvalId));
+        return found ? { item: found.el, data: true } : null;
+      }
+      if (!menuTextOk) return null;
+    }
+    const found = items.find(i => ALWAYS_RE.test(i.text));
+    return found ? { item: found.el, data: false } : null;
   }
 
   // candidates: clickable buttons in DOM order as { el, text, primary, menu, kind, labelKind, scope }.
@@ -83,14 +108,15 @@ const AAM = (() => {
     return always || once ? { always, once, data: !!byData } : null;
   }
 
-  // Stands in for the target when it is an item of the "more allow options" menu
-  const MENU_PICK = 'menu';
-
   // Right before a click, the pick made on fresh attributes must match the earlier one: same path (data or text) and the
-  // target still in the same role. A menu item needs the menu to still be allowed
+  // target still in the same role. A menu target is { menu: true, data, option, approvalId } with option re-marked just now
   function samePick(before, after, target) {
     if (!after || after.data !== before.data) return false;
-    if (target === MENU_PICK) return !after.always && !!after.once && (!after.data || !!after.menuAlways);
+    if (target?.menu) {
+      if (after.always || !after.once) return false;
+      if (target.data) return after.data && menuItemAlways(target.option, target.approvalId);
+      return !after.data || !!after.menuTextOk;
+    }
     const role = b => (target === b.always ? 'always' : target === b.once ? 'once' : '');
     return !!role(before) && role(before) === role(after);
   }
@@ -249,7 +275,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, menuAlwaysAllowed, pickAllowButtons, MENU_PICK, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, menuAlwaysAllowed, menuPlan, menuItemAlways, pickMenuItem, pickAllowButtons, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;
