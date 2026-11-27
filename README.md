@@ -115,7 +115,7 @@ To use the GitHub connector, connect GitHub in Muse and grant the read permissio
 - When "Always allow" is tucked into the "More allow options" menu (side panel, combined cards), the extension opens the menu to click it.
 - It won't click the same card twice within 5 seconds, and it clicks Review at most once every 10 seconds. If the cards it opened aren't trusted, it leaves the same set of approvals alone for 10 minutes instead of opening them again and again.
 
-Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations. Japanese labels such as "許可する", "許可しない", and "常に許可" are covered by automated tests.
+Email, combined, side chat, scheduled task, and website cards have been tested on the live site in Traditional Chinese, English, and Simplified Chinese. Browser upload cards have been tested in Traditional Chinese and Japanese. Checkout cards haven't been triggered for real; they're matched by the wording in muse's translations. Japanese labels such as "許可する", "許可しない", "承認しない", "一度だけ許可", and "...を常に許可" are covered by automated tests.
 
 ## Limitations
 
@@ -158,7 +158,7 @@ The extension has no server and makes no network requests of its own. Your mode 
 ## Testing
 
 ```bash
-node --test tests/
+node --test tests/*.test.js
 ```
 
 The tests cover approval-label matching in English, Traditional Chinese, Simplified Chinese, and Japanese, chat/purchase parsing, locale key parity, and the manifest message limits.
