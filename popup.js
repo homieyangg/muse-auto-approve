@@ -35,9 +35,16 @@ function saveSettings(patch) {
   return chrome.storage.sync.set(patch);
 }
 
+const saveChats = list => saveSettings(AAM.splitChats(list));
+
 const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
+const hasIds = item => AAM.hasIds(AAM.cardPair(item));
+// Display only: rules always store the name read from the card, never the sidebar's
+const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
+const chatName = item => item.chat || sidebarName(AAM.cardPair(item).threadId);
+const chatLabel = entry => entry.name || sidebarName(entry.threadId) || t('fromUnknown');
 
 function pendingItems() {
   if (!tracking()) return [];
@@ -66,7 +73,7 @@ function renderHome() {
   $('#mode').value = settings.mode;
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
   $('#sites-n').textContent = settings.sites.length;
-  $('#chats-n').textContent = settings.chats.length;
+  $('#chats-n').textContent = AAM.trustedChats(settings).length;
   $('#actions-n').textContent = settings.actions.length;
   $('#today-n').textContent = t('todayN', today);
   $('#prefer-always').checked = settings.preferAlways;
@@ -85,10 +92,12 @@ function scopeOptions(item) {
   if (AAM.isPurchase(item)) return ['once'];
   const scopes = [];
   if (item.host) scopes.push('site');
-  if (item.host && item.chat) scopes.push('siteChat');
+  // A card whose ids couldn't be read is never trusted by its name: the name might be another chat's
+  const named = item.chat && !item.badIds;
+  if (item.host && named) scopes.push('siteChat');
   if (!item.host && item.action) scopes.push('action');
-  if (!item.host && item.action && item.chat) scopes.push('actionChat');
-  if (item.chat) scopes.push('chat');
+  if (!item.host && item.action && named) scopes.push('actionChat');
+  if (named || hasIds(item)) scopes.push('chat');
   scopes.push('once');
   return scopes;
 }
@@ -108,7 +117,7 @@ function pendingCard(item) {
   const node = $('#tpl-pending').content.firstElementChild.cloneNode(true);
   I18N.apply(node);
   node.querySelector('.req-site').textContent = label(item);
-  node.querySelector('.req-meta').textContent = `${item.chat ? t('from', item.chat) : t('fromUnknown')}・${I18N.ago(item.ts)}`;
+  node.querySelector('.req-meta').textContent = `${chatName(item) ? t('from', chatName(item)) : t('fromUnknown')}・${I18N.ago(item.ts)}`;
   const reason = pendingReason(item);
   const note = node.querySelector('.req-reason');
   note.hidden = !reason;
@@ -129,13 +138,16 @@ function renderPending() {
 }
 
 // 依選的範圍加進信任清單；「只允許這一次」交給 content script 按掉那張卡，但不記住
+// Only the chat rule stores ids; site and action limits are main's names. Every scope here is one scopeOptions offered
 async function allowPending(item, scope) {
+  if (!scopeOptions(item).includes(scope)) return;
   resolved.add(item.key);
+  const ids = AAM.cardPair(item);
   if (scope === 'once') {
     render();
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
-    await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat) });
+    await saveChats(AAM.addChatRule(AAM.trustedChats(settings), item.chat || '', ids));
   } else if (scope === 'action' || scope === 'actionChat') {
     await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { chat: scope === 'actionChat' ? item.chat : '', policy: item.policy, site: item.site }) });
   } else {
@@ -186,22 +198,26 @@ function renderActions() {
   $('#actions-empty').hidden = rows.length > 0;
 }
 
+// Chats seen with ids are offered by their pair (see AAM.chatChoices)
 function recentChats() {
-  const names = [...local.museChats, ...pendingItems().map(i => i.chat), ...local.log.map(e => e.chat)].filter(Boolean);
-  return [...new Set(names)].slice(0, 20);
+  const items = [...pendingItems(), ...local.log];
+  return AAM.chatChoices({ names: local.museChats, museChatNames: local.museChatNames, chats: AAM.trustedChats(settings), items }).slice(0, 20);
 }
 
 function renderChats() {
-  const rows = settings.chats.map(chat => row(chat.name, t('chatAllSites'), !chat.on,
-    () => saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) })));
+  const chats = AAM.trustedChats(settings);
+  const labels = AAM.chatLabels(chats, chatLabel);
+  const rows = chats.map((chat, i) => row(labels[i], t('chatAllSites'), !chat.on,
+    () => saveChats(chats.filter(c => c.id !== chat.id))));
   $('#chat-list').replaceChildren(...rows);
   $('#chat-list').hidden = !rows.length;
   $('#chats-empty').hidden = rows.length > 0;
   const recent = recentChats();
-  const addable = recent.filter(name => !settings.chats.some(c => c.name === name));
-  $('#recent-chats').replaceChildren(...addable.map(name => {
-    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${name}` });
-    link.addEventListener('click', () => saveSettings({ chats: AAM.addChatRule(settings.chats, name) }));
+  const addable = recent.filter(choice => !AAM.listsChat(chats, choice));
+  const addLabels = AAM.chatLabels([...chats, ...addable], chatLabel).slice(chats.length);
+  $('#recent-chats').replaceChildren(...addable.map((choice, i) => {
+    const link = Object.assign(document.createElement('a'), { textContent: `＋ ${addLabels[i]}` });
+    link.addEventListener('click', () => saveChats(AAM.addChatRule(chats, choice.name, choice)));
     return link;
   }));
   $('#recent-empty').hidden = recent.length > 0;
@@ -213,7 +229,7 @@ function logRow(entry) {
   const time = Object.assign(document.createElement('time'), { textContent: I18N.clock(entry.ts) });
   const text = document.createElement('div');
   text.textContent = label(entry);
-  text.append(Object.assign(document.createElement('small'), { textContent: entry.chat || t('fromUnknown') }));
+  text.append(Object.assign(document.createElement('small'), { textContent: chatName(entry) || t('fromUnknown') }));
   const result = Object.assign(document.createElement('span'), { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') });
   el.append(time, text, result);
   return el;

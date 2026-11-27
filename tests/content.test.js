@@ -15,9 +15,9 @@ const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 const CONTENT = read('content.js');
 // main before this change, to check that the panel surface still behaves exactly as there
 const MAIN_COMMIT = '3720d1f';
-function mainSources() {
+function mainSources(commit = MAIN_COMMIT) {
   try {
-    const show = file => execFileSync('git', ['show', `${MAIN_COMMIT}:${file}`], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const show = file => execFileSync('git', ['show', `${commit}:${file}`], { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
     return ['shared.js', 'guard.js', 'content.js'].map(show);
   } catch {
     return null;
@@ -133,7 +133,8 @@ function loadContent(sync = {}, sources = null) {
   };
   vm.createContext(ctx);
   for (const source of sources || [CONTENT]) vm.runInContext(source, ctx);
-  return { ctx, reports, pending: () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || [], i => i.key) };
+  const lastPending = () => Array.from(reports.filter(r => r.type === 'pending').at(-1)?.items || []);
+  return { ctx, reports, store, pending: () => lastPending().map(i => i.key), pendingItems: lastPending };
 }
 
 // Stand-in for bridge.js: answers maa-mark for cards holding an approval id. onMark may change attributes first, or return
@@ -383,4 +384,112 @@ test('a chat card read from data never opens a menu: it clicks its once button i
   ctx.scan();
   await menuWait();
   assert.deepEqual([...buttons.map(b => b.clicks), item.clicks], [1, 0, 0]);
+});
+
+// Source ids (PR B). A chat card read from data, from the chat "Research" by its wording, with the ids bridge.js wrote
+const BEFORE_SOURCE_IDS = '7889da9';
+function sourceCard({ ids = {}, text = 'Access example.com? This task is from Research.' } = {}) {
+  const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-90', 'data-maa-state': 'clean' };
+  if (ids.threadId) attrs['data-maa-thread-id'] = ids.threadId;
+  if (ids.scheduleId) attrs['data-maa-schedule-id'] = ids.scheduleId;
+  const els = SAFE_BUTTONS.map(([label, option, extra = {}]) => new El('button', { ...option, ...extra }, [], label));
+  doc.body.append(new El('div', attrs, [new El('p', {}, [], text), new El('div', {}, els)]));
+  return els;
+}
+
+async function runSource(sync, card, { answer = true, sources = null } = {}) {
+  makeDocument();
+  fakeBridge(() => answer);
+  const buttons = sourceCard(card);
+  const loaded = loadContent(sync, sources);
+  loaded.ctx.scan();
+  await tick();
+  const result = { clicks: buttons.map(b => b.clicks), pending: loaded.pending(), items: loaded.pendingItems(), store: loaded.store };
+  // A refused click schedules another scan, which refuses again while bridge.js stays silent; an empty page ends that
+  doc.body.children = [];
+  return result;
+}
+
+const T1 = { threadId: 'thread-test-1' };
+const T2 = { threadId: 'thread-test-2' };
+
+test('a chat trusted by id approves its card even under another name; the same name with another id waits', async () => {
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  assert.deepEqual((await runSource(byId, { ids: T1 })).clicks, [0, 1, 0]);
+  const sameName = await runSource({ chatSources: [{ id: 'chat-test-1', name: 'Research', ...T1, on: true }] }, { ids: T2 });
+  assert.deepEqual(sameName.clicks, [0, 0, 0]);
+  assert.deepEqual(sameName.pending, ['example.com|Research\nt:thread-test-2\ns:']);
+  assert.deepEqual(sameName.items[0].threadId, 'thread-test-2');
+  // Site limits stay main's names: an id stored next to one is ignored
+  const site = { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: ['Old name'], sources: [{ name: 'Old name', ...T1 }] }] };
+  assert.deepEqual((await runSource(site, { ids: T1 })).clicks, [0, 0, 0]);
+});
+
+test('ids are only used from a fresh mark: without an answer the card is matched by name', async () => {
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const stale = await runSource(byId, { ids: T1 }, { answer: false });
+  assert.deepEqual(stale.clicks, [0, 0, 0]);
+  assert.deepEqual(stale.pending, ['example.com|Research']);
+  assert.equal(stale.items[0].threadId, undefined);
+  // Invalid ids written on the card are ignored the same way
+  const invalid = await runSource(byId, { ids: { threadId: 'bad id' } });
+  assert.deepEqual(invalid.pending, ['example.com|Research']);
+});
+
+// Round 2 item 4: a valid thread with an invalid schedule is not read as that thread alone
+test('one invalid id voids the pair: the card has no ids and is matched by name', async () => {
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const half = await runSource(byId, { ids: { ...T1, scheduleId: 'bad id' } });
+  assert.deepEqual(half.clicks, [0, 0, 0]);
+  assert.deepEqual(half.pending, ['example.com|Research']);
+  assert.equal(half.items[0].threadId, undefined);
+  assert.equal(half.items[0].scheduleId, undefined);
+  // Round 3 item 5: the popup must not offer to trust this card by its name
+  assert.equal(half.items[0].badIds, true);
+  assert.equal((await runSource(byId, { ids: T1 })).items.length, 0);
+  assert.equal((await runSource({}, { ids: T1 })).items[0].badIds, undefined);
+});
+
+test('a legacy name rule still approves a card that has ids', async () => {
+  const legacy = { chats: [{ id: 'chat-test-1', name: 'Research', on: true }] };
+  assert.deepEqual((await runSource(legacy, { ids: T1 })).clicks, [0, 1, 0]);
+  const legacySite = { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: ['Research'] }] };
+  assert.deepEqual((await runSource(legacySite, { ids: T1 })).clicks, [0, 1, 0]);
+});
+
+// Cards without ids: every click and the waiting list are main's
+test('cards without ids behave exactly as on main', { skip: !mainSources(BEFORE_SOURCE_IDS) && `${BEFORE_SOURCE_IDS} is not in this clone` }, async () => {
+  const main = mainSources(BEFORE_SOURCE_IDS);
+  const settings = {
+    'trusted chat': { chats: [{ id: 'chat-test-1', name: 'Research', on: true }] },
+    'other chat': { chats: [{ id: 'chat-test-1', name: 'Other', on: true }] },
+    'site for the chat': { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: ['Research'] }] },
+    'site for another chat': { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: ['Other'] }] },
+    'site, any chat': { sites: [{ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats: [] }] },
+    untrusted: {},
+  };
+  const texts = { named: undefined, unnamed: 'Access example.com? The assistant wants to open this website.' };
+  for (const [name, sync] of Object.entries(settings)) {
+    for (const [kind, text] of Object.entries(texts)) {
+      for (const answer of [true, false]) {
+        const expected = await runSource(sync, { text }, { answer, sources: main });
+        const actual = await runSource(sync, { text }, { answer });
+        assert.deepEqual([actual.clicks, actual.pending], [expected.clicks, expected.pending], `${name}, ${kind}, answer=${answer}`);
+      }
+    }
+  }
+});
+
+test('sidebar names are recorded by thread id and kept when the sidebar collapses', async () => {
+  makeDocument();
+  const row = (id, name) => new El('div', { 'data-testid': 'hatch-thread-row', 'data-slot': 'context-menu-trigger', ...(id && { 'data-maa-thread-id': id }) }, [new El('span', { title: name })]);
+  for (const r of [row('thread-test-1', 'Research'), row('', 'No id'), row('bad id', 'Bad')]) doc.body.append(r);
+  const { ctx, store } = loadContent();
+  store.local.museChatNames = { 'thread-test-9': 'Collapsed earlier' };
+  ctx.scan();
+  await tick();
+  await tick();
+  assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChatNames)), { 'thread-test-1': 'Research', 'thread-test-9': 'Collapsed earlier' });
+  // The plain names are main's; the popup and options page leave out the ones known by id
+  assert.deepEqual(JSON.parse(JSON.stringify(store.local.museChats)), ['Research', 'No id', 'Bad']);
 });

@@ -40,6 +40,9 @@ function saveSettings(patch) {
   return chrome.storage.sync.set(patch);
 }
 
+const allChats = () => AAM.trustedChats(settings);
+const saveChats = list => saveSettings(AAM.splitChats(list));
+
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...children.filter(c => c !== null && c !== undefined));
@@ -80,6 +83,22 @@ function knownChats() {
   return [...new Set(names)];
 }
 
+// Chats the trusted chat list can add; chats seen with ids are offered by their pair (see AAM.chatChoices)
+function chatChoices() {
+  const names = [...local.museChats, ...settings.sites.flatMap(s => s.chats), ...settings.actions.flatMap(a => a.chats)];
+  const items = [...AAM.mergePending(pendingByTab), ...local.log];
+  return AAM.chatChoices({ names, museChatNames: local.museChatNames, chats: allChats(), items });
+}
+
+// Display only: the sidebar name of a chat known by thread id
+const sidebarName = threadId => (threadId && local.museChatNames?.[threadId]) || '';
+const chatLabel = choice => choice.name || sidebarName(choice.threadId) || t('fromUnknown');
+// A trusted chat's label within the whole list, so two chats of one name can be told apart
+function listedLabel(chat) {
+  const chats = allChats();
+  return AAM.chatLabels(chats, chatLabel)[chats.findIndex(c => c.id === chat.id)] || chatLabel(chat);
+}
+
 function currentPage() {
   const page = location.hash.slice(1);
   return PAGES.includes(page) ? page : 'general';
@@ -90,7 +109,7 @@ function renderNav() {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === `page-${page}`));
   document.querySelectorAll('.nav[href]').forEach(a => a.classList.toggle('on', a.getAttribute('href') === `#${page}`));
   $('#nav-sites-n').textContent = settings.sites.length;
-  $('#nav-chats-n').textContent = settings.chats.length;
+  $('#nav-chats-n').textContent = allChats().length;
   $('#nav-actions-n').textContent = settings.actions.length;
 }
 
@@ -206,8 +225,8 @@ function renderSites(force) {
 function chatEntry(chat) {
   const entry = el('div', { className: `entry${chat.id === selectedChat ? ' on' : ''}${chat.on ? '' : ' off'}` },
     glyph(BUBBLE),
-    el('div', {}, el('b', { textContent: chat.name }), el('small', { textContent: t('chatAllSites') })),
-    toggle(chat.on, on => saveSettings({ chats: settings.chats.map(c => (c.id === chat.id ? { ...c, on } : c)) })));
+    el('div', {}, el('b', { textContent: listedLabel(chat) }), el('small', { textContent: t('chatAllSites') })),
+    toggle(chat.on, on => saveChats(allChats().map(c => (c.id === chat.id ? { ...c, on } : c)))));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
     selectedChat = chat.id;
@@ -218,14 +237,14 @@ function chatEntry(chat) {
 
 function chatDetail(chat) {
   const seen = new Map();
-  for (const e of local.log) if (e.chat === chat.name && e.host && !seen.has(e.host)) seen.set(e.host, e.ts);
+  for (const e of local.log) if (AAM.chatMatches(chat, e) && e.host && !seen.has(e.host)) seen.set(e.host, e.ts);
   const recent = [...seen].slice(0, 8).map(([host, ts]) => `${host}・${I18N.clock(ts)}`);
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
-  remove.addEventListener('click', () => { saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) }); renderChats(true); });
+  remove.addEventListener('click', () => { saveChats(allChats().filter(c => c.id !== chat.id)); renderChats(true); });
   const list = el('div', { className: 'recent-sites' });
   recent.forEach((line, i) => { if (i) list.append(el('br')); list.append(line); });
   return [
-    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: chat.name })),
+    el('div', { className: 'detail-head' }, glyph(BUBBLE), el('b', { textContent: listedLabel(chat) })),
     el('p', { className: 'warn', textContent: t('chatDetailWarn') }),
     el('label', { className: 'field-label', textContent: t('chatRecentSites') }),
     recent.length ? list : el('p', { className: 'muted', textContent: t('chatRecentSitesEmpty') }),
@@ -233,21 +252,25 @@ function chatDetail(chat) {
   ];
 }
 
-function addChat(name) {
-  const chats = AAM.addChatRule(settings.chats, name);
-  selectedChat = chats.find(c => c.name === name).id;
-  saveSettings({ chats });
+// choice is { name } for a typed name, or a known chat with its ids
+function addChat(choice) {
+  const chats = AAM.addChatRule(allChats(), choice.name, choice);
+  const added = chats.find(c => AAM.sameChoice(c, choice));
+  if (!added) return;
+  selectedChat = added.id;
+  saveChats(chats);
   renderChats(true);
 }
 
 function newChatForm() {
   const input = el('input', { className: 'text-input', placeholder: t('chatNamePlaceholder') });
   const create = el('button', { className: 'btn primary', textContent: t('create') });
-  create.addEventListener('click', () => { const name = input.value.trim(); if (name) addChat(name); });
-  const addable = knownChats().filter(n => !settings.chats.some(c => c.name === n));
-  const links = el('div', { className: 'links' }, ...addable.map(name => {
-    const link = el('a', { textContent: `＋ ${name}` });
-    link.addEventListener('click', () => addChat(name));
+  create.addEventListener('click', () => { const name = input.value.trim(); if (name) addChat({ name }); });
+  const addable = chatChoices().filter(choice => !AAM.listsChat(allChats(), choice));
+  const labels = AAM.chatLabels([...allChats(), ...addable], chatLabel).slice(allChats().length);
+  const links = el('div', { className: 'links' }, ...addable.map((choice, i) => {
+    const link = el('a', { textContent: `＋ ${labels[i]}` });
+    link.addEventListener('click', () => addChat(choice));
     return link;
   }));
   return [
@@ -261,11 +284,12 @@ function newChatForm() {
 }
 
 function renderChats(force) {
-  if (selectedChat !== 'new' && !settings.chats.some(c => c.id === selectedChat)) selectedChat = settings.chats[0]?.id ?? 'new';
+  const chats = allChats();
+  if (selectedChat !== 'new' && !chats.some(c => c.id === selectedChat)) selectedChat = chats[0]?.id ?? 'new';
   $('#chat-new').classList.toggle('on', selectedChat === 'new');
-  $('#chat-items').replaceChildren(...settings.chats.map(chatEntry));
+  $('#chat-items').replaceChildren(...chats.map(chatEntry));
   if (!force && $('#chat-detail').contains(document.activeElement)) return;
-  const chat = settings.chats.find(c => c.id === selectedChat);
+  const chat = chats.find(c => c.id === selectedChat);
   $('#chat-detail').replaceChildren(...(chat ? chatDetail(chat) : newChatForm()));
 }
 
@@ -402,7 +426,7 @@ function renderLog() {
   $('#log-rows').replaceChildren(...entries.map(e => el('tr', {},
     el('td', { textContent: I18N.clock(e.ts) }),
     el('td', { textContent: AAM.cardLabel(e, t) }),
-    el('td', { textContent: e.chat || t('fromUnknown') }),
+    el('td', { textContent: e.chat || sidebarName(AAM.cardPair(e).threadId) || t('fromUnknown') }),
     el('td', { className: `result ${e.result}`, textContent: t(RESULT_TEXT[e.result] || 'resultAllowed') }))));
   $('#log-empty').hidden = entries.length > 0;
 }
@@ -433,7 +457,7 @@ async function importSettings(file) {
     if (!confirm(t('importConfirm'))) { result.hidden = true; return; }
     await chrome.storage.sync.set(clean);
     result.className = '';
-    result.textContent = t('importDone', clean.sites.length, clean.chats.length);
+    result.textContent = t('importDone', clean.sites.length, AAM.trustedChats(clean).length);
   } catch {
     result.className = 'error';
     result.textContent = t('importFailed');

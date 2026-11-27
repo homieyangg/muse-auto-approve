@@ -25,6 +25,14 @@
   const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
   const DATA_PATH_ATTR = 'data-maa-data-path';
   const STATE_ATTR = 'data-maa-state';
+  // Which chat or schedule asked, from the approval's scope; written only on a clean card whose sources all agree
+  const THREAD_ATTR = 'data-maa-thread-id';
+  const SCHEDULE_ATTR = 'data-maa-schedule-id';
+  // Sidebar rows: the row's [title] element has the thread id in actionAnalyticsMetadata a few dozen fibers up (23 seen live),
+  // with a key holding the same id just above it
+  const THREAD_ROW_SELECTOR = '[data-testid="hatch-thread-row"]';
+  const ROW_UP = 40;
+  const ROW_KEY_UP = 3;
   let timer = null;
   let queryClient = null;
 
@@ -148,6 +156,23 @@
 
   const sameMarks = marks => marks.every(mark => JSON.stringify(mark) === JSON.stringify(marks[0]));
 
+  // { threadId, scheduleId } of one approval, '' when absent; null when a value is not a string or the scope and the top
+  // level name different schedules
+  function sourceIdsOf(approval) {
+    const scope = approval?.scope && typeof approval.scope === 'object' ? approval.scope : {};
+    const text = v => (v == null || v === '' ? '' : typeof v === 'string' ? v : null);
+    const threadId = text(scope.threadId), scoped = text(scope.scheduleId), top = text(approval?.scheduleId);
+    if (threadId === null || scoped === null || top === null || (scoped && top && scoped !== top)) return null;
+    return { threadId, scheduleId: scoped || top };
+  }
+
+  // The ids every source gives, or null when any source differs, can't be read, or none has an id. Never picks one
+  function agreedSource(approvals) {
+    const ids = approvals.map(sourceIdsOf);
+    if (!ids.length || ids.some(i => !i) || !sameMarks(ids)) return null;
+    return ids[0].threadId || ids[0].scheduleId ? ids[0] : null;
+  }
+
   // A source with no decisionOptions field has no data and is skipped; [] or different options is a veto
   const hasData = approval => Array.isArray(approval?.serverPresentation?.decisionOptions);
 
@@ -161,7 +186,7 @@
   // confirmed once on an anomalous card
   function optionMarks(approval, buttons, walk = newWalk(), pendingById = () => null) {
     const id = approval?.approvalId;
-    const none = { state: '', missing: true, marks: buttons.map(() => null) };
+    const none = { state: '', missing: true, marks: buttons.map(() => null), source: null };
     const reads = buttons.map(({ fiber }) => {
       const key = decisionKeyOf(fiber, walk);
       return { key, own: key === undefined ? null : approvalsOfFiber(fiber, walk) };
@@ -188,7 +213,11 @@
       return found[0];
     });
     if (!keyed) anomalous = true;
-    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, marks };
+    // The same sources, whether or not they carry options; a button read that failed or reached another approval makes the ids unknown
+    const readFailed = reads.some(r => !r.own || r.own.some(a => a.approvalId !== id));
+    const all = [...new Set([approval, ...reads.flatMap(r => r.own || []), ...(cached ? [cached] : [])])];
+    const source = readFailed ? null : agreedSource(all);
+    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, marks, source };
   }
 
   function setAttr(el, name, value) {
@@ -222,6 +251,13 @@
     if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
     setAttr(el, STATE_ATTR, result.state);
     setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
+    // Only a clean read carries ids: any foreign key, foreign or failed walk, or disagreement on the card leaves none
+    writeSource(el, result.state === 'clean' ? result.source : null);
+  }
+
+  function writeSource(el, source) {
+    setAttr(el, THREAD_ATTR, source?.threadId);
+    setAttr(el, SCHEDULE_ATTR, source?.scheduleId);
   }
 
   // Unknown removes every attribute. Returns whether the node got a verified answer from approval data
@@ -244,6 +280,7 @@
       console.warn('[MAA] bridge option read failed', err);
       // A failed read may have hidden data, so a chat card must not fall back to main's text rules
       for (const b of el.querySelectorAll('button')) writeOption(b, null);
+      writeSource(el, null);
       const chat = onChatCard(el);
       setAttr(el, STATE_ATTR, chat ? 'anomalous' : '');
       setAttr(el, DATA_PATH_ATTR, chat ? 'missing' : '');
@@ -257,6 +294,34 @@
     for (const el of document.querySelectorAll(ITEM_SELECTOR)) {
       if (!el.matches(CARD_SELECTOR) && !el.closest('section, ' + CARD_SELECTOR)) continue;
       markItem(el, walk, pendingById);
+    }
+  }
+
+  // Thread id of a sidebar row, or '' when the metadata or the matching key isn't found within the bound
+  function threadIdOfRow(row, walk) {
+    const title = row.querySelector('[title]');
+    let f = title ? currentOf(fiberOf(title), walk) : null;
+    for (let i = 0; f && i < ROW_UP; i++) {
+      const id = f.memoizedProps?.actionAnalyticsMetadata?.thread_id;
+      if (typeof id === 'string' && id) {
+        let k = f.return ? currentOf(f.return, walk) : null;
+        for (let j = 0; k && j < ROW_KEY_UP; j++) {
+          if (typeof k.key === 'string' && k.key.includes(id)) return id;
+          k = k.return ? currentOf(k.return, walk) : null;
+        }
+        return '';
+      }
+      f = f.return ? currentOf(f.return, walk) : null;
+    }
+    return '';
+  }
+
+  // Lets the extension name a chat it only knows by id, in its UI and in new rules; cards are never matched against it
+  function markThreadRows(walk = newWalk()) {
+    for (const row of document.querySelectorAll(THREAD_ROW_SELECTOR)) {
+      let id = '';
+      try { id = threadIdOfRow(row, walk); } catch { id = ''; }
+      setAttr(row, THREAD_ATTR, id);
     }
   }
 
@@ -314,6 +379,7 @@
     try {
       markItems();
       markPending();
+      markThreadRows();
     } catch (e) {
       console.warn('[MAA] bridge failed', e);
     }
@@ -326,7 +392,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor, optionMarks, markItem };
+    module.exports = { isPurchaseApproval, marksFor, optionMarks, markItem, threadIdOfRow };
     return;
   }
 
