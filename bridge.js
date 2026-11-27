@@ -12,6 +12,14 @@
   const MARK_EVENT = 'maa-mark';
   const MARK_REQUEST_ATTR = 'data-maa-mark-request';
   const MARKED_ATTR = 'data-maa-marked';
+  const BACKGROUND_SELECTOR = '[data-hatch-background-approval-surface="true"]';
+  const MENU_SELECTOR = '[aria-haspopup="menu"]';
+  // muse keys each decision Button `<approvalId>-cta-<index>-<kind>`, two fibers above the <button>
+  const CTA_KEY_RE = /^(.+)-cta-(\d+)-([a-z_]+)$/;
+  const KEY_UP = 4;
+  const OPTION_ATTRS = { kind: 'data-maa-option-kind', labelKind: 'data-maa-label-kind', scope: 'data-maa-scope' };
+  const OPTIONS_ATTR = 'data-maa-options';
+  const DATA_PATH_ATTR = 'data-maa-data-path';
   let timer = null;
   let queryClient = null;
 
@@ -74,7 +82,10 @@
 
   // Every data-maa-* value for a node comes from this one walk; null means unknown
   function marksFor(start, walk) {
-    const approvals = approvalsOfFiber(start, walk);
+    return marksOf(approvalsOfFiber(start, walk));
+  }
+
+  function marksOf(approvals) {
     if (!approvals) return null;
     const one = approvals.length === 1 ? approvals[0] : null;
     return {
@@ -106,23 +117,98 @@
     return PURCHASE_RE.test(String(p.payloadType ?? '')) || p.paymentProvider != null || p.purchasePreapproval != null;
   }
 
+  // undefined: the fiber is not current; null: no decision key within KEY_UP fibers
+  function ctaKeyOf(start, walk) {
+    let f = currentOf(start, walk);
+    if (!f) return undefined;
+    for (let i = 0; i < KEY_UP; i++) {
+      if (typeof f.key === 'string' && f.key.includes('-cta-')) return f.key;
+      if (!f.return) return null;
+      f = currentOf(f.return, walk);
+      if (!f) return undefined;
+    }
+    return null;
+  }
+
+  const optionText = v => (typeof v === 'string' ? v : '');
+
+  // Maps each button fiber of one approval to its decisionOptions entry. All or nothing: a key that does not match the
+  // approval or the option at its index, or a button whose own walk reaches another approval, leaves every button unmarked.
+  // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
+  function optionMarks(approval, buttonFibers, walk = newWalk()) {
+    const none = missing => ({ missing, options: null, marks: buttonFibers.map(() => null) });
+    const options = approval?.serverPresentation?.decisionOptions;
+    if (!Array.isArray(options)) return none(true);
+    const marks = [];
+    let keyed = 0;
+    for (const start of buttonFibers) {
+      const key = ctaKeyOf(start, walk);
+      if (key === undefined) return none(false);
+      if (key === null) { marks.push(null); continue; }
+      const own = approvalsOfFiber(start, walk);
+      if (!own) return none(false);
+      const m = key.match(CTA_KEY_RE);
+      const option = m ? options[Number(m[2])] : null;
+      if (!m || m[1] !== approval.approvalId || own.length !== 1 || own[0].approvalId !== approval.approvalId) return none(true);
+      if (!option || typeof option.kind !== 'string' || option.kind !== m[3]) return none(true);
+      keyed++;
+      marks.push({ kind: option.kind, labelKind: optionText(option.label?.kind), scope: optionText(option.label?.scope) });
+    }
+    if (!keyed) return none(buttonFibers.length > 0);
+    const list = options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) }));
+    return { missing: false, options: list, marks };
+  }
+
   function setAttr(el, name, value) {
     if (!value) el.removeAttribute(name);
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
-  // Unknown removes all four attributes. Returns whether the node got a verified answer from approval data
+  function writeOption(button, mark) {
+    for (const [field, name] of Object.entries(OPTION_ATTRS)) setAttr(button, name, mark?.[field]);
+  }
+
+  // Marks the decision buttons of a card or combined-card item from the same walk as the item itself. A combined card
+  // holds several approvals and leaves its buttons to its items
+  function markOptions(el, approvals, walk) {
+    if (!el.closest(CARD_SELECTOR) || el.closest(BACKGROUND_SELECTOR)) return;
+    const buttons = [...el.querySelectorAll('button')].filter(b => !b.matches(MENU_SELECTOR));
+    let result;
+    if (approvals?.length > 1) {
+      const missing = approvals.some(a => !Array.isArray(a.serverPresentation?.decisionOptions));
+      result = { missing, options: null, marks: null };
+    } else if (approvals?.length === 1) {
+      result = optionMarks(approvals[0], buttons.map(fiberOf), walk);
+    } else {
+      // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
+      result = { missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
+    }
+    if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
+    setAttr(el, OPTIONS_ATTR, result.options ? JSON.stringify(result.options) : '');
+    setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
+  }
+
+  // Unknown removes every attribute. Returns whether the node got a verified answer from approval data
   function markItem(el, walk = newWalk()) {
-    let marks = null;
+    let approvals = null, marks = null;
     try {
-      marks = marksFor(fiberOf(el), walk);
+      approvals = approvalsOfFiber(fiberOf(el), walk);
+      marks = marksOf(approvals);
     } catch (err) {
+      approvals = null;
       console.warn('[MAA] bridge read failed', err);
     }
     setAttr(el, 'data-maa-approval-id', marks?.approvalId);
     setAttr(el, 'data-maa-policy', marks?.policy);
     setAttr(el, 'data-maa-site', marks?.site);
     setAttr(el, 'data-maa-purchase', marks?.purchase ? '1' : '');
+    try {
+      markOptions(el, approvals, walk);
+    } catch (err) {
+      console.warn('[MAA] bridge option read failed', err);
+      for (const b of el.querySelectorAll('button')) writeOption(b, null);
+      el.removeAttribute(OPTIONS_ATTR);
+    }
     return !!marks?.found;
   }
 
@@ -195,7 +281,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval, marksFor };
+    module.exports = { isPurchaseApproval, marksFor, optionMarks };
     return;
   }
 
