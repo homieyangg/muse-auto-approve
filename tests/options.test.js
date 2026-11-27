@@ -64,14 +64,12 @@ function cardTree(appr, keys) {
 const asButtons = (hosts, primaryAt = -1) => hosts.map((fiber, i) => ({ fiber, primary: i === primaryAt }));
 const core = p => p && { always: p.always, once: p.once, data: p.data };
 
-// Mirrors content.js: candidates from the attributes bridge.js would write, leaving out buttons flagged foreign; data path
-// when any button got a mark, and the option list passed along whenever bridge.js read it
+// Mirrors content.js: candidates from the attributes bridge.js would write, picked under the card state it wrote
 function pick(result, texts = TEXTS, primaryAt = 0) {
-  const foreign = result.foreign || [];
-  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === primaryAt, menu: false, kind: '', labelKind: '', scope: '', ...m }))
-    .filter((c, i) => !foreign[i]);
-  return AAM.pickAllowButtons(candidates, candidates.some(c => c.kind), result.options, foreign.some(Boolean));
+  const candidates = result.marks.map((m, i) => ({ el: `button-${i}`, text: texts[i] || '', primary: i === primaryAt, menu: false, kind: '', labelKind: '', scope: '', ...m }));
+  return AAM.pickAllowButtons(candidates, result.state || '', result.options);
 }
+const kinds = result => result.marks.map(m => m?.kind ?? null);
 
 function read(id, options, keys = keysFor(id, options), primaryAt = -1) {
   const appr = approval(id, options);
@@ -95,7 +93,7 @@ test('the live upload card: each button gets its option, label kind and scope', 
   ]);
   const p = pick(result);
   assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: true });
-  assert.equal(p.known, true);
+  assert.equal(result.state, 'clean');
 });
 
 test('every option kind is read; deny kinds are never picked', () => {
@@ -161,7 +159,6 @@ test('a scope or label kind that is not a string is unknown, never "no scope"', 
     const result = read('appr-test-40', options);
     assert.equal(result.marks[1].scope, '?');
     assert.equal(pick(result).always, null, JSON.stringify(scope));
-    assert.equal(AAM.textVeto(result.options).always, false);
   }
   const objectLabel = read('appr-test-40', [ONCE, { kind: 'allow_always', label: { kind: { name: 'allow_always' } } }, DENY]);
   assert.equal(pick(objectLabel).always, null);
@@ -173,56 +170,80 @@ test('no allow once option and a non-whitelisted always: nothing is picked', () 
   }
 });
 
-test('a key mismatch leaves every button unmarked but keeps the option list', () => {
+// A read with any anomaly allows only this approval's confirmed once button: never always, never the menu, never text
+test('a key that does not map makes the card anomalous: only the confirmed once is picked', () => {
   const options = [ONCE, SCOPED, DENY];
   const wrongKind = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-1-deny', 'appr-test-8-cta-2-deny'];
   const wrongIndex = ['appr-test-8-cta-0-allow_once', 'appr-test-8-cta-7-allow_always', 'appr-test-8-cta-2-deny'];
   for (const keys of [wrongKind, wrongIndex]) {
     const result = read('appr-test-8', options, keys);
-    assert.equal(result.missing, true);
+    assert.deepEqual([result.state, result.missing], ['anomalous', true]);
     assert.deepEqual(result.options, markList(options));
-    assert.deepEqual(result.marks, [null, null, null]);
-    // Text rules within the veto: every option is whitelist-known, so the text picks stand
+    assert.deepEqual(kinds(result), ['allow_once', null, 'deny']);
     const p = pick(result);
-    assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: false });
-    assert.equal(p.known, true);
+    assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
+    assert.equal(p.alwaysInMenu, false);
   }
+  // Nothing of this approval confirmed: nothing is picked, the always text included
+  const unconfirmed = read('appr-test-8', options, ['appr-test-8-cta-0-deny', 'appr-test-8-cta-7-allow_always']);
+  assert.equal(pick(unconfirmed), null);
 });
 
-// Review P1-a, second case
+// Review P1-a, second case, original input: a foreign deny next to a broad always
 test('a key mismatch never hands a broad option to the text rules', () => {
   const options = [ONCE, BROAD, DENY];
-  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-test-41-cta-2-allow_once'];
+  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-other-cta-2-deny'];
   const result = read('appr-test-41', options, keys);
-  assert.deepEqual(result.marks, [null, null, null]);
+  assert.deepEqual([result.state, result.missing], ['anomalous', true]);
+  assert.deepEqual(kinds(result), ['allow_once', 'allow_always', null]);
   const p = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
-  assert.deepEqual(core(p), { always: null, once: 'button-0', data: false });
+  assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
   assert.equal(p.alwaysInMenu, false);
   const fresh = pick(result, ['Allow once', 'Always allow all actions', 'Deny']);
   assert.equal(AAM.samePick(p, fresh, 'button-1'), false);
 });
 
+test('a mismatched own key next to a broad always never picks always', () => {
+  const options = [ONCE, BROAD, DENY];
+  const keys = ['appr-test-41-cta-0-allow_once', 'appr-test-41-cta-1-allow_always', 'appr-test-41-cta-2-allow_once'];
+  const p = pick(read('appr-test-41', options, keys), ['Allow once', 'Always allow all actions', 'Deny']);
+  assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
+  assert.equal(p.alwaysInMenu, false);
+});
+
 // Codex re-review 2, P1: this card's safe options must never authorise another approval's button
-test('a button keyed to another approval is flagged foreign: never clicked, and only a confirmed once is picked', () => {
+test('a button keyed to another approval makes the card anomalous: never clicked, only a confirmed once is picked', () => {
   const options = [ONCE, SCOPED, DENY];
   const texts = ['Allow once', 'Always allow uploads to this site', 'Deny'];
   const foreignAlways = ['appr-test-46-cta-0-allow_once', 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny'];
   const result = read('appr-test-46', options, foreignAlways);
-  assert.deepEqual(result.foreign, [false, true, false]);
-  assert.deepEqual(result.marks.map(m => m?.kind ?? null), ['allow_once', null, 'deny']);
+  // Codex re-review 3, P2: a valid own once next to the foreign key keeps the mismatch flag
+  assert.deepEqual([result.state, result.missing], ['anomalous', true]);
+  assert.deepEqual(kinds(result), ['allow_once', null, 'deny']);
   const p = pick(result, texts);
   assert.deepEqual(core(p), { always: null, once: 'button-0', data: true });
   assert.equal(p.alwaysInMenu, false);
   // This card's own buttons are not confirmed (keyless once, bad own key): nothing is picked, not even by text
   for (const keys of [[null, 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny'], ['appr-test-46-cta-0-deny', 'appr-other-cta-1-allow_always', 'appr-test-46-cta-2-deny']]) {
-    const unconfirmed = read('appr-test-46', options, keys);
-    assert.equal(unconfirmed.foreign[1], true);
-    assert.equal(pick(unconfirmed, texts), null, JSON.stringify(keys));
+    assert.equal(pick(read('appr-test-46', options, keys), texts), null, JSON.stringify(keys));
   }
-  // A fresh read that lost or gained the foreign flag does not back the earlier pick
+  // A fresh read in the other state does not back the earlier pick
   const clean = pick(read('appr-test-46', options), texts);
   assert.equal(AAM.samePick(p, clean, 'button-0'), false);
   assert.equal(AAM.samePick(clean, p, 'button-0'), false);
+});
+
+// Codex re-review 3, P1: an anomaly is never reset by a later sibling, whatever the order
+test('once a read finds an anomaly, no sibling result downgrades it', () => {
+  const options = [ONCE, SCOPED, DENY];
+  const appr = approval('appr-test-47', options);
+  const { hosts } = cardTree(appr, ['appr-test-47-cta-0-allow_once', 'appr-other-cta-1-allow_always', 'appr-test-47-cta-2-deny']);
+  const stale = { memoizedProps: {}, return: hosts[2].return, sibling: null };
+  for (const order of [[hosts[0], hosts[1], stale], [stale, hosts[1], hosts[0]], [hosts[1], hosts[0], hosts[2]]]) {
+    const result = optionMarks(appr, asButtons(order));
+    assert.deepEqual([result.state, result.missing], ['anomalous', true]);
+    assert.equal(pick(result, ['Allow once', 'Always allow uploads to this site', 'Deny']).always, null);
+  }
 });
 
 // Review P1-a, first case
@@ -247,7 +268,7 @@ test('decisionOptions null: the card is reported missing and main\'s text rules 
     assert.equal(result.options, null);
     const p = pick(result);
     assert.deepEqual(core(p), { always: 'button-1', once: 'button-0', data: false });
-    assert.equal(p.known, false);
+    assert.equal(result.state, '');
   }
 });
 
@@ -255,8 +276,9 @@ test('buttons without a decision key stay unmarked; no keyed button at all is re
   const options = [ONCE, DENY];
   const mixed = read('appr-test-10', options, ['appr-test-10-cta-0-allow_once', null, 'appr-test-10-cta-1-deny']);
   assert.deepEqual(mixed.marks.map(m => m?.kind ?? null), ['allow_once', null, 'deny']);
+  assert.equal(mixed.state, 'clean');
   const none = read('appr-test-10', options, [null, null]);
-  assert.equal(none.missing, true);
+  assert.deepEqual([none.state, none.missing], ['anomalous', true]);
   assert.deepEqual(none.marks, [null, null]);
 });
 
@@ -274,26 +296,26 @@ test('the key is searched upward below the approval component, not at a fixed de
   assert.deepEqual([above.missing, above.marks], [true, [null]]);
 });
 
-test('a button whose own walk reaches another approval is flagged foreign and left unmarked', () => {
+test('a button whose own walk reaches another approval makes the card anomalous and is left unmarked', () => {
   const options = [ONCE, DENY];
   const appr = approval('appr-test-12', options);
   const other = cardTree(approval('appr-test-13', options), keysFor('appr-test-12', options));
   const own = cardTree(appr, keysFor('appr-test-12', options));
   const result = optionMarks(appr, asButtons([own.hosts[0], other.hosts[1]]));
-  assert.deepEqual(result.foreign, [false, true]);
-  assert.deepEqual(result.marks.map(m => m?.kind ?? null), ['allow_once', null]);
+  assert.equal(result.state, 'anomalous');
+  assert.deepEqual(kinds(result), ['allow_once', null]);
   const keyless = optionMarks(appr, asButtons([other.hosts[0]], 0));
-  assert.deepEqual([keyless.foreign, keyless.marks], [[true], [null]]);
+  assert.deepEqual([keyless.state, keyless.marks], ['anomalous', [null]]);
 });
 
-test('a stale fiber gives no attributes and is not reported missing', () => {
+test('a stale button fiber makes the card anomalous and leaves that button unmarked', () => {
   const options = [ONCE, SCOPED, DENY];
   const appr = approval('appr-test-14', options);
   const { hosts } = cardTree(appr, keysFor('appr-test-14', options));
   const staleHost = { memoizedProps: {}, return: hosts[1].return, sibling: null };
   const result = optionMarks(appr, asButtons([hosts[0], staleHost, hosts[2]]));
-  assert.equal(result.missing, false);
-  assert.deepEqual(result.marks, [null, null, null]);
+  assert.equal(result.state, 'anomalous');
+  assert.deepEqual(kinds(result), ['allow_once', null, 'deny']);
   assert.equal(marksFor(staleHost), null);
 });
 
@@ -489,15 +511,15 @@ test('an unknown kind in a compact key: matched when the data has it but never p
   assert.deepEqual([deny.missing, deny.marks], [true, [null, null]]);
 });
 
-// Review round 2, item 1: the marked buttons are filtered out as not clickable, so the pick runs on text within the veto
-test('an unclickable marked deny or primary never lets the primary fall back to a looser text reading', () => {
-  const candidates = texts => texts.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: false, kind: '', labelKind: '', scope: '' }));
-  const broad = markList([BROAD, DENY]);
-  // Only the keyless primary is left clickable: the data says the first allow option is broad
-  assert.equal(AAM.pickAllowButtons(candidates(['Always allow all actions']), false, broad), null);
-  assert.equal(AAM.pickAllowButtons(candidates(['Allow']), false, broad), null);
-  // The data confirms the primary as the once option: text may still pick it
-  assert.equal(AAM.pickAllowButtons(candidates(['Allow once']), false, markList([ONCE, BROAD, DENY])).once, 'button-0');
+// Review round 2, item 1: the marked buttons are filtered out as not clickable, leaving only the keyless primary
+test('an unclickable marked deny or primary never lets the primary fall back to text', () => {
+  const candidates = (texts, mark = {}) => texts.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: false, kind: '', labelKind: '', scope: '', ...mark }));
+  for (const state of ['clean', 'anomalous']) {
+    assert.equal(AAM.pickAllowButtons(candidates(['Always allow all actions']), state, markList([BROAD, DENY])), null, state);
+    assert.equal(AAM.pickAllowButtons(candidates(['Allow']), state, markList([BROAD, DENY])), null, state);
+    // The data confirmed the primary as the once option
+    assert.equal(AAM.pickAllowButtons(candidates(['Allow once'], markList([ONCE])[0]), state, markList([ONCE, BROAD, DENY])).once, 'button-0', state);
+  }
 });
 
 // Review round 2, item 2: any source saying broad vetoes
@@ -516,23 +538,23 @@ test('a menu item whose ancestor approval and pending list disagree is not marke
 });
 
 // Codex re-review P1-3
-test('an empty option list that was read vetoes every text pick', () => {
-  assert.deepEqual(AAM.textVeto([]), { always: false, once: false, primary: false });
-  assert.equal(AAM.textVeto(null), null);
-  const candidates = TEXTS.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: false, kind: '', labelKind: '', scope: '' }));
-  assert.equal(AAM.pickAllowButtons(candidates, false, []), null);
+test('an empty option list that was read is anomalous and picks nothing', () => {
+  const result = read('appr-test-48', [], ['appr-test-48-cta-0-allow_once', 'appr-test-48-cta-1-allow_always']);
+  assert.deepEqual([result.state, result.options, result.marks], ['anomalous', [], [null, null]]);
+  assert.equal(pick(result), null);
 });
 
 // Codex re-review P1-2
-test('once options were read, a menu item is picked only by its fresh whitelisted mark', () => {
+test('an anomalous card never opens the menu; a clean card takes the item only by its fresh mark', () => {
   const always = { approvalId: 'appr-test-45', kind: 'allow_always', labelKind: 'allow_always_scoped', scope: 'destination' };
-  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow uploads to this site', option: null }], 'appr-test-45', true), null);
-  assert.deepEqual(AAM.pickMenuItem([{ el: 'm0', text: 'x', option: always }], 'appr-test-45', true), { item: 'm0', data: true });
-  // Text path with the options known: a text-picked menu target is refused, a mark-picked one is checked against the options
-  const candidates = PANEL_TEXTS.map((text, i) => ({ el: `button-${i}`, text, primary: i === 0, menu: i === 1, kind: '', labelKind: '', scope: '' }));
-  const known = AAM.pickAllowButtons(candidates, false, markList([ONCE, SCOPED, DENY]));
-  assert.deepEqual([known.known, known.data, known.alwaysInMenu], [true, false, true]);
-  assert.equal(AAM.samePick(known, known, { menu: true, data: false, approvalId: 'appr-test-45', option: null }), false);
-  assert.equal(AAM.samePick(known, known, { menu: true, data: true, approvalId: 'appr-test-45', option: always }), true);
-  assert.equal(AAM.samePick(known, known, { menu: true, data: true, approvalId: 'appr-test-45', option: { ...always, scope: 'destination_domain' } }), false);
+  const panel = keys => pick(read('appr-test-45', [ONCE, SCOPED, DENY], keys, 0), PANEL_TEXTS);
+  const anomalous = panel([null, 'appr-test-45-compact-deny-0-deny', 'appr-other-compact-deny-0-deny']);
+  assert.deepEqual([anomalous.state, anomalous.once, anomalous.alwaysInMenu], ['anomalous', 'button-0', false]);
+  for (const keys of [[null, 'appr-other-compact-deny-0-deny'], [null, 'appr-test-45-compact-deny-0-allow_once']]) assert.equal(panel(keys), null);
+  const clean = panel([null, 'appr-test-45-compact-deny-0-deny']);
+  assert.equal(clean.alwaysInMenu, true);
+  assert.equal(AAM.pickMenuItem([{ el: 'm0', text: 'Always allow uploads to this site', option: null }], 'appr-test-45', clean.data), null);
+  assert.equal(AAM.samePick(clean, clean, { menu: true, data: false, approvalId: 'appr-test-45', option: null }), false);
+  assert.equal(AAM.samePick(clean, clean, { menu: true, data: true, approvalId: 'appr-test-45', option: always }), true);
+  assert.equal(AAM.samePick(clean, clean, { menu: true, data: true, approvalId: 'appr-test-45', option: { ...always, scope: 'destination_domain' } }), false);
 });

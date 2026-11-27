@@ -136,11 +136,11 @@ function fakeBridge(onMark = () => {}) {
 
 const optAttrs = (kind, labelKind, scope = '') => ({ 'data-maa-option-kind': kind, 'data-maa-label-kind': labelKind, ...(scope && { 'data-maa-scope': scope }) });
 
-// A chat-surface card for a website access approval. withData false leaves out every bridge.js option attribute;
-// marked false keeps the card's option list but leaves its buttons unmarked, as when the keys did not match
-function accessCard(buttons, { withData = true, options = null, marked = withData } = {}) {
+// A chat-surface card for a website access approval. withData false leaves out every bridge.js option attribute; state is
+// the card state bridge.js wrote and marked false leaves the buttons unmarked, as when none of them could be confirmed
+function accessCard(buttons, { withData = true, options = null, state = 'clean', marked = withData } = {}) {
   const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'chat', 'data-maa-approval-id': 'appr-test-50' };
-  if (withData && options) attrs['data-maa-options'] = JSON.stringify(options);
+  if (withData && options) Object.assign(attrs, { 'data-maa-options': JSON.stringify(options), 'data-maa-state': state });
   const els = buttons.map(([text, option, extra = {}]) => new El('button', { ...(marked ? option : {}), ...extra }, [], text));
   const card = new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, els)]);
   doc.body.append(card);
@@ -241,7 +241,7 @@ test('with Prefer "Always allow" off, a data card with only an always button is 
 test('an empty option list that was read clicks nothing, even by text', async () => {
   makeDocument();
   fakeBridge();
-  const { buttons } = accessCard(SAFE_BUTTONS, { options: [], marked: false });
+  const { buttons } = accessCard(SAFE_BUTTONS, { options: [], state: 'anomalous', marked: false });
   const { ctx, pending } = loadContent({ mode: 'all' });
   ctx.scan();
   await tick();
@@ -249,18 +249,33 @@ test('an empty option list that was read clicks nothing, even by text', async ()
   assert.deepEqual(pending(), ['example.com|']);
 });
 
-// Codex re-review P1-4
-test('with options read but the buttons unmarked, the text pick still needs the fresh mark token', async () => {
-  for (const answering of [true, false]) {
+// Codex re-review P1-4 and 3: an anomalous card clicks only its confirmed once, after a fresh answer for the same approval
+test('an anomalous card clicks only its confirmed once button, and only on a fresh answer', async () => {
+  const onlyOnceMarked = [SAFE_BUTTONS[0], [SAFE_BUTTONS[1][0], {}], [SAFE_BUTTONS[2][0], {}]];
+  const cases = [
+    ['answering', SAFE_BUTTONS, () => true, [1, 0, 0]],
+    ['confirmed once only', onlyOnceMarked, () => true, [1, 0, 0]],
+    ['no fresh answer', SAFE_BUTTONS, (el, n) => n <= 1, [0, 0, 0]],
+    ['another approval now', SAFE_BUTTONS, (el, n) => { if (n > 1) el.setAttribute('data-maa-approval-id', 'appr-test-51'); }, [0, 0, 0]],
+  ];
+  for (const [name, spec, onMark, clicks] of cases) {
     makeDocument();
-    let marks = 0;
-    fakeBridge(() => answering || ++marks <= 1);
-    const { buttons } = accessCard(SAFE_BUTTONS, { options: SAFE_OPTIONS, marked: false });
+    let n = 0;
+    fakeBridge(el => onMark(el, ++n));
+    const { buttons } = accessCard(spec, { options: SAFE_OPTIONS, state: 'anomalous' });
     const { ctx } = loadContent({ mode: 'all' });
     ctx.scan();
     await tick();
-    assert.deepEqual(buttons.map(b => b.clicks), answering ? [0, 1, 0] : [0, 0, 0], `answering=${answering}`);
+    assert.deepEqual(buttons.map(b => b.clicks), clicks, name);
   }
+  makeDocument();
+  fakeBridge();
+  const { buttons } = accessCard(SAFE_BUTTONS, { options: SAFE_OPTIONS, state: 'anomalous', marked: false });
+  const { ctx, pending } = loadContent({ mode: 'all' });
+  ctx.scan();
+  await tick();
+  assert.deepEqual(buttons.map(b => b.clicks), [0, 0, 0]);
+  assert.deepEqual(pending(), ['example.com|']);
 });
 
 const DOMAIN_OPTIONS = [SAFE_OPTIONS[0], { ...SAFE_OPTIONS[1], scope: 'destination_domain' }, SAFE_OPTIONS[2]];
@@ -268,29 +283,52 @@ const menuItemAttrs = scope => ({ 'data-maa-option-approval': 'appr-test-50', ..
 
 // A panel card: keyless primary, a "more allow options" menu holding one always item, and deny. marked false leaves the
 // card's buttons unmarked; itemAttrs is what bridge.js wrote on the menu item; bare leaves out every bridge.js attribute
-function panelCard(options, { marked = true, itemAttrs = {}, bare = false } = {}) {
+function panelCard(options, { state = 'clean', marked = true, itemAttrs = {}, bare = false } = {}) {
   const item = new El('div', { role: 'menuitem', ...itemAttrs }, [], 'Always allow this site');
   doc.body.append(new El('div', { id: 'menu-test-1', role: 'menu' }, [item]));
   const primary = new El('button', { 'data-hatch-approval-primary-action': 'true', ...(marked && !bare ? optAttrs('allow_once', 'allow_once') : {}) }, [], 'Allow once');
   const menu = new El('button', { 'aria-haspopup': 'menu', 'aria-expanded': 'true', 'aria-controls': 'menu-test-1' }, [], 'More allow options');
   const deny = new El('button', marked && !bare ? optAttrs('deny', 'deny_for_this_task') : {}, [], 'Deny');
   const attrs = { 'data-testid': 'hatch-inline-approval-card', 'data-hatch-approval-surface': 'panel' };
-  if (!bare) Object.assign(attrs, { 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options) });
-  doc.body.append(new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, [primary, menu, deny])]));
-  return { primary, deny, item };
+  if (!bare) Object.assign(attrs, { 'data-maa-approval-id': 'appr-test-50', 'data-maa-options': JSON.stringify(options), 'data-maa-state': state });
+  const card = new El('div', attrs, [new El('p', {}, [], 'Access example.com? The assistant wants to open this website.'), new El('div', {}, [primary, menu, deny])]);
+  doc.body.append(card);
+  return { card, primary, deny, item };
 }
 const menuWait = () => new Promise(resolve => setTimeout(resolve, 300));
 
+// Closing the menu re-renders the card: on Escape the primary is swapped for a new node, and onSwap may change the card.
+// Returns a getter for the new node
+function swapPrimaryOnEscape(card, primary, onSwap = () => {}) {
+  let fresh = null;
+  doc.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || fresh) return;
+    const row = primary.parent;
+    fresh = new El('button', Object.fromEntries(primary.attrs), [], 'Allow once');
+    row.children[row.children.indexOf(primary)] = fresh;
+    fresh.parent = row;
+    primary.parent = null;
+    onSwap(card);
+  });
+  return () => fresh;
+}
+
 // Codex re-review P1-2
-test('with options read but the buttons unmarked, the menu item is picked by its fresh mark, never by text', async () => {
-  for (const [itemAttrs, clicks] of [[{}, [1, 0]], [menuItemAttrs('connector_all_actions'), [1, 0]], [menuItemAttrs('destination'), [0, 1]]]) {
+test('a clean card picks the menu item only by its fresh mark; an anomalous card never opens the menu', async () => {
+  const cases = [
+    ['clean, unmarked item', 'clean', {}, [1, 0]],
+    ['clean, broad item', 'clean', menuItemAttrs('connector_all_actions'), [1, 0]],
+    ['clean, single-site item', 'clean', menuItemAttrs('destination'), [0, 1]],
+    ['anomalous, single-site item', 'anomalous', menuItemAttrs('destination'), [1, 0]],
+  ];
+  for (const [name, state, itemAttrs, clicks] of cases) {
     makeDocument();
     fakeBridge();
-    const { primary, item } = panelCard(SAFE_OPTIONS, { marked: false, itemAttrs });
+    const { primary, item } = panelCard(SAFE_OPTIONS, { state, itemAttrs });
     const { ctx } = loadContent({ mode: 'all' });
     ctx.scan();
     await menuWait();
-    assert.deepEqual([primary.clicks, item.clicks], clicks, JSON.stringify(itemAttrs));
+    assert.deepEqual([primary.clicks, item.clicks], clicks, name);
   }
 });
 
@@ -307,39 +345,24 @@ test('a menu item refused because the card and the pending list disagree falls b
   assert.deepEqual([primary.clicks, item.clicks, deny.clicks], [1, 0, 0]);
 });
 
-// Codex re-review 2, P1
-test('a button flagged foreign is never clicked; without a confirmed once nothing is', async () => {
-  const foreignAlways = [SAFE_BUTTONS[0], [SAFE_BUTTONS[1][0], SAFE_BUTTONS[1][1], { 'data-maa-foreign': '1' }], SAFE_BUTTONS[2]];
-  for (const [marked, clicks] of [[true, [1, 0, 0]], [false, [0, 0, 0]]]) {
+// Codex re-review 2, P2 and 3, P2: closing the menu re-renders the primary as a new node, whether the item was refused or
+// no item was usable; the new node is clicked only while the card still holds the same approval
+test('after the menu closes, the once button is looked up again and tied to the same approval', async () => {
+  const cases = [
+    ['refused item', DOMAIN_OPTIONS, menuItemAttrs('destination'), () => {}, 1],
+    ['no usable item', SAFE_OPTIONS, {}, () => {}, 1],
+    ['card switched approval', DOMAIN_OPTIONS, menuItemAttrs('destination'), card => card.setAttribute('data-maa-approval-id', 'appr-test-51'), 0],
+  ];
+  for (const [name, options, itemAttrs, onSwap, freshClicks] of cases) {
     makeDocument();
     fakeBridge();
-    const { buttons } = accessCard(foreignAlways, { options: SAFE_OPTIONS, marked });
-    const { ctx, pending } = loadContent({ mode: 'all' });
+    const { card, primary, item } = panelCard(options, { itemAttrs });
+    const fresh = swapPrimaryOnEscape(card, primary, onSwap);
+    const { ctx } = loadContent({ mode: 'all' });
     ctx.scan();
-    await tick();
-    assert.deepEqual(buttons.map(b => b.clicks), clicks, `marked=${marked}`);
-    if (!marked) assert.deepEqual(pending(), ['example.com|']);
+    await menuWait();
+    assert.deepEqual([primary.clicks, fresh()?.clicks, item.clicks], [0, freshClicks, 0], name);
   }
-});
-
-// Codex re-review 2, P2: closing the menu re-renders the primary as a new node
-test('after a refused menu item, the once button is looked up again on the re-rendered card', async () => {
-  makeDocument();
-  fakeBridge();
-  const { primary, item } = panelCard(DOMAIN_OPTIONS, { itemAttrs: menuItemAttrs('destination') });
-  let fresh = null;
-  doc.addEventListener('keydown', e => {
-    if (e.key !== 'Escape' || fresh) return;
-    const row = primary.parent;
-    fresh = new El('button', Object.fromEntries(primary.attrs), [], 'Allow once');
-    row.children[row.children.indexOf(primary)] = fresh;
-    fresh.parent = row;
-    primary.parent = null;
-  });
-  const { ctx } = loadContent({ mode: 'all' });
-  ctx.scan();
-  await menuWait();
-  assert.deepEqual([primary.clicks, fresh?.clicks, item.clicks], [0, 1, 0]);
 });
 
 // Codex re-review 2, P2: without data the refused menu stays main's

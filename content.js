@@ -34,7 +34,7 @@ const LABEL_KIND_ATTR = 'data-maa-label-kind';
 const SCOPE_ATTR = 'data-maa-scope';
 const OPTIONS_ATTR = 'data-maa-options';
 const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
-const FOREIGN_ATTR = 'data-maa-foreign';
+const STATE_ATTR = 'data-maa-state';
 const SEEN_LIMIT = 2000;
 const AVATAR_SELECTOR = '[data-hatch-avatar-interaction="true"]';
 // 只有副聊天室的列有右鍵選單，主要聊天室和 WhatsApp 這類頻道沒有
@@ -67,11 +67,9 @@ function isClickable(el) {
   return el.getClientRects().length > 0;
 }
 
-// Picks by the option attributes bridge.js wrote when the scope is a marked muse card with marked buttons;
-// otherwise by button text as before
+// Picks by the card state and option attributes bridge.js wrote on a marked muse card; without them by button text as on main
 function findAllowButtons(scope) {
-  const all = [...scope.querySelectorAll(BUTTON_SELECTOR)];
-  const candidates = all.filter(b => isClickable(b) && !b.hasAttribute(FOREIGN_ATTR)).map(b => ({
+  const candidates = [...scope.querySelectorAll(BUTTON_SELECTOR)].filter(isClickable).map(b => ({
     el: b,
     text: labelOf(b),
     primary: b.matches(PRIMARY_SELECTOR),
@@ -80,14 +78,13 @@ function findAllowButtons(scope) {
     labelKind: b.getAttribute(LABEL_KIND_ATTR) || '',
     scope: b.getAttribute(SCOPE_ATTR) || '',
   }));
-  const marked = !!scope.closest(CARD_SELECTOR) && !!scope.getAttribute(ID_ATTR);
-  const byData = marked && candidates.some(c => c.kind && !c.menu);
-  return AAM.pickAllowButtons(candidates, byData, marked ? optionsOf(scope) : null, all.some(b => b.hasAttribute(FOREIGN_ATTR)));
+  const state = cardState(scope);
+  return AAM.pickAllowButtons(candidates, state, state ? optionsOf(scope) : null);
 }
 
-// A muse card whose approval options were read but offer nothing that may be clicked; it is still listed as waiting
-function optionsKnown(scope) {
-  return !!scope.getAttribute(ID_ATTR) && Array.isArray(optionsOf(scope));
+// 'clean' or 'anomalous' when bridge.js read this card's options, '' otherwise
+function cardState(scope) {
+  return (scope.closest(CARD_SELECTOR) && scope.getAttribute(ID_ATTR) && scope.getAttribute(STATE_ATTR)) || '';
 }
 
 function optionsOf(scope) {
@@ -130,7 +127,9 @@ function approvalCards() {
     for (const [node, heading] of scopes) {
       // bridge 標了審批 ID 就確定是審批，不必再靠拒絕鈕的文字判斷
       const found = (node.hasAttribute(ID_ATTR) || hasDeny(node)) && findAllowButtons(node);
-      const buttons = found || (optionsKnown(node) && { always: null, once: null, data: false, known: true });
+      // A card whose options were read but offer nothing that may be clicked is still listed as waiting
+      const state = cardState(node);
+      const buttons = found || (state && { always: null, once: null, data: true, state });
       if (!buttons) continue;
       const surface = card.getAttribute('data-hatch-approval-surface') || '';
       cards.set(node, { ...buttons, menu: node.querySelector(MENU_SELECTOR), body: card, heading, surface, approvalId: node.getAttribute(ID_ATTR) || '', muse: true });
@@ -343,9 +342,8 @@ function stillAllowed(node, buttons, key, onceOnly, target) {
   const card = cardOf(node, buttons);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
-  // Read options steer the text path too, so they must come from this fresh mark
-  if (buttons.known && !freshlyMarked(node)) return false;
-  if (target.menu && (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
+  if (buttons.data && !freshlyMarked(node)) return false;
+  if ((buttons.data || target.menu) && (node.getAttribute(ID_ATTR) || '') !== (buttons.approvalId || '')) return false;
   return AAM.samePick(buttons, findAllowButtons(node), target);
 }
 
@@ -369,26 +367,29 @@ function releaseRefused(node, buttons, key, onceOnly) {
 // allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
 // Returns null when nothing was clicked
 async function clickAllow(node, buttons, preferAlways, allowed) {
-  const { always, once, menu, known, alwaysInMenu, approvalId } = buttons;
+  const { always, menu, data, alwaysInMenu, approvalId } = buttons;
   if (!allowed()) return null;
-  const useMenu = preferAlways && !always && once && menu && isClickable(menu) && alwaysInMenu;
-  const picked = useMenu ? await openAlwaysItem(menu, approvalId, known) : null;
+  const useMenu = preferAlways && !always && buttons.once && menu && isClickable(menu) && alwaysInMenu;
   let target = AAM.clickTarget(buttons, preferAlways), check = target;
-  if (picked) {
-    const { item } = picked;
-    const inPlace = node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item);
-    if (inPlace && allowed({ menu: true, data: picked.data, approvalId, option: picked.data ? freshMenuOption(item) : null })) {
-      item.click();
-      return 'always';
+  if (useMenu) {
+    const picked = await openAlwaysItem(menu, approvalId, data);
+    if (picked) {
+      const { item } = picked;
+      const inPlace = node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item);
+      if (inPlace && allowed({ menu: true, data: picked.data, approvalId, option: picked.data ? freshMenuOption(item) : null })) {
+        item.click();
+        return 'always';
+      }
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      if (!data) return null;
     }
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    // Without read options this stays main's: nothing is clicked. An item refused on its mark (e.g. card and pending list
-    // disagree on its scope) settles for allow once instead of reopening the menu every scan; closing the menu re-renders
-    // the card, so its once button is looked up again
-    if (!picked.data) return null;
-    await new Promise(resolve => setTimeout(resolve, 100));
-    target = node.isConnected ? findAllowButtons(node)?.once || null : null;
-    check = target && { fallback: target };
+    // With data, a menu that gave no usable item settles for allow once instead of reopening every scan. Opening and closing
+    // it re-renders the card, so the once button is looked up again; stillAllowed ties it to the same approval id
+    if (data) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      target = node.isConnected ? findAllowButtons(node)?.once || null : null;
+      check = target && { fallback: target };
+    }
   }
   if (!target || !target.isConnected || !node.contains(target) || !allowed(check)) return null;
   target.click();
@@ -396,8 +397,8 @@ async function clickAllow(node, buttons, preferAlways, allowed) {
 }
 
 // Radix 選單要 pointerdown 才會打開，選項渲染在卡片外，從 aria-controls 找；找不到一律允許就關掉選單
-// Once the card's options were read, each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
-async function openAlwaysItem(menu, approvalId, known) {
+// With data, each item is re-marked by bridge.js first and picked by its option. Returns { item, data } or null
+async function openAlwaysItem(menu, approvalId, data) {
   if (menu.getAttribute('aria-expanded') !== 'true') {
     menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
   }
@@ -405,8 +406,8 @@ async function openAlwaysItem(menu, approvalId, known) {
     await new Promise(resolve => setTimeout(resolve, 100));
     const list = document.getElementById(menu.getAttribute('aria-controls'));
     if (!list) continue;
-    const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: known ? freshMenuOption(el) : null }));
-    const picked = AAM.pickMenuItem(items, approvalId, known);
+    const items = [...list.querySelectorAll('[role="menuitem"]')].map(el => ({ el, text: labelOf(el), option: data ? freshMenuOption(el) : null }));
+    const picked = AAM.pickMenuItem(items, approvalId, data);
     if (picked) return picked;
     break;
   }

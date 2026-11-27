@@ -25,7 +25,7 @@
   const OPTION_APPROVAL_ATTR = 'data-maa-option-approval';
   const OPTIONS_ATTR = 'data-maa-options';
   const DATA_PATH_ATTR = 'data-maa-data-path';
-  const FOREIGN_ATTR = 'data-maa-foreign';
+  const STATE_ATTR = 'data-maa-state';
   let timer = null;
   let queryClient = null;
 
@@ -162,34 +162,37 @@
     return first?.kind === 'allow_once' ? first : null;
   }
 
-  // Maps each button of one approval to its decisionOptions entry. A button keyed to, or sitting under, another approval is
-  // flagged foreign and left unmarked; content.js never clicks it and then allows only this approval's confirmed once button.
-  // Otherwise all or nothing: a key that does not match the option it points at leaves every button unmarked. A keyless
-  // button never fails the item: the panel's primary is marked only when the data confirms it and at least one keyed button
-  // sits next to it, otherwise it stays unmarked and so is never clicked on the data path.
-  // missing tells the card's data could not be matched; a non-current fiber is not reported as missing, the next render fixes it
+  // Reads one approval's buttons in a single pass into { state, missing, options, marks }. state 'clean': at least one keyed
+  // button, and every keyed button carries this approval's key and maps to its option. 'anomalous': the options were read but
+  // a button is keyed to or sits under another approval, a key does not map, a fiber can't be confirmed, or no button is
+  // keyed; nothing later in the pass resets it. '': no decisionOptions, main's text rules.
+  // Every button confirmed on its own is marked; content.js clicks only a confirmed once button on an anomalous card.
+  // A keyless primary is marked allow once only when it is the first allow option and a keyed button of this approval exists
   function optionMarks(approval, buttons, walk = newWalk()) {
     const options = approval?.serverPresentation?.decisionOptions;
-    // The option list is kept even when no button can be marked: content.js uses it to veto the text rules
-    const list = Array.isArray(options) ? options.map(o => ({ kind: optionText(o?.kind), labelKind: optionText(o?.label?.kind), scope: optionText(o?.label?.scope) })) : null;
-    const marks = [], foreign = [];
-    let keyed = 0, failed = !list;
-    for (const { fiber, primary } of buttons) {
+    if (!Array.isArray(options)) return { state: '', missing: true, options: null, marks: buttons.map(() => null) };
+    let anomalous = false, keyed = 0;
+    const found = buttons.map(({ fiber, primary }) => {
       const key = decisionKeyOf(fiber, walk);
       const own = key === undefined ? null : approvalsOfFiber(fiber, walk);
-      if (!own) return { missing: false, options: list, marks: buttons.map(() => null), foreign: buttons.map(() => false) };
       const m = typeof key === 'string' ? key.match(DECISION_KEY_RE) : null;
-      const other = (!!m && m[1] !== approval.approvalId) || own.some(a => a.approvalId !== approval.approvalId);
-      foreign.push(other);
-      let option = null;
-      if (other || !list) option = null;
-      else if (key === null) option = primary && own.length === 1 ? primaryOption(options) : null;
-      else if (!m || own.length !== 1 || !(option = optionForKey(options, m[2], Number(m[3]), m[4]))) failed = true;
-      else keyed++;
-      marks.push(option ? markOf(option) : null);
-    }
-    if (failed || !keyed) return { missing: failed || buttons.length > 0, options: list, marks: buttons.map(() => null), foreign };
-    return { missing: false, options: list, marks, foreign };
+      if (!own || own.some(a => a.approvalId !== approval.approvalId) || (m && m[1] !== approval.approvalId)) {
+        anomalous = true;
+        return null;
+      }
+      if (key === null) return primary && own.length === 1 ? 'primary' : null;
+      const option = m && own.length === 1 ? optionForKey(options, m[2], Number(m[3]), m[4]) : null;
+      if (!option) {
+        anomalous = true;
+        return null;
+      }
+      keyed++;
+      return markOf(option);
+    });
+    if (!keyed && buttons.length) anomalous = true;
+    const primaryMark = keyed && primaryOption(options);
+    const marks = found.map(f => (f === 'primary' ? (primaryMark ? markOf(primaryMark) : null) : f));
+    return { state: anomalous ? 'anomalous' : 'clean', missing: anomalous, options: options.map(o => markOf(o || {})), marks };
   }
 
   // A "more allow options" item is drawn in a portal, so its approval is looked up by the key's id in the pending list.
@@ -230,19 +233,15 @@
     let result;
     if (approvals?.length > 1) {
       const missing = approvals.some(a => !Array.isArray(a.serverPresentation?.decisionOptions));
-      result = { missing, options: null, marks: null };
+      result = { state: '', missing, options: null, marks: null };
     } else if (approvals?.length === 1) {
       result = optionMarks(approvals[0], buttons.map(b => ({ fiber: fiberOf(b), primary: b.matches(PRIMARY_SELECTOR) })), walk);
     } else {
       // [] is a card without approval data; null is a non-current walk, unless the node has no React fiber at all
-      result = { missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
+      result = { state: '', missing: !!approvals || !fiberOf(el), options: null, marks: buttons.map(() => null) };
     }
-    if (result.marks) {
-      buttons.forEach((b, i) => {
-        writeOption(b, result.marks[i]);
-        setAttr(b, FOREIGN_ATTR, result.foreign?.[i] ? '1' : '');
-      });
-    }
+    if (result.marks) buttons.forEach((b, i) => writeOption(b, result.marks[i]));
+    setAttr(el, STATE_ATTR, result.state);
     setAttr(el, OPTIONS_ATTR, result.options ? JSON.stringify(result.options) : '');
     setAttr(el, DATA_PATH_ATTR, result.missing ? 'missing' : '');
   }
@@ -267,6 +266,7 @@
       console.warn('[MAA] bridge option read failed', err);
       for (const b of el.querySelectorAll('button')) writeOption(b, null);
       el.removeAttribute(OPTIONS_ATTR);
+      el.removeAttribute(STATE_ATTR);
     }
     return !!marks?.found;
   }
