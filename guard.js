@@ -15,7 +15,13 @@ const AAG = (() => {
     return (settings.mode === 'all' && !!(card.host || card.site || settings.includeActions)) || aam.isTrusted(settings, card);
   }
 
-  return { canAutoApprove };
+  // Combines the fresh answers for a combined-card item and its parent card (true, false, or null for no answer)
+  function combinePurchase(answers) {
+    if (answers.includes(true)) return true;
+    return answers.includes(null) ? null : false;
+  }
+
+  return { canAutoApprove, combinePurchase };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAG;

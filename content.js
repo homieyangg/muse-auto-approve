@@ -207,9 +207,7 @@ function freshPurchase(node) {
 
 // A purchase anywhere in a combined card holds back its other items too
 function purchaseState(node, body) {
-  const own = freshPurchase(node);
-  if (own === null) return null;
-  return own || (body !== node && freshPurchase(body) === true);
+  return AAG.combinePurchase(body === node ? [freshPurchase(node)] : [freshPurchase(node), freshPurchase(body)]);
 }
 
 // Builds the card from attributes bridge.js re-marked just now; cards found through the deny button have no bridge data
@@ -289,7 +287,7 @@ async function approve(node, buttons, card, key, onceOnly) {
   handledKeys.set(key, { at: Date.now(), surface: buttons.surface });
   if (buttons.approvalId) handledIds.set(buttons.approvalId, Date.now());
   settleUntil.set(buttons.body, Date.now() + SETTLE_MS);
-  const kind = await clickAllow(buttons, settings.preferAlways && !onceOnly, () => stillAllowed(node, buttons, key, onceOnly));
+  const kind = await clickAllow(node, buttons, settings.preferAlways && !onceOnly, () => stillAllowed(node, buttons, key, onceOnly));
   if (!kind) return releaseRefused(node, buttons, key, onceOnly);
   waitingState.delete(key);
   console.info('[MAA] approved', card.host || card.action, card.chat);
@@ -321,21 +319,21 @@ function releaseRefused(node, buttons, key, onceOnly) {
 }
 
 // 右側面板和批次卡把一律允許收進「更多允許選項」選單，要的話打開選單去按；選單裡沒有才按允許一次
-// allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile
-async function clickAllow({ always, once, menu }, preferAlways, allowed) {
+// allowed() is asked right before clicking, and again after the menu wait, since muse may have swapped the card meanwhile.
+// Returns null when nothing was clicked
+async function clickAllow(node, { always, once, menu }, preferAlways, allowed) {
   if (!allowed()) return null;
   const item = preferAlways && !always && once && menu && isClickable(menu) ? await openAlwaysItem(menu) : null;
-  if (!allowed()) {
+  const target = item || (preferAlways ? (always || once) : (once || always));
+  const inPlace = item
+    ? node.contains(menu) && !!document.getElementById(menu.getAttribute('aria-controls'))?.contains(item)
+    : target.isConnected && node.contains(target);
+  if (!inPlace || !allowed()) {
     if (item) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     return null;
   }
-  if (item) {
-    item.click();
-    return 'always';
-  }
-  const target = preferAlways ? (always || once) : (once || always);
   target.click();
-  return target === always ? 'always' : 'once';
+  return (item || target === always) ? 'always' : 'once';
 }
 
 // Radix 選單要 pointerdown 才會打開，選項渲染在卡片外，從 aria-controls 找；找不到一律允許就關掉選單

@@ -24,17 +24,29 @@
     return !!v && typeof v === 'object' && typeof v.approvalId === 'string';
   }
 
-  // 往上找第一個 props 帶審批資料的元件：批次卡每一項和預覽列是單筆，整張卡是陣列
-  function approvalsOf(el) {
-    for (let f = fiberOf(el), i = 0; f && i < MAX_UP; f = f.return, i++) {
-      const props = f.memoizedProps;
-      if (!props || typeof props !== 'object') continue;
-      for (const v of Object.values(props)) {
-        if (isApproval(v)) return [v];
-        if (Array.isArray(v) && v.length && v.every(isApproval)) return v;
-      }
+  // 批次卡每一項和預覽列是單筆，整張卡是陣列
+  function approvalsInProps(fiber) {
+    const props = fiber?.memoizedProps;
+    if (!props || typeof props !== 'object') return null;
+    for (const v of Object.values(props)) {
+      if (isApproval(v)) return [v];
+      if (Array.isArray(v) && v.length && v.every(isApproval)) return v;
     }
-    return [];
+    return null;
+  }
+
+  const idsOf = approvals => approvals.map(a => a.approvalId).sort().join(' ');
+
+  // 往上找第一個 props 帶審批資料的元件。The node may point at the fiber from the previous render, so each step also reads
+  // its alternate: purchase is true if either side holds one, and agreed is false when the two sides name different approvals
+  function readApprovals(start) {
+    for (let f = start, i = 0; f && i < MAX_UP; f = f.return, i++) {
+      const own = approvalsInProps(f), other = approvalsInProps(f.alternate);
+      if (!own && !other) continue;
+      const all = [...(own || []), ...(other || [])];
+      return { approvals: own || other, purchase: all.some(isPurchaseApproval), agreed: !own || !other || idsOf(own) === idsOf(other) };
+    }
+    return { approvals: [], purchase: false, agreed: true };
   }
 
   // Upload approvals carry the target in payloadPreview, e.g. "Destination: https://tmpfiles.org"
@@ -62,14 +74,15 @@
     else if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
+  // Returns whether the purchase answer can be trusted: approval data found, and either a purchase or both fibers agree
   function markItem(el) {
-    const approvals = approvalsOf(el);
+    const { approvals, purchase, agreed } = readApprovals(fiberOf(el));
     const one = approvals.length === 1 ? approvals[0] : null;
     setAttr(el, 'data-maa-approval-id', one?.approvalId);
     setAttr(el, 'data-maa-policy', one?.policySubject);
     setAttr(el, 'data-maa-site', one && destinationOf(one));
-    setAttr(el, 'data-maa-purchase', approvals.some(isPurchaseApproval) ? '1' : '');
-    return approvals;
+    setAttr(el, 'data-maa-purchase', purchase ? '1' : '');
+    return approvals.length > 0 && (purchase || agreed);
   }
 
   function markItems() {
@@ -86,7 +99,7 @@
     if (!(el instanceof Element)) return;
     el.removeAttribute(MARKED_ATTR);
     try {
-      if (markItem(el).length) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
+      if (markItem(el)) el.setAttribute(MARKED_ATTR, el.getAttribute(MARK_REQUEST_ATTR) || '');
     } catch (err) {
       console.warn('[MAA] bridge mark failed', err);
     }
@@ -140,7 +153,7 @@
 
   // Loaded from node tests: export the predicate without touching the DOM
   if (typeof window === 'undefined') {
-    module.exports = { isPurchaseApproval };
+    module.exports = { isPurchaseApproval, readApprovals };
     return;
   }
 

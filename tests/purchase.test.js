@@ -3,8 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const AAM = require('../shared.js');
-const { isPurchaseApproval } = require('../bridge.js');
-const { canAutoApprove } = require('../guard.js');
+const { isPurchaseApproval, readApprovals } = require('../bridge.js');
+const { canAutoApprove, combinePurchase } = require('../guard.js');
 
 const CHECKOUT_FIELDS = [
   'browserCheckoutApproval', 'shopifyCheckoutApproval', 'stripeLinkCheckoutApproval', 'flightCheckoutApproval',
@@ -93,4 +93,43 @@ test('a website card with unknown purchase state follows the usual rules', () =>
 
 test('just this once passes whatever the purchase state', () => {
   for (const purchase of [true, false, null]) assert.equal(canAutoApprove(AAM.SETTINGS_DEFAULTS, actionCard(purchase), true), true);
+});
+
+// Fabricated React fibers: a host node fiber whose parent component holds the approval in props
+function fiberPair(current, previous) {
+  const parent = { memoizedProps: { approval: current }, return: null, alternate: previous && { memoizedProps: { approval: previous } } };
+  return { memoizedProps: { className: 'x' }, return: parent, alternate: null };
+}
+
+test('readApprovals agrees when fiber and alternate hold the same approval', () => {
+  const r = readApprovals(fiberPair(ordinary(), ordinary()));
+  assert.deepEqual([r.purchase, r.agreed, r.approvals[0].approvalId], [false, true, 'a1']);
+  assert.equal(readApprovals(fiberPair(ordinary(), null)).agreed, true);
+});
+
+test('readApprovals marks a purchase found on either side', () => {
+  const checkout = ordinary({ approvalId: 'a2', shopifyCheckoutApproval: {} });
+  assert.equal(readApprovals(fiberPair(ordinary(), checkout)).purchase, true);
+  assert.equal(readApprovals(fiberPair(checkout, ordinary())).purchase, true);
+});
+
+test('readApprovals flags fibers that name different approvals', () => {
+  const r = readApprovals(fiberPair(ordinary(), ordinary({ approvalId: 'old' })));
+  assert.deepEqual([r.purchase, r.agreed], [false, false]);
+});
+
+test('readApprovals finds nothing without approval props', () => {
+  assert.deepEqual(readApprovals({ memoizedProps: {}, return: null }).approvals, []);
+  assert.deepEqual(readApprovals(null).approvals, []);
+});
+
+test('combinePurchase: purchase wins, then unknown, no only when every side said no', () => {
+  assert.equal(combinePurchase([true, null]), true);
+  assert.equal(combinePurchase([null, true]), true);
+  assert.equal(combinePurchase([false, true]), true);
+  assert.equal(combinePurchase([null, false]), null);
+  assert.equal(combinePurchase([false, null]), null);
+  assert.equal(combinePurchase([false, false]), false);
+  assert.equal(combinePurchase([false]), false);
+  assert.equal(combinePurchase([null]), null);
 });
