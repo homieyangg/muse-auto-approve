@@ -2,16 +2,23 @@
 
 // 設定頁可以強制指定介面語言，chrome.i18n 只跟著瀏覽器，所以自己讀 _locales
 const I18N = (() => {
-  const HTML_LANG = { zh_TW: 'zh-Hant', ja: 'ja', en: 'en' };
-  const DATE_LOCALE = { zh_TW: 'zh-TW', ja: 'ja-JP', en: 'en' };
+  // Single source of truth for supported UI languages; order matches the options selector.
+  const LANGUAGES = Object.freeze([
+    Object.freeze({ code: 'zh_TW', htmlLang: 'zh-Hant', dateLocale: 'zh-TW', label: '繁體中文', match: /^zh/i }),
+    Object.freeze({ code: 'ja', htmlLang: 'ja', dateLocale: 'ja-JP', label: '日本語', match: /^ja/i }),
+    Object.freeze({ code: 'en', htmlLang: 'en', dateLocale: 'en', label: 'English', match: /^en/i }),
+  ]);
+  const DEFAULT_CODE = 'en';
   let messages = {};
-  let code = 'en';
+  let code = DEFAULT_CODE;
 
-  function pickCode(lang) {
-    if (['zh_TW', 'ja', 'en'].includes(lang)) return lang;
-    const ui = chrome.i18n.getUILanguage().toLowerCase();
-    if (ui.startsWith('zh')) return 'zh_TW';
-    return ui.startsWith('ja') ? 'ja' : 'en';
+  const findLanguage = target => LANGUAGES.find(l => l.code === target);
+  const current = () => findLanguage(code) || findLanguage(DEFAULT_CODE);
+
+  function pickCode(lang, uiLang) {
+    if (findLanguage(lang)) return lang;
+    const ui = (uiLang ?? chrome.i18n.getUILanguage()).toLowerCase();
+    return LANGUAGES.find(l => l.match.test(ui))?.code || DEFAULT_CODE;
   }
 
   async function load() {
@@ -19,7 +26,7 @@ const I18N = (() => {
     code = pickCode(lang);
     const res = await fetch(chrome.runtime.getURL(`_locales/${code}/messages.json`));
     messages = await res.json();
-    document.documentElement.lang = HTML_LANG[code];
+    document.documentElement.lang = current().htmlLang;
     apply(document);
   }
 
@@ -41,18 +48,21 @@ const I18N = (() => {
     if (min < 1) return t('justNow');
     if (min < 60) return t('minutesAgo', min);
     if (min < 24 * 60) return t('hoursAgo', Math.floor(min / 60));
-    return new Date(ts).toLocaleDateString(DATE_LOCALE[code]);
+    return new Date(ts).toLocaleDateString(current().dateLocale);
   }
 
   function clock(ts) {
+    const dateLocale = current().dateLocale;
     const d = new Date(ts);
-    const hm = d.toLocaleTimeString(DATE_LOCALE[code], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const hm = d.toLocaleTimeString(dateLocale, { hour: '2-digit', minute: '2-digit', hour12: false });
     const today = new Date();
     if (d.toDateString() === today.toDateString()) return hm;
     today.setDate(today.getDate() - 1);
     if (d.toDateString() === today.toDateString()) return `${t('yesterday')} ${hm}`;
-    return d.toLocaleDateString(DATE_LOCALE[code], { month: 'numeric', day: 'numeric' }) + ` ${hm}`;
+    return d.toLocaleDateString(dateLocale, { month: 'numeric', day: 'numeric' }) + ` ${hm}`;
   }
 
-  return { load, t, apply, ago, clock, get code() { return code; } };
+  return { LANGUAGES, pickCode, load, t, apply, ago, clock, get code() { return code; } };
 })();
+
+if (typeof module !== 'undefined') module.exports = I18N;

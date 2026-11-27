@@ -4,9 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const I18N = require('../i18n.js');
 
 const ROOT = path.join(__dirname, '..');
-const LOCALES = ['en', 'zh_TW', 'ja'];
+const LOCALES = I18N.LANGUAGES.map(l => l.code);
 const read = file => fs.readFileSync(path.join(ROOT, file), 'utf8');
 const messages = Object.fromEntries(LOCALES.map(locale => [locale, JSON.parse(read(`_locales/${locale}/messages.json`))]));
 
