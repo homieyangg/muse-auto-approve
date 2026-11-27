@@ -8,7 +8,7 @@
   <a href="https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii"><img src="https://img.shields.io/chrome-web-store/v/hbcimibdadjhancbpjibbhnhlcflmoii?label=Chrome%20Web%20Store" alt="Chrome Web Store"></a>
 </p>
 
-<p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.ja.md">日本語</a></p>
+<p align="center"><a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a></p>
 
 Auto Approve for Muse clicks Allow on muse.ai approval cards so tasks do not stall while you are away, scheduled tasks most of all. You can approve everything, or limit it to the sites, actions, and chats you trust.
 
