@@ -445,5 +445,14 @@
   },
   "uploadToWithSub": {
     "message": "Upload to $1 and subdomains"
+  },
+  "unreadableNoticeOne": {
+    "message": "1 approval card could not be read; handled by text rules instead."
+  },
+  "unreadableNotice": {
+    "message": "$1 approval cards could not be read; handled by text rules instead."
+  },
+  "unreadableReport": {
+    "message": "Report"
   }
 }
