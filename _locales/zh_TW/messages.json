@@ -447,10 +447,10 @@
     "message": "上傳到 $1 和子網域"
   },
   "unreadableNoticeOne": {
-    "message": "有 1 張審批卡讀不到資料，已改用文字規則處理。"
+    "message": "有 1 張審批卡讀不到資料，已改看卡片文字。"
   },
   "unreadableNotice": {
-    "message": "有 $1 張審批卡讀不到資料，已改用文字規則處理。"
+    "message": "有 $1 張審批卡讀不到資料，已改看卡片文字。"
   },
   "unreadableReport": {
     "message": "回報"

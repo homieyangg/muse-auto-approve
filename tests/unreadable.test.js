@@ -191,6 +191,25 @@ test('chat card without approval id counts after 3s; resolved card without butto
   assert.equal(env.store.local.unreadable.count, 1);
 });
 
+test('chat card with only an expander button is not counted', () => {
+  const env = makeContentEnv({ startNow: 10000 });
+  const card = makeCard(env.body, { dataPath: 'missing', withButtons: false });
+  card.append(new El('button', { 'aria-expanded': 'false' }, [], 'Show details'));
+
+  env.scanAt(10000);
+  env.scanAt(13000);
+  assert.equal(env.store.local.unreadable.count, 0);
+});
+
+test('a page lang that is not a language code is stored as empty', () => {
+  const env = makeContentEnv({ lang: 'https://private.corp.example/secret', startNow: 10000 });
+  makeCard(env.body, { dataPath: 'missing' });
+
+  env.scanAt(10000);
+  env.scanAt(13000);
+  assert.deepEqual({ ...env.store.local.unreadable }, { count: 1, lastSeen: 13000, lang: '' });
+});
+
 test('panel surface cards are never counted as unreadable', () => {
   const env = makeContentEnv({ startNow: 10000 });
   makeCard(env.body, { surface: 'panel', id: 'appr-panel-1', dataPath: 'missing' });

@@ -20,6 +20,7 @@ const REVIEW_RETRY_MS = 10000;
 const REVIEW_BLOCK_MS = 10 * 60 * 1000;
 const UNREADABLE_DEBOUNCE_MS = 3000;
 const UNREADABLE_REFRESH_MS = 60000;
+const LANG_CODE_RE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 // bridge.js 從 React 內部讀出來標在 DOM 上的審批 ID、權限種類和全部待審 ID
 const ID_ATTR = 'data-maa-approval-id';
 // Set by bridge.js when muse's data marks the approval as a checkout or purchase
@@ -201,7 +202,11 @@ function scan() {
   const tracking = settings.enabled;
   // 其他聊天室的卡片收起來、只剩「檢閱」提示時保留等你決定，不能當成使用者已經處理
   if (!(tracking && !cards.length && banner && waitingState.size)) syncWaiting([...waiting.values()], now, tracking);
-  syncUnreadable(now, tracking);
+  try {
+    syncUnreadable(now, tracking);
+  } catch (e) {
+    console.warn('[MAA] unreadable check failed', e);
+  }
   if (!settings.enabled || !settings.openBackground || trusted) return;
   // 沒有能按的卡：有畫面上看不到的審批（別的聊天室、排程）就把右側面板的核可頁打開叫出來；
   // 打開了還是都不信任，同一批審批先不再點
@@ -418,7 +423,8 @@ function unreadableChatNodes() {
     const items = [...card.querySelectorAll(SUB_APPROVAL_SELECTOR)].filter(item => item.querySelector(PRIMARY_SELECTOR));
     const scopes = items.length ? items : [card];
     for (const scope of scopes) {
-      if (![...scope.querySelectorAll('button')].some(isClickable)) continue;
+      // An expander alone is not a pending decision
+      if (![...scope.querySelectorAll(PRIMARY_SELECTOR)].some(isClickable) && !hasDeny(scope)) continue;
       if (scope.getAttribute(DATA_PATH_ATTR) === 'missing' || !scope.hasAttribute(ID_ATTR)) nodes.push(scope);
     }
   }
@@ -435,7 +441,9 @@ function syncUnreadable(now, tracking) {
   if (count > 0) {
     if (count === lastUnreadable.count && now - lastUnreadable.at < UNREADABLE_REFRESH_MS) return;
     lastUnreadable = { count, at: now };
-    const lang = (document.documentElement.getAttribute('lang') || document.documentElement.lang || '').trim();
+    const raw = (document.documentElement.getAttribute('lang') || document.documentElement.lang || '').trim();
+    // The value ends up in the report link, so keep only language codes
+    const lang = LANG_CODE_RE.test(raw) ? raw : '';
     chrome.storage.local.set({ unreadable: { count, lastSeen: now, lang } }).catch(() => {});
   } else if (lastUnreadable.count > 0) {
     lastUnreadable = { count: 0, at: now };
