@@ -3,10 +3,12 @@
 // popup、設定頁、背景和 content script 共用的設定結構與判斷規則
 const AAM = (() => {
   const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [], strictActions: [] };
-  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [], unreadable: { count: 0, lastSeen: 0, lang: '' } };
+  const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [], unreadable: { count: 0, lastSeen: 0, lang: '' }, approvalDoubts: [] };
   const LOG_LIMIT = 200;
   // Stamped on log rows whose approval evidence comes from fresh bridge.js replies only; older rows never offer Trust
   const EVIDENCE_VERSION = 1;
+  // Approval ids some read saw as a purchase or a mix of approvals, kept in chrome.storage.local for every tab
+  const DOUBT_LIMIT = 500;
   const STORE_URL = 'https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii';
   const REPO_URL = 'https://github.com/homieyangg/muse-auto-approve';
 
@@ -167,12 +169,35 @@ const AAM = (() => {
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
     const sameSite = a => !a.site || hostMatches({ host: a.site, sub: !!a.sub }, card.site || '');
-    const sameAction = a => sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
-    return !!card.action && ((settings.actions || []).some(a => scoped(a) && sameAction(a)) || strictRules(settings).some(a => strictMatch(a, card)));
+    // A rule under actions with a match field, whatever its value, was not written by main and matches nothing
+    const sameAction = a => !hasMatch(a) && sameSite(a) && (a.title === card.action || (!!a.policy && a.policy === card.policy));
+    return !!card.action && ((settings.actions || []).some(a => scoped(a) && sameAction(a)) || usableStrictRules(settings).some(a => strictMatch(a, card)));
   }
+
+  const hasMatch = rule => Object.prototype.hasOwnProperty.call(rule, 'match');
 
   // Rules saved from a recent-activity row live under their own key, which versions without strict matching never read
   const strictRules = settings => (Array.isArray(settings.strictActions) ? settings.strictActions : []);
+
+  // The strict rules that may match, be listed, toggled or deleted: valid, with an id no other strict rule and no rule
+  // under actions has. The others match nothing and are not shown
+  function usableStrictRules(settings) {
+    const rules = strictRules(settings);
+    const actionIds = new Set((Array.isArray(settings.actions) ? settings.actions : []).map(a => a?.id));
+    return rules.filter(r => validStrictRule(r) && !actionIds.has(r.id) && rules.filter(o => o?.id === r.id).length === 1);
+  }
+
+  // The only edits the options page and popup make to a strict rule: turn it on or off, or delete it. To change what it
+  // covers, the user deletes it and trusts a row again. Null unless id names one usable rule
+  function toggleStrictRule(settings, id, on) {
+    if (typeof on !== 'boolean' || !usableStrictRules(settings).some(r => r.id === id)) return null;
+    return { strictActions: strictRules(settings).map(r => (r?.id === id ? { ...r, on } : r)) };
+  }
+
+  function removeStrictRule(settings, id) {
+    if (!usableStrictRules(settings).some(r => r.id === id)) return null;
+    return { strictActions: strictRules(settings).filter(r => r?.id !== id) };
+  }
 
   const CONNECTOR_POLICY_RE = /^connector\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 
@@ -228,7 +253,7 @@ const AAM = (() => {
 
   function addActionRule(actions, title, { chat = '', policy = '', site = '' } = {}) {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
-    const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
+    const found = next.find(a => !hasMatch(a) && (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
     if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
     found.on = true;
     if (policy) found.policy = policy;
@@ -285,18 +310,22 @@ const AAM = (() => {
           ...(typeof a.site === 'string' && normalizeHost(a.site) && { site: normalizeHost(a.site), ...(a.sub === true && { sub: true }) }),
           on: a.on !== false,
           chats: Array.isArray(a.chats) ? a.chats.filter(c => typeof c === 'string' && c) : [],
+          // Kept as it is, so the rule still matches nothing
+          ...(hasMatch(a) && { match: a.match }),
         }));
     }
-    // Kept only as they are: an invalid strict rule is dropped, never repaired into one that matches something else
+    // Kept only as they are: an invalid strict rule is dropped, never repaired into one that matches something else, and so
+    // is every copy of an id two strict rules share or a rule under actions has
     if (Array.isArray(raw.strictActions)) {
-      out.strictActions = raw.strictActions
-        .filter(validStrictRule)
+      const rules = raw.strictActions.filter(validStrictRule)
         .map(a => ({ id: a.id, title: a.title, policy: a.policy, ...(a.site !== undefined && { site: a.site }), chats: [...a.chats], on: a.on }));
+      out.strictActions = usableStrictRules({ actions: out.actions, strictActions: rules })
+        .filter(r => raw.strictActions.filter(o => o?.id === r.id).length === 1);
     }
     return out;
   }
 
-  return { UPLOAD_POLICY, EVIDENCE_VERSION, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictPolicy, validStrictRule, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
+  return { UPLOAD_POLICY, EVIDENCE_VERSION, DOUBT_LIMIT, SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, takesTextRules, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, strictPolicy, validStrictRule, usableStrictRules, toggleStrictRule, removeStrictRule, strictMatch, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

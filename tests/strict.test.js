@@ -142,7 +142,7 @@ const INVALID_UPLOAD = {
 const invalidRules = () => [
   ...Object.entries(INVALID).map(([name, extra]) => [name, { ...strict(POST), ...extra }]),
   ...Object.entries(INVALID_UPLOAD).map(([name, extra]) => [name, { ...strict(UPLOAD), ...extra }]),
-].map(([name, rule]) => [name, JSON.parse(JSON.stringify(rule))]);
+].map(([name, rule]) => [name, JSON.parse(JSON.stringify({ ...rule, ...(rule.id !== undefined && { id: `bad-${name}` }) }))]);
 
 test('an invalid strict rule matches nothing, even stored directly', () => {
   for (const [name, rule] of invalidRules()) {
@@ -464,4 +464,100 @@ test('Trusted and Undo show on the picked card\'s rows after a pick', () => {
   const plan = AAT.planTrust(settingsWith(), newest, 'only');
   const states = AAT.rowStates(apply(settingsWith(), plan), log, log, { last: plan.change });
   assert.deepEqual(log.map(e => states.get(e)), [{ state: 'trusted', undo: true }, { state: 'trusted', undo: false }]);
+});
+
+// Codex round 2, item 2: an id is a strict rule's only handle, so every rule whose id is not unique is out
+test('strict rules sharing an id, or an id under actions, match nothing, get no toggle and are dropped on import', () => {
+  const dup = [strict(POST, { id: 'd' }), strict(SEND, { id: 'd', on: false })];
+  const clash = strict(UPLOAD, { id: 'l-Other', site: 'a.example' });
+  const unique = strict(POST, { id: 'u', chats: ['Chat B'] });
+  const settings = withStrict([...dup, clash, unique], { actions: [legacy('Other')] });
+  for (const c of [card(POST), card(SEND), card(UPLOAD, { site: 'a.example' })]) assert.equal(AAM.isTrusted(settings, c), false, c.policy);
+  assert.equal(AAM.isTrusted(settings, card(POST, { chat: 'Chat B' })), true);
+  assert.deepEqual(AAM.usableStrictRules(settings), [unique]);
+  for (const id of ['d', 'l-Other']) {
+    assert.equal(AAM.toggleStrictRule(settings, id, true), null, id);
+    assert.equal(AAM.removeStrictRule(settings, id), null, id);
+  }
+  assert.deepEqual(AAM.toggleStrictRule(settings, 'u', false).strictActions, [...dup, clash, { ...unique, on: false }]);
+  assert.deepEqual(AAM.removeStrictRule(settings, 'u').strictActions, [...dup, clash]);
+  // Import drops every copy, even when only one copy is valid
+  const raw = { actions: [legacy('Other')], strictActions: [...dup, { ...strict(POST, { id: 'v' }) }, { id: 'v', title: '' }, clash, unique] };
+  assert.deepEqual(AAM.sanitizeSettings(raw).strictActions, [unique]);
+  // A trust pick never reuses one of them, and its new id is unused in both lists
+  const ids = ['d', 'l-Other', 'u', 'l-Only under actions', 'fresh'];
+  const realNewId = AAM.newId;
+  AAM.newId = () => ids.shift();
+  try {
+    const plan = AAT.planTrust({ ...settings, actions: [...settings.actions, legacy('Only under actions')] }, actionRow(POST), 'any');
+    assert.deepEqual(plan.patch.strictActions.slice(0, 4), [...dup, clash, unique]);
+    assert.equal(plan.patch.strictActions[4].id, 'fresh');
+  } finally {
+    AAM.newId = realNewId;
+  }
+});
+
+// Codex round 2, item 5: evidence is keyed by approval id, so another card key does not hide it
+test('a purchase, a mix or a stored doubt on the approval id under any key keeps the offer and the pick off', async () => {
+  const row = actionRow(POST);
+  const other = { ...actionRow(SEND, 'Chat B'), approvalId: row.approvalId };
+  assert.notEqual(other.key, row.key);
+  const settings = settingsWith();
+  const cases = [
+    ['purchase', [row, { ...other, purchase: true }], [], false],
+    ['mixed', [row, { ...other, mixed: true }], [], false],
+    ['stored doubt', [row], [row.approvalId], false],
+    ['other approval', [row, { ...other, approvalId: 'appr-other', purchase: true, mixed: true }], ['appr-other'], true],
+  ];
+  for (const [name, log, doubts, offers] of cases) {
+    assert.equal(AAT.offers(settings, log, doubts).has(row), offers, name);
+    assert.equal(AAT.rowStates(settings, log, [row], { doubts }).get(row).state, offers ? 'offer' : '', name);
+    for (const scope of ['any', 'only']) {
+      const storage = fakeStorage(settings);
+      const change = await AAT.trust(storage, fakeStorage({ log, approvalDoubts: doubts }), row, scope);
+      assert.equal(!!change, offers, `${name} ${scope}`);
+      assert.equal(storage.data.strictActions.length, offers ? 1 : 0, `${name} ${scope}`);
+    }
+  }
+});
+
+function fakeStorage(initial) {
+  const data = structuredClone(initial);
+  return {
+    data,
+    async get(defaults) { return structuredClone(Object.fromEntries(Object.keys(defaults).map(k => [k, k in data ? data[k] : defaults[k]]))); },
+    async set(values) { Object.assign(data, structuredClone(values)); },
+  };
+}
+
+// Codex round 2, item 6: main never writes match on a rule, so one under actions that has it, whatever its value, is not
+// main's and matches nothing; rules without it match and import exactly as on main
+const MATCH_VALUES = ['strict', 'loose', 'exact', '', null, false, true, 0, {}, []];
+test('a rule under actions with a match field matches nothing, and the Waiting list\'s Always trust never merges into it', () => {
+  for (const match of [...MATCH_VALUES, undefined]) {
+    for (const rule of OLD_RULES) {
+      const s = settingsWith({ actions: [{ ...rule, match }] });
+      for (const c of OLD_CARDS) assert.equal(AAM.isTrusted(s, c), false, `${JSON.stringify(match)} ${rule.id}`);
+    }
+    const tagged = { ...legacy('Post to Example', { on: false }), match };
+    const next = AAM.addActionRule([tagged], 'Post to Example', {});
+    assert.deepEqual(next[0], tagged);
+    assert.equal(next.length, 2);
+  }
+});
+
+test('rules under actions without a match field match and import as on main; with one, it is kept as is on what main keeps', needsMain, () => {
+  for (const rule of OLD_RULES) {
+    const s = settingsWith({ actions: [rule] });
+    for (const c of OLD_CARDS) assert.equal(AAM.isTrusted(s, c), MAIN.isTrusted(s, c), `${rule.id} ${JSON.stringify(c)}`);
+  }
+  const kept = [legacy('Post to Example', { policy: POST }), legacy('Upload', { policy: UPLOAD, site: 'https://A.example/x', sub: true }), legacy('Long'.repeat(40))];
+  const droppedByMain = [{ id: 'no-title', match: 'strict' }, { id: 'empty', title: '', match: 'strict' }, null];
+  const keptMatch = [null, 0, 'strict'];
+  const raw = { actions: [...kept.map((rule, i) => ({ ...rule, match: keptMatch[i] })), ...droppedByMain, ...kept] };
+  const clean = AAM.sanitizeSettings(raw);
+  const main = plain(MAIN.sanitizeSettings(raw)).actions;
+  assert.equal(main.length, kept.length * 2);
+  assert.deepEqual(clean.actions, main.map((rule, i) => (i < kept.length ? { ...rule, match: keptMatch[i] } : rule)));
+  assert.deepEqual(AAM.sanitizeSettings(JSON.parse(JSON.stringify(clean))), clean);
 });

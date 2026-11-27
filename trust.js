@@ -39,8 +39,15 @@ const AAT = (() => {
   // Rows logged before EVIDENCE_VERSION may hold evidence read from a node muse had reused, so they offer nothing
   const currentEvidence = entry => entry.evidenceVersion === aam.EVIDENCE_VERSION;
 
-  function trustable(entry) {
-    if (aam.isPurchase(entry) || !currentEvidence(entry)) return false;
+  // Approval ids that any row of the log, under any card key, or the stored doubts (content.js) show as a purchase or a mix
+  function doubtedIds(log, doubts) {
+    const ids = new Set(Array.isArray(doubts) ? doubts : []);
+    for (const e of log || []) if (e?.approvalId && (e.purchase === true || e.mixed)) ids.add(e.approvalId);
+    return ids;
+  }
+
+  function trustable(entry, doubted) {
+    if (aam.isPurchase(entry) || !currentEvidence(entry) || doubted.has(entry.approvalId)) return false;
     if (isSiteRow(entry)) return siteEvidence(entry) && !!aam.normalizeHost(entry.host);
     return actionEvidence(entry);
   }
@@ -64,7 +71,7 @@ const AAT = (() => {
 
   function freshId(rules) {
     let id = aam.newId();
-    while (rules.some(r => r.id === id)) id = aam.newId();
+    while (rules.some(r => r?.id === id)) id = aam.newId();
     return id;
   }
 
@@ -81,28 +88,31 @@ const AAT = (() => {
   // used: it merges into a title-or-policy rule under actions and widens what it matches
   function planAction(settings, entry, chats) {
     const { policy, site } = entry;
-    const same = r => aam.validStrictRule(r) && r.policy === policy && (r.site || '') === site;
+    const usable = aam.usableStrictRules(settings);
+    const same = r => usable.includes(r) && r.policy === policy && (r.site || '') === site;
     const rules = Array.isArray(settings.strictActions) ? settings.strictActions : [];
+    const taken = [...rules, ...(Array.isArray(settings.actions) ? settings.actions : [])];
     return planRule(rules, 'strictActions', chats, same,
-      id => ({ id, title: entry.action.slice(0, 120), policy, ...(site && { site }), chats, on: true }));
+      id => ({ id, title: entry.action.slice(0, 120), policy, ...(site && { site }), chats, on: true }), taken);
   }
 
-  function planRule(rules, list, chats, same, make) {
-    const exact = rules.filter(r => same(r) && rules.filter(o => o.id === r.id).length === 1);
+  // taken is every id the new rule must not reuse
+  function planRule(rules, list, chats, same, make, taken = rules) {
+    const exact = rules.filter(r => same(r) && rules.filter(o => o?.id === r.id).length === 1);
     const off = exact.find(r => !r.on && sameChats(r.chats, chats));
     const limited = chats.length > 0 && exact.find(r => r.on && r.chats.length);
     const prev = off || limited || null;
     const after = off ? { ...off, on: true }
       : limited ? { ...limited, chats: [...limited.chats, ...chats] }
-      : make(freshId(rules));
-    const next = prev ? rules.map(r => (r.id === prev.id ? after : r)) : [...rules, after];
+      : make(freshId(taken));
+    const next = prev ? rules.map(r => (r?.id === prev.id ? after : r)) : [...rules, after];
     return { patch: { [list]: next }, list, id: after.id, prev, after };
   }
 
   // Returns the patch and the undo record, or null when the row offers nothing for this scope. A row the saved rule would
-  // not make the matcher trust gets no offer
-  function planTrust(settings, entry, scope) {
-    if (!scopes(entry).includes(scope) || !trustable(entry) || !wouldAsk(settings, entry)) return null;
+  // not make the matcher trust gets no offer. doubted is doubtedIds over the whole log
+  function planTrust(settings, entry, scope, doubted = new Set()) {
+    if (!scopes(entry).includes(scope) || !trustable(entry, doubted) || !wouldAsk(settings, entry)) return null;
     const chats = scope === 'only' ? [entry.chat] : [];
     const plan = isSiteRow(entry) ? planSite(settings, entry, chats) : planAction(settings, entry, chats);
     if (!aam.isTrusted({ ...settings, ...plan.patch }, entry)) return null;
@@ -113,20 +123,21 @@ const AAT = (() => {
   function planUndo(settings, change) {
     const list = change.list || 'sites';
     const rules = settings[list] || [];
-    const hits = rules.filter(r => r.id === change.id);
+    const hits = rules.filter(r => r?.id === change.id);
     if (hits.length !== 1 || canon(hits[0]) !== canon(change.after)) return null;
-    if (!change.prev) return { [list]: rules.filter(r => r.id !== change.id) };
-    return { [list]: rules.map(r => (r.id === change.id ? change.prev : r)) };
+    if (!change.prev) return { [list]: rules.filter(r => r?.id !== change.id) };
+    return { [list]: rules.map(r => (r?.id === change.id ? change.prev : r)) };
   }
 
-  // Newest first; only the newest entry of each card gets the button
-  function offers(settings, log) {
+  // Newest first; only the newest entry of each card gets the button. doubts is chrome.storage.local approvalDoubts
+  function offers(settings, log, doubts = []) {
+    const doubted = doubtedIds(log, doubts);
     const seen = new Set();
     const out = new Set();
     for (const entry of log) {
       if (seen.has(entry.key)) continue;
       seen.add(entry.key);
-      if (scopes(entry).some(scope => planTrust(settings, entry, scope))) out.add(entry);
+      if (scopes(entry).some(scope => planTrust(settings, entry, scope, doubted))) out.add(entry);
     }
     return out;
   }
@@ -145,13 +156,14 @@ const AAT = (() => {
 
   // Per shown entry: 'trusted' (undo on the first shown row of the card, while the rule is untouched since the click),
   // 'offer' (open when its scope buttons show) or ''. Purchase rows sharing the card key never show Trusted
-  function rowStates(settings, log, shown, { last = null, openKey = '' } = {}) {
-    const offered = offers(settings, log);
+  function rowStates(settings, log, shown, { last = null, openKey = '', doubts = [] } = {}) {
+    const offered = offers(settings, log, doubts);
+    const doubted = doubtedIds(log, doubts);
     const undoable = !!last && !!planUndo(settings, last);
     const out = new Map();
     let undoShown = false;
     for (const entry of shown) {
-      if (last && entry.key === last.key && trustable(entry) && !wouldAsk(settings, entry)) {
+      if (last && entry.key === last.key && trustable(entry, doubted) && !wouldAsk(settings, entry)) {
         out.set(entry, { state: 'trusted', undo: undoable && !undoShown });
         undoShown = true;
       } else if (offered.has(entry)) out.set(entry, { state: 'offer', open: entry.key === openKey });
@@ -170,9 +182,10 @@ const AAT = (() => {
   // storage is chrome.storage.sync and logStorage chrome.storage.local. chrome.storage has no compare-and-set, so the rule
   // list is read right before the write, with nothing awaited in between, instead of using the page's copy
   async function trust(storage, logStorage, entry, scope) {
-    const row = freshRow((await logStorage.get({ log: [] })).log || [], entry);
+    const { log, approvalDoubts } = await logStorage.get({ log: [], approvalDoubts: [] });
+    const row = freshRow(log || [], entry);
     if (!row) return null;
-    const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), row, scope);
+    const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), row, scope, doubtedIds(log, approvalDoubts));
     if (!plan) return null;
     await storage.set(plan.patch);
     return plan.change;
@@ -197,7 +210,7 @@ const AAT = (() => {
       return b;
     };
 
-    const states = (settings, log, shown) => rowStates(settings, log, shown, { last, openKey });
+    const states = (settings, log, shown, doubts) => rowStates(settings, log, shown, { last, openKey, doubts });
 
     function trustButton(entry, open) {
       return button(open ? 'tb on' : 'tb', t('trust'), () => {
@@ -239,7 +252,7 @@ const AAT = (() => {
     return { states, trustButton, pickButtons, undoButton };
   }
 
-  return { SITE_POLICIES, trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, rowStates, trust, undo, controls };
+  return { SITE_POLICIES, doubtedIds, trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, rowStates, trust, undo, controls };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAT;

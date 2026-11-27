@@ -148,12 +148,15 @@ test('a double-www host is stored as is and covers only itself', () => {
 
 test('an older purchase row of the same card never shows Trusted or Undo', () => {
   const newest = siteEntry('a.example', 'Chat A');
-  const purchase = siteEntry('a.example', 'Chat A', 'handled', { purchase: true, ts: 0 });
+  const purchase = siteEntry('a.example', 'Chat A', 'handled', { purchase: true, ts: 0, approvalId: 'appr-other' });
   assert.equal(newest.key, purchase.key);
   const log = [newest, purchase];
   const plan = AAT.planTrust(settingsWith(), newest, 'only');
   const states = AAT.rowStates(apply(settingsWith(), plan), log, log, { last: plan.change });
   assert.deepEqual(log.map(e => states.get(e)), [{ state: 'trusted', undo: true }, { state: '' }]);
+  // The same approval seen as a purchase leaves the newest row untrusted too
+  const same = [newest, { ...purchase, approvalId: newest.approvalId }];
+  assert.deepEqual(same.map(e => AAT.rowStates(apply(settingsWith(), plan), same, same, { last: plan.change }).get(e)), [{ state: '' }, { state: '' }]);
 });
 
 test('a disabled rule with another scope is left alone and a new rule is appended', () => {

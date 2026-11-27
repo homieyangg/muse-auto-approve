@@ -57,8 +57,11 @@ const linkedTitles = new Set();
 // Evidence of reads that refused a click, by approval id, for the rows the approval gets later
 const refusedEvidence = new Map();
 const REFUSED_LIMIT = 200;
-// Approval ids that any tab's log has shown as a purchase or a mix of approvals; null until the log has been read
+// Approval ids that any tab's log or stored doubts (approvalDoubts) show as a purchase or a mix of approvals; null until
+// both have been read
 let loggedDoubts = null;
+// Doubts this tab found or onChanged reported before then, so the first read can't drop them
+const earlyDoubts = new Set();
 const settleUntil = new WeakMap();
 const waitingState = new Map();
 const unreadableSince = new Map();
@@ -273,12 +276,14 @@ function withDoubt(card) {
   return { ...card, tainted };
 }
 
-function rememberDoubts(log) {
-  loggedDoubts ||= new Set();
-  for (const e of log || []) if (e && e.approvalId && doubtful(e)) loggedDoubts.add(e.approvalId);
-  for (const id of loggedDoubts) {
-    if (loggedDoubts.size <= SEEN_LIMIT) break;
-    loggedDoubts.delete(id);
+function rememberDoubts(log, ids = [], firstRead = false) {
+  if (firstRead) loggedDoubts ||= new Set(earlyDoubts);
+  const into = loggedDoubts || earlyDoubts;
+  for (const e of Array.isArray(log) ? log : []) if (e && e.approvalId && doubtful(e)) into.add(e.approvalId);
+  for (const id of Array.isArray(ids) ? ids : []) if (id && typeof id === 'string') into.add(id);
+  for (const id of into) {
+    if (into.size <= SEEN_LIMIT) break;
+    into.delete(id);
   }
 }
 
@@ -299,8 +304,20 @@ function withRefused(item) {
   return held ? { ...item, ...mergeEvidence(item, held) } : item;
 }
 
+// Stores approval ids seen as a purchase or a mix for every tab; this tab counts them at once
+function storeDoubts(ids) {
+  ids = [...new Set(ids.filter(Boolean))];
+  if (!ids.length) return;
+  rememberDoubts([], ids);
+  updateLocal({ approvalDoubts: [] }, data => {
+    const kept = (Array.isArray(data.approvalDoubts) ? data.approvalDoubts : []).filter(id => !ids.includes(id));
+    return { approvalDoubts: [...kept, ...ids].slice(-AAM.DOUBT_LIMIT) };
+  });
+}
+
 function holdRefused(evidence) {
   if (!evidence.approvalId) return;
+  if (doubtful(evidence)) storeDoubts([evidence.approvalId]);
   refusedEvidence.delete(evidence.approvalId);
   refusedEvidence.set(evidence.approvalId, evidenceOf(evidence));
   if (refusedEvidence.size > REFUSED_LIMIT) refusedEvidence.delete(refusedEvidence.keys().next().value);
@@ -444,7 +461,12 @@ async function approve(node, buttons, card, key, onceOnly) {
 // With a target, the buttons are picked again from the attributes that same fresh mark wrote, and the target must still be the pick
 function stillAllowed(node, buttons, key, onceOnly, target, reads) {
   if (!node.isConnected) return false;
-  const card = cardOf(node, buttons);
+  const read = cardOf(node, buttons);
+  // muse reused the node for another approval since the first read: neither approval's evidence can be told apart, so both
+  // count as mixed from now on and a strict rule clicks neither in this pass
+  const swapped = !!reads[0].approvalId && !!read.approvalId && read.approvalId !== reads[0].approvalId;
+  if (swapped) storeDoubts([reads[0].approvalId, read.approvalId]);
+  const card = swapped ? { ...read, tainted: true } : read;
   reads.push(card);
   if (AAM.cardKey(card) !== key || !AAG.canAutoApprove(settings, card, onceOnly)) return false;
   if (!target) return true;
@@ -653,9 +675,9 @@ chrome.storage.sync.get(AAM.SETTINGS_DEFAULTS, stored => {
   settings = stored;
   scheduleScan();
 });
-chrome.storage.local.get({ allowOnce: [], log: [] }, stored => {
+chrome.storage.local.get({ allowOnce: [], log: [], approvalDoubts: [] }, stored => {
   allowOnce = stored.allowOnce;
-  rememberDoubts(stored.log);
+  rememberDoubts(stored.log, stored.approvalDoubts, true);
   forgetUsedOnce();
   scheduleScan();
 });
@@ -663,7 +685,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'sync') {
     for (const key of Object.keys(AAM.SETTINGS_DEFAULTS)) if (changes[key]) settings[key] = changes[key].newValue ?? AAM.SETTINGS_DEFAULTS[key];
   }
-  if (area === 'local' && changes.log) rememberDoubts(changes.log.newValue);
+  if (area === 'local' && (changes.log || changes.approvalDoubts)) rememberDoubts(changes.log?.newValue, changes.approvalDoubts?.newValue);
   if (area === 'local' && changes.allowOnce) {
     allowOnce = changes.allowOnce.newValue || [];
     forgetUsedOnce();

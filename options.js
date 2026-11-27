@@ -269,23 +269,39 @@ function renderChats(force) {
   $('#chat-detail').replaceChildren(...(chat ? chatDetail(chat) : newChatForm()));
 }
 
-// The Waiting list saves action rules under actions, Trust on a recent-activity row saves strict ones under strictActions.
-// The page lists both; a rule is picked by its list and id
-const ACTION_LISTS = ['actions', 'strictActions'];
-const actionRules = () => ACTION_LISTS.flatMap(list => (Array.isArray(settings[list]) ? settings[list] : []).map(rule => ({ list, rule })));
+// Trust on a recent-activity row saves strict rules under strictActions. The page lists the usable ones after the rules
+// under actions and only turns them on or off or deletes them (AAM.toggleStrictRule, AAM.removeStrictRule); a rule is
+// picked by its list and id
+const actionRules = () => [
+  ...settings.actions.map(rule => ({ list: 'actions', rule })),
+  ...AAM.usableStrictRules(settings).map(rule => ({ list: 'strict', rule })),
+];
 const actionRef = (list, rule) => `${list}:${rule.id}`;
 
-function updateAction(list, id, patch) {
-  return saveSettings({ [list]: settings[list].map(a => (a.id === id ? { ...a, ...patch } : a)) });
+function updateAction(id, patch) {
+  return saveSettings({ actions: settings.actions.map(a => (a.id === id ? { ...a, ...patch } : a)) });
 }
 
+function setActionOn(list, id, on) {
+  if (list === 'actions') return updateAction(id, { on });
+  const patch = AAM.toggleStrictRule(settings, id, on);
+  return patch ? saveSettings(patch) : Promise.resolve();
+}
+
+function removeAction(list, id) {
+  const patch = list === 'actions' ? { actions: settings.actions.filter(a => a.id !== id) } : AAM.removeStrictRule(settings, id);
+  if (patch) saveSettings(patch);
+}
+
+const chatScopeText = action => (action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat'));
+
 function actionEntry({ list, rule: action }) {
-  const chatScope = action.chats.length ? t('onlyChats', action.chats.join(sep())) : t('anyChat');
+  const chatScope = chatScopeText(action);
   const scope = action.site && action.sub ? `${t('subShort')}・${chatScope}` : chatScope;
   const entry = el('div', { className: `entry${actionRef(list, action) === selectedAction ? ' on' : ''}${action.on ? '' : ' off'}` },
     glyph(BOLT),
     el('div', {}, el('b', { textContent: AAM.cardLabel(action, t) }), el('small', { textContent: scope })),
-    toggle(action.on, on => updateAction(list, action.id, { on })));
+    toggle(action.on, on => setActionOn(list, action.id, on)));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
     selectedAction = actionRef(list, action);
@@ -296,8 +312,7 @@ function actionEntry({ list, rule: action }) {
 
 // Upload rules can change their site and cover its subdomains, e.g. one myworkdayjobs.com rule for every company's Workday host.
 // Compares against the stored rule, not the one the panel was built from, because the panel isn't rebuilt while it has focus
-// A strict rule matches its exact site only, so it has no subdomain option
-function uploadSiteFields(list, action, current) {
+function uploadSiteFields(action, current) {
   const input = el('input', { className: 'text-input', value: action.site });
   const error = el('p', { className: 'error', textContent: t('siteInvalid'), hidden: true });
   input.addEventListener('change', () => {
@@ -307,9 +322,9 @@ function uploadSiteFields(list, action, current) {
     error.hidden = !!site;
     if (!site) return;
     input.value = site;
-    if (site !== current().site) updateAction(list, action.id, { site });
+    if (site !== current().site) updateAction(action.id, { site });
   });
-  const sub = list === 'actions' ? check('checkbox', !!action.sub, t('includeSub'), on => updateAction(list, action.id, { sub: on })) : null;
+  const sub = check('checkbox', !!action.sub, t('includeSub'), on => updateAction(action.id, { sub: on }));
   // Only an unsaved edit in the focused input is kept; otherwise the input follows the stored site
   let shown = action.site;
   const refresh = rule => {
@@ -318,9 +333,9 @@ function uploadSiteFields(list, action, current) {
       error.hidden = true;
     }
     shown = rule.site;
-    if (sub) sub.querySelector('input').checked = !!rule.sub;
+    sub.querySelector('input').checked = !!rule.sub;
   };
-  return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, ...(sub ? [sub] : [])], refresh };
+  return { nodes: [el('label', { className: 'field-label', textContent: t('siteLabel') }), input, error, sub], refresh };
 }
 
 function actionStatsText(list, action) {
@@ -336,13 +351,19 @@ let actionPanel = null;
 // What the chat checkboxes were built from: the rule's chats and every chat that can be picked
 const chatPickKey = action => JSON.stringify([action.chats, [...new Set([...action.chats, ...knownChats()])].sort()]);
 
+function removeButton(list, id) {
+  const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
+  remove.addEventListener('click', () => { removeAction(list, id); renderActions(true); });
+  return remove;
+}
+
 function actionDetail({ list, rule: action }) {
-  const current = () => settings[list].find(a => a.id === action.id) || action;
+  if (list !== 'actions') return strictActionDetail(action);
+  const current = () => settings.actions.find(a => a.id === action.id) || action;
   const heading = el('b', { textContent: AAM.cardLabel(action, t) });
   const stats = el('p', { className: 'stats', textContent: actionStatsText(list, action) });
-  const site = action.site ? uploadSiteFields(list, action, current) : null;
-  const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
-  remove.addEventListener('click', () => { saveSettings({ [list]: settings[list].filter(a => a.id !== action.id) }); renderActions(true); });
+  const site = action.site ? uploadSiteFields(action, current) : null;
+  const remove = removeButton(list, action.id);
   actionPanel = {
     id: actionRef(list, action),
     upload: !!action.site,
@@ -356,9 +377,32 @@ function actionDetail({ list, rule: action }) {
   return [
     el('div', { className: 'detail-head' }, glyph(BOLT), heading),
     ...(site ? site.nodes : []),
-    ...chatScopeFields(action.chats, chats => updateAction(list, action.id, { chats })),
+    ...chatScopeFields(action.chats, chats => updateAction(action.id, { chats })),
     stats,
     el('div', { className: 'detail-foot' }, el('span'), remove),
+  ];
+}
+
+// A strict rule shows what it covers and can't be edited; to change it the user deletes it and trusts a row again
+function strictActionDetail(action) {
+  const heading = el('b', { textContent: AAM.cardLabel(action, t) });
+  const scope = el('p', { className: 'muted', textContent: chatScopeText(action) });
+  const stats = el('p', { className: 'stats', textContent: actionStatsText('strict', action) });
+  actionPanel = {
+    id: actionRef('strict', action),
+    upload: !!action.site,
+    chatKey: chatPickKey(action),
+    refresh: rule => {
+      heading.textContent = AAM.cardLabel(rule, t);
+      scope.textContent = chatScopeText(rule);
+      stats.textContent = actionStatsText('strict', rule);
+    },
+  };
+  return [
+    el('div', { className: 'detail-head' }, glyph(BOLT), heading),
+    scope,
+    stats,
+    el('div', { className: 'detail-foot' }, el('span'), removeButton('strict', action.id)),
   ];
 }
 
@@ -428,7 +472,7 @@ function renderLog() {
   $('#log-lead').textContent = t('logLead', AAM.LOG_LIMIT);
   document.querySelectorAll('#log-filter [data-filter]').forEach(a => a.classList.toggle('on', a.dataset.filter === logFilter));
   const entries = local.log.filter(e => !logFilter || e.result === logFilter);
-  const states = trustControls.states(settings, local.log, entries);
+  const states = trustControls.states(settings, local.log, entries, local.approvalDoubts);
   $('#log-rows').replaceChildren(...entries.flatMap(e => logRows(e, states.get(e))));
   $('#log-empty').hidden = entries.length > 0;
 }

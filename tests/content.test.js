@@ -838,3 +838,70 @@ test('rows carry the evidence version unless they share an approval with a row a
   const [other] = await siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...old, approvalId: 'appr-test-81' }] }).scan();
   assert.equal(other.evidenceVersion, AAM.EVIDENCE_VERSION);
 });
+
+// Codex round 2, item 3: the re-read right before the click finds another approval id on the node
+test('a node swapped for another approval before the click stores both ids as doubted, for every tab, and clicks neither', async () => {
+  const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(card, [strictRule(UPLOAD, { site: 'a.example' })]);
+  let marks = 0;
+  card.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-approval-id', 'appr-test-81'); };
+  await card.scan();
+  assert.equal(allowClicks(), 0);
+  const doubts = Array.from(card.store.local.approvalDoubts);
+  assert.deepEqual([...doubts].sort(), ['appr-test-80', 'appr-test-81']);
+  // The next scan of this tab reads the second approval clean, and still clicks nothing
+  card.hooks.onMark = () => {};
+  const [row] = await card.scan({ ...UPLOAD_MARKS, id: 'appr-test-81' });
+  assert.equal(allowClicks(), 0);
+  assert.deepEqual([row.approvalId, row.result], ['appr-test-81', 'pending']);
+  assert.equal(AAT.offers(AAM.SETTINGS_DEFAULTS, [row], doubts).size, 0);
+  // Another tab that reads either approval clean
+  for (const id of ['appr-test-80', 'appr-test-81']) {
+    const other = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id }, { approvalDoubts: doubts });
+    setActions(other, [strictRule(UPLOAD, { site: 'a.example' })]);
+    await other.scan();
+    assert.equal(allowClicks(), 0, id);
+  }
+  const unrelated = siteCard(UPLOAD_TEXT, { ...UPLOAD_MARKS, id: 'appr-test-82' }, { approvalDoubts: doubts });
+  setActions(unrelated, [strictRule(UPLOAD, { site: 'a.example' })]);
+  await unrelated.scan();
+  assert.equal(allowClicks(), 1);
+});
+
+// Codex round 2, items 4 and 5: refusal evidence lives in chrome.storage.local by approval id, whatever card key it had
+test('a strict rule never clicks an approval another tab refused or logged as a doubt under any key', async () => {
+  const rule = [strictRule(UPLOAD, { site: 'a.example' })];
+  // A tab refuses the click on a purchase and writes no row; a tab opened later still knows
+  const refusing = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(refusing, rule);
+  let marks = 0;
+  refusing.hooks.onMark = el => { if (++marks === 2) el.setAttribute('data-maa-purchase', '1'); };
+  assert.equal((await refusing.scan()).length, 0);
+  assert.deepEqual(Array.from(refusing.store.local.approvalDoubts), ['appr-test-80']);
+  const later = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { approvalDoubts: refusing.store.local.approvalDoubts });
+  setActions(later, rule);
+  await later.scan();
+  assert.equal(allowClicks(), 0, 'stored refusal');
+  // Stored doubts that arrive after the tab loaded
+  const open = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(open, rule);
+  open.changed({ approvalDoubts: { newValue: ['appr-test-80'] } }, 'local');
+  await open.scan();
+  assert.equal(allowClicks(), 0, 'stored later');
+  // Doubts reported before this tab's first read of the storage are kept when that read returns without them
+  const early = siteCard(UPLOAD_TEXT, UPLOAD_MARKS);
+  setActions(early, rule);
+  vm.runInContext('loggedDoubts = null', early.ctx);
+  early.changed({ approvalDoubts: { newValue: ['appr-test-80'] } }, 'local');
+  vm.runInContext('rememberDoubts([], [], true)', early.ctx);
+  await early.scan();
+  assert.equal(allowClicks(), 0, 'stored before the first read');
+  // A logged row of the same approval under another card key
+  const otherKey = [{ ts: 1, key: 'connector.example.post.create|Chat B', approvalId: 'appr-test-80', purchase: true, mixed: false, result: 'pending' }];
+  for (const [name, extra, clicks] of [['purchase', {}, 0], ['mixed', { purchase: false, mixed: true }, 0], ['clean', { purchase: false }, 1]]) {
+    const card = siteCard(UPLOAD_TEXT, UPLOAD_MARKS, { log: [{ ...otherKey[0], ...extra }] });
+    setActions(card, rule);
+    await card.scan();
+    assert.equal(allowClicks(), clicks, name);
+  }
+});
