@@ -414,9 +414,9 @@ const T1 = { threadId: 'thread-test-1' };
 const T2 = { threadId: 'thread-test-2' };
 
 test('a chat trusted by id approves its card even under another name; the same name with another id waits', async () => {
-  const byId = { chats: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
   assert.deepEqual((await runSource(byId, { ids: T1 })).clicks, [0, 1, 0]);
-  const sameName = await runSource({ chats: [{ id: 'chat-test-1', name: 'Research', ...T1, on: true }] }, { ids: T2 });
+  const sameName = await runSource({ chatSources: [{ id: 'chat-test-1', name: 'Research', ...T1, on: true }] }, { ids: T2 });
   assert.deepEqual(sameName.clicks, [0, 0, 0]);
   assert.deepEqual(sameName.pending, ['example.com|Research\nt:thread-test-2\ns:']);
   assert.deepEqual(sameName.items[0].threadId, 'thread-test-2');
@@ -427,7 +427,7 @@ test('a chat trusted by id approves its card even under another name; the same n
 });
 
 test('ids are only used from a fresh mark: without an answer the card is matched by name', async () => {
-  const byId = { chats: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
   const stale = await runSource(byId, { ids: T1 }, { answer: false });
   assert.deepEqual(stale.clicks, [0, 0, 0]);
   assert.deepEqual(stale.pending, ['example.com|Research']);
@@ -439,7 +439,7 @@ test('ids are only used from a fresh mark: without an answer the card is matched
 
 // Round 2 item 4: a valid thread with an invalid schedule is not read as that thread alone
 test('one invalid id voids the pair: the card has no ids and is matched by name', async () => {
-  const byId = { chats: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
+  const byId = { chatSources: [{ id: 'chat-test-1', name: 'Old name', ...T1, on: true }] };
   const half = await runSource(byId, { ids: { ...T1, scheduleId: 'bad id' } });
   assert.deepEqual(half.clicks, [0, 0, 0]);
   assert.deepEqual(half.pending, ['example.com|Research']);

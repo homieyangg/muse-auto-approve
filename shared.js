@@ -2,7 +2,7 @@
 
 // popup、設定頁、背景和 content script 共用的設定結構與判斷規則
 const AAM = (() => {
-  const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [] };
+  const SETTINGS_DEFAULTS = { enabled: true, mode: 'trusted', preferAlways: true, openBackground: true, includeActions: false, lang: 'auto', sites: [], chats: [], actions: [], chatSources: [] };
   const LOCAL_DEFAULTS = { log: [], allowOnce: [], dismissed: [], approvals: 0, installedAt: 0, ratingDismissed: false, museChats: [], museChatNames: {} };
   const LOG_LIMIT = 200;
   const STORE_URL = 'https://chromewebstore.google.com/detail/hbcimibdadjhancbpjibbhnhlcflmoii';
@@ -186,9 +186,20 @@ const AAM = (() => {
   const samePair = (a, b) => SOURCE_TYPES.every(type => (a[type] || '') === (b[type] || ''));
   const pickIds = pair => Object.fromEntries(SOURCE_TYPES.filter(type => pair?.[type]).map(type => [type, pair[type]]));
 
-  // A trusted chat entry is main's { id, name, on } plus the pair it was saved from, which versions without ids ignore. With
-  // ids on both sides only the exact pair matches, so a renamed chat still matches and another chat of the same name does
-  // not; otherwise it is main's name match. An entry whose ids can't be read matches nothing
+  // settings.chats keeps main's { id, name, on } entries. A chat trusted with ids is { id, name, threadId?, scheduleId?, on } in
+  // settings.chatSources, which versions without ids don't read, so they never trust it, not even by name
+  function trustedChats(settings) {
+    return [...settings.chats, ...(Array.isArray(settings.chatSources) ? settings.chatSources : [])];
+  }
+
+  // Splits a list of trusted chats back into the two stored lists; an entry with any id field goes to chatSources
+  function splitChats(list) {
+    const withIds = c => SOURCE_TYPES.some(type => c[type] !== undefined);
+    return { chats: list.filter(c => !withIds(c)), chatSources: list.filter(withIds) };
+  }
+
+  // With ids on both sides only the exact pair matches, so a renamed chat still matches and another chat of the same name
+  // does not; otherwise it is main's name match. An entry whose ids can't be read matches nothing
   function chatMatches(entry, card) {
     const pair = readPair(entry);
     if (!pair) return false;
@@ -244,7 +255,7 @@ const AAM = (() => {
     };
     for (const id of Object.keys(museChatNames || {})) if (sourceId(id)) add('', { threadId: id });
     for (const name of museChats) add(name, NO_PAIR);
-    for (const c of settings.chats) if (readPair(c)) add(c.name, readPair(c));
+    for (const c of trustedChats(settings)) if (readPair(c)) add(c.name, readPair(c));
     for (const rule of [...settings.sites, ...settings.actions]) {
       const sources = ruleSources(rule) || [];
       for (const src of sources) add(src.name, src, fromRules);
@@ -319,7 +330,7 @@ const AAM = (() => {
 
   // 符合任一條就信任：信任的聊天室；信任的網站或動作（不限聊天室，或來源是它限定的聊天室）。動作有權限種類就比權限種類，否則比標題
   function isTrusted(settings, card) {
-    if (settings.chats.some(c => c.on && chatMatches(c, card))) return true;
+    if (trustedChats(settings).some(c => c.on && chatMatches(c, card))) return true;
     const scoped = rule => rule.on && limitMatches(rule, card);
     if (card.host) return settings.sites.some(s => scoped(s) && hostMatches(s, card.host));
     // An action rule with a site only covers uploads to that site (and its subdomains when sub is on); rules without one cover every site
@@ -384,7 +395,7 @@ const AAM = (() => {
 
   // Without ids this is main's, over the entries without ids: the one of that name is turned on, or one is added. With ids
   // only the entry with that name and pair is turned on, or one is added. No other entry is touched, so trusting a renamed
-  // chat never turns its old name back on
+  // chat never turns its old name back on. chats is trustedChats(settings); splitChats stores the result
   function addChatRule(chats, name, ids = {}) {
     const pair = readPair(ids, true);
     if (!pair || (!name && !hasIds(pair))) return chats;
@@ -443,10 +454,7 @@ const AAM = (() => {
         .filter(s => s && s.host);
     }
     if (Array.isArray(raw.chats)) {
-      // An entry without a name needs its pair; versions without ids drop it
-      out.chats = raw.chats
-        .filter(c => c && typeof c === 'object' && typeof c.name === 'string' && readPair(c) && (c.name || hasIds(readPair(c))))
-        .map(c => ({ id: String(c.id || newId()), name: c.name, ...pickIds(readPair(c)), on: c.on !== false }));
+      out.chats = raw.chats.filter(c => c && typeof c.name === 'string' && c.name).map(c => ({ id: String(c.id || newId()), name: c.name, on: c.on !== false }));
     }
     if (Array.isArray(raw.actions)) {
       out.actions = raw.actions
@@ -464,10 +472,16 @@ const AAM = (() => {
         })
         .filter(Boolean);
     }
+    // Every entry needs a pair it can read; one without a name is matched by the pair alone
+    if (Array.isArray(raw.chatSources)) {
+      out.chatSources = raw.chatSources
+        .filter(c => c && typeof c === 'object' && typeof c.name === 'string' && hasIds(readPair(c)))
+        .map(c => ({ id: String(c.id || newId()), name: c.name, ...pickIds(readPair(c)), on: c.on !== false }));
+    }
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, cardPair, hasIds, chatMatches, sameChoice, chatChoices, listsChat, limitChoices, limitOptions, toggleLimit, setLimit, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, sourceId, cardPair, hasIds, trustedChats, splitChats, chatMatches, sameChoice, chatChoices, listsChat, limitChoices, limitOptions, toggleLimit, setLimit, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

@@ -35,6 +35,8 @@ function saveSettings(patch) {
   return chrome.storage.sync.set(patch);
 }
 
+const saveChats = list => saveSettings(AAM.splitChats(list));
+
 const sep = () => (I18N.code === 'en' ? ', ' : '、');
 const label = item => AAM.cardLabel(item, t) || t('fromUnknown');
 const tracking = () => settings.enabled;
@@ -71,7 +73,7 @@ function renderHome() {
   $('#mode').value = settings.mode;
   $('#mode-desc').textContent = t(settings.mode === 'all' ? 'modeAllDesc' : 'modeTrustedDesc');
   $('#sites-n').textContent = settings.sites.length;
-  $('#chats-n').textContent = settings.chats.length;
+  $('#chats-n').textContent = AAM.trustedChats(settings).length;
   $('#actions-n').textContent = settings.actions.length;
   $('#today-n').textContent = t('todayN', today);
   $('#prefer-always').checked = settings.preferAlways;
@@ -145,7 +147,7 @@ async function allowPending(item, scope) {
     render();
     await chrome.storage.local.set({ allowOnce: [...new Set([...local.allowOnce, item.key])] });
   } else if (scope === 'chat') {
-    await saveSettings({ chats: AAM.addChatRule(settings.chats, item.chat || '', ids) });
+    await saveChats(AAM.addChatRule(AAM.trustedChats(settings), item.chat || '', ids));
   } else if (scope === 'action' || scope === 'actionChat') {
     const limit = scope === 'actionChat' ? { chat: item.chat, ids } : {};
     await saveSettings({ actions: AAM.addActionRule(settings.actions, item.action, { ...limit, policy: item.policy, site: item.site }) });
@@ -204,16 +206,17 @@ function recentChats() {
 }
 
 function renderChats() {
-  const rows = settings.chats.map(chat => row(chatLabel(chat), t('chatAllSites'), !chat.on,
-    () => saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) })));
+  const chats = AAM.trustedChats(settings);
+  const rows = chats.map(chat => row(chatLabel(chat), t('chatAllSites'), !chat.on,
+    () => saveChats(chats.filter(c => c.id !== chat.id))));
   $('#chat-list').replaceChildren(...rows);
   $('#chat-list').hidden = !rows.length;
   $('#chats-empty').hidden = rows.length > 0;
   const recent = recentChats();
-  const addable = recent.filter(choice => !AAM.listsChat(settings.chats, choice));
+  const addable = recent.filter(choice => !AAM.listsChat(chats, choice));
   $('#recent-chats').replaceChildren(...addable.map(choice => {
     const link = Object.assign(document.createElement('a'), { textContent: `＋ ${chatLabel(choice)}` });
-    link.addEventListener('click', () => saveSettings({ chats: AAM.addChatRule(settings.chats, choice.name, choice) }));
+    link.addEventListener('click', () => saveChats(AAM.addChatRule(chats, choice.name, choice)));
     return link;
   }));
   $('#recent-empty').hidden = recent.length > 0;

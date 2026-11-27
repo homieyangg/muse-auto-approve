@@ -40,6 +40,9 @@ function saveSettings(patch) {
   return chrome.storage.sync.set(patch);
 }
 
+const allChats = () => AAM.trustedChats(settings);
+const saveChats = list => saveSettings(AAM.splitChats(list));
+
 function el(tag, props = {}, ...children) {
   const node = Object.assign(document.createElement(tag), props);
   node.append(...children.filter(c => c !== null && c !== undefined));
@@ -88,7 +91,7 @@ function renderNav() {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('on', p.id === `page-${page}`));
   document.querySelectorAll('.nav[href]').forEach(a => a.classList.toggle('on', a.getAttribute('href') === `#${page}`));
   $('#nav-sites-n').textContent = settings.sites.length;
-  $('#nav-chats-n').textContent = settings.chats.length;
+  $('#nav-chats-n').textContent = allChats().length;
   $('#nav-actions-n').textContent = settings.actions.length;
 }
 
@@ -212,7 +215,7 @@ function chatEntry(chat) {
   const entry = el('div', { className: `entry${chat.id === selectedChat ? ' on' : ''}${chat.on ? '' : ' off'}` },
     glyph(BUBBLE),
     el('div', {}, el('b', { textContent: chatLabel(chat) }), el('small', { textContent: t('chatAllSites') })),
-    toggle(chat.on, on => saveSettings({ chats: settings.chats.map(c => (c.id === chat.id ? { ...c, on } : c)) })));
+    toggle(chat.on, on => saveChats(allChats().map(c => (c.id === chat.id ? { ...c, on } : c)))));
   entry.addEventListener('click', e => {
     if (e.target.closest('.sw')) return;
     selectedChat = chat.id;
@@ -226,7 +229,7 @@ function chatDetail(chat) {
   for (const e of local.log) if (AAM.chatMatches(chat, e) && e.host && !seen.has(e.host)) seen.set(e.host, e.ts);
   const recent = [...seen].slice(0, 8).map(([host, ts]) => `${host}・${I18N.clock(ts)}`);
   const remove = el('button', { className: 'btn danger', textContent: t('deleteRule') });
-  remove.addEventListener('click', () => { saveSettings({ chats: settings.chats.filter(c => c.id !== chat.id) }); renderChats(true); });
+  remove.addEventListener('click', () => { saveChats(allChats().filter(c => c.id !== chat.id)); renderChats(true); });
   const list = el('div', { className: 'recent-sites' });
   recent.forEach((line, i) => { if (i) list.append(el('br')); list.append(line); });
   return [
@@ -240,11 +243,11 @@ function chatDetail(chat) {
 
 // choice is { name } for a typed name, or a known chat with its ids
 function addChat(choice) {
-  const chats = AAM.addChatRule(settings.chats, choice.name, choice);
+  const chats = AAM.addChatRule(allChats(), choice.name, choice);
   const added = chats.find(c => AAM.sameChoice(c, choice));
   if (!added) return;
   selectedChat = added.id;
-  saveSettings({ chats });
+  saveChats(chats);
   renderChats(true);
 }
 
@@ -252,7 +255,7 @@ function newChatForm() {
   const input = el('input', { className: 'text-input', placeholder: t('chatNamePlaceholder') });
   const create = el('button', { className: 'btn primary', textContent: t('create') });
   create.addEventListener('click', () => { const name = input.value.trim(); if (name) addChat({ name }); });
-  const addable = knownChats().filter(choice => !AAM.listsChat(settings.chats, choice));
+  const addable = knownChats().filter(choice => !AAM.listsChat(allChats(), choice));
   const links = el('div', { className: 'links' }, ...addable.map(choice => {
     const link = el('a', { textContent: `＋ ${chatLabel(choice)}` });
     link.addEventListener('click', () => addChat(choice));
@@ -269,11 +272,12 @@ function newChatForm() {
 }
 
 function renderChats(force) {
-  if (selectedChat !== 'new' && !settings.chats.some(c => c.id === selectedChat)) selectedChat = settings.chats[0]?.id ?? 'new';
+  const chats = allChats();
+  if (selectedChat !== 'new' && !chats.some(c => c.id === selectedChat)) selectedChat = chats[0]?.id ?? 'new';
   $('#chat-new').classList.toggle('on', selectedChat === 'new');
-  $('#chat-items').replaceChildren(...settings.chats.map(chatEntry));
+  $('#chat-items').replaceChildren(...chats.map(chatEntry));
   if (!force && $('#chat-detail').contains(document.activeElement)) return;
-  const chat = settings.chats.find(c => c.id === selectedChat);
+  const chat = chats.find(c => c.id === selectedChat);
   $('#chat-detail').replaceChildren(...(chat ? chatDetail(chat) : newChatForm()));
 }
 
@@ -445,7 +449,7 @@ async function importSettings(file) {
     if (!confirm(t('importConfirm'))) { result.hidden = true; return; }
     await chrome.storage.sync.set(clean);
     result.className = '';
-    result.textContent = t('importDone', clean.sites.length, clean.chats.length);
+    result.textContent = t('importDone', clean.sites.length, AAM.trustedChats(clean).length);
   } catch {
     result.className = 'error';
     result.textContent = t('importFailed');

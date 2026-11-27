@@ -29,6 +29,8 @@ const MAIN = mainShared();
 const needsMain = { skip: !MAIN && `${MAIN_COMMIT} is not in this clone` };
 
 const settingsWith = patch => ({ ...AAM.SETTINGS_DEFAULTS, mode: 'trusted', ...patch });
+// Settings with these trusted chats, stored as this version stores them
+const withChats = (list, patch = {}) => settingsWith({ ...AAM.splitChats(list), ...patch });
 const site = (chats, extra = {}) => ({ id: 'site-test-1', host: 'example.com', sub: false, on: true, chats, ...extra });
 const action = (chats, extra = {}) => ({ id: 'action-test-1', title: 'Send email', policy: 'connector.gmail.users.messages.send', on: true, chats, ...extra });
 const chat = (name, ids = {}, on = true) => ({ id: `chat-test-${name || 'unnamed'}`, name, ...ids, on });
@@ -42,14 +44,15 @@ const T2 = { threadId: 'thread-test-2' };
 const S1 = { scheduleId: 'schedule-test-1' };
 const NO_IDS = { threadId: '', scheduleId: '' };
 
-// What main stores for the same rules: names only, no pairs, no entries without a name
+// What main would have stored for the same clicks: names only, no pairs, no entries without a name
 function strip(settings) {
   const rule = ({ sources, ...rest }) => rest;
+  const { chatSources = [], ...rest } = settings;
   return {
-    ...settings,
+    ...rest,
     sites: settings.sites.map(rule),
     actions: settings.actions.map(rule),
-    chats: settings.chats.filter(c => c.name).map(({ threadId, scheduleId, ...rest }) => rest),
+    chats: [...settings.chats, ...chatSources.filter(c => c.name).map(({ threadId, scheduleId, ...c }) => c)],
   };
 }
 
@@ -67,7 +70,7 @@ function trustedBy(rules, chatName, ids) {
 const both = value => ({ site: value, action: value });
 
 test('a chat entry with ids matches the exact pair under any name, and by name only for a card without ids', () => {
-  const settings = settingsWith({ chats: [chat('Research', T1)] });
+  const settings = withChats([chat('Research', T1)]);
   const yes = [hostCard('Research', T1), hostCard('Renamed', T1), hostCard('Research'), actionCard('Renamed', T1)];
   const no = [hostCard('Research', T2), hostCard('Research', { ...T1, ...S1 }), hostCard('Research', S1), hostCard('', S1), hostCard('')];
   for (const card of yes) assert.equal(AAM.isTrusted(settings, card), true, JSON.stringify(card));
@@ -94,8 +97,8 @@ test('a name the limit holds without pairs matches as on main', () => {
 
 test('a thread id never matches a schedule id, and the other way round', () => {
   const asSchedule = { scheduleId: T1.threadId };
-  assert.equal(AAM.isTrusted(settingsWith({ chats: [chat('', T1)] }), hostCard('', asSchedule)), false);
-  assert.equal(AAM.isTrusted(settingsWith({ chats: [chat('', asSchedule)] }), hostCard('', T1)), false);
+  assert.equal(AAM.isTrusted(withChats([chat('', T1)]), hostCard('', asSchedule)), false);
+  assert.equal(AAM.isTrusted(withChats([chat('', asSchedule)]), hostCard('', T1)), false);
   assert.deepEqual(trustedBy(limited(['Research'], [bound('Research', T1)]), 'Research', asSchedule), both(false));
 });
 
@@ -105,7 +108,7 @@ test('one invalid id voids the card\'s whole pair; the card is matched by name, 
   assert.deepEqual(AAM.cardPair({ threadId: 'bad id', ...S1 }), NO_IDS);
   assert.deepEqual(AAM.cardPair({ ...T1, scheduleId: '' }), { ...T1, scheduleId: '' });
   const card = hostCard('Research', { ...T1, scheduleId: 'bad id' });
-  assert.equal(AAM.isTrusted(settingsWith({ chats: [chat('Old name', T1)] }), card), false);
+  assert.equal(AAM.isTrusted(withChats([chat('Old name', T1)]), card), false);
   assert.deepEqual(trustedBy(limited(['Old name'], [bound('Old name', T1)]), 'Research', { ...T1, scheduleId: 'bad id' }), both(false));
   assert.equal(AAM.cardKey(card), 'example.com|Research');
 });
@@ -113,8 +116,8 @@ test('one invalid id voids the card\'s whole pair; the card is matched by name, 
 test('a stored entry with an invalid id never matches, not even by name', () => {
   for (const id of ['bad id', '', 42, null]) {
     const card = hostCard('Research', T1);
-    assert.equal(AAM.isTrusted(settingsWith({ chats: [chat('Research', { threadId: id })] }), hostCard('Research')), false, JSON.stringify(id));
-    assert.equal(AAM.isTrusted(settingsWith({ chats: [chat('Research', { threadId: id })] }), card), false, JSON.stringify(id));
+    assert.equal(AAM.isTrusted(withChats([chat('Research', { threadId: id })]), hostCard('Research')), false, JSON.stringify(id));
+    assert.equal(AAM.isTrusted(withChats([chat('Research', { threadId: id })]), card), false, JSON.stringify(id));
     assert.deepEqual(trustedBy(limited(['Research'], [bound('Research', { threadId: id })]), 'Research'), both(false), JSON.stringify(id));
   }
 });
@@ -178,7 +181,7 @@ test('trusting a renamed chat never turns its old name back on', () => {
   const chats = [chat('Old name', T1, false)];
   const renamed = AAM.addChatRule(chats, 'New name', T1);
   assert.deepEqual(renamed.map(({ id, ...c }) => c), [{ name: 'Old name', ...T1, on: false }, { name: 'New name', ...T1, on: true }]);
-  const settings = settingsWith({ chats: renamed });
+  const settings = withChats(renamed);
   assert.equal(AAM.isTrusted(settings, hostCard('Old name')), false);
   assert.equal(AAM.isTrusted(settings, hostCard('New name', T1)), true);
   // Without a name, and without ids, only an entry of the exact kind is touched
@@ -194,12 +197,12 @@ test('a chat known by id is never offered by its plain name', () => {
   const context = {
     museChats: ['Alpha', 'Beta'],
     museChatNames: { [T1.threadId]: 'Alpha', [T2.threadId]: 'Gamma' },
-    settings: settingsWith({ chats: [chat('Alpha', T1)] }),
+    settings: withChats([chat('Alpha', T1)]),
     items: [hostCard('Delta', S1), hostCard('Delta'), hostCard('Epsilon')],
   };
   const popup = AAM.chatChoices({ ...context, fromRules: false });
   assert.deepEqual(popup, [{ name: '', ...T2 }, { name: 'Beta' }, { name: 'Alpha', ...T1 }, { name: 'Delta', ...S1 }, { name: 'Epsilon' }]);
-  assert.deepEqual(popup.filter(c => !AAM.listsChat(context.settings.chats, c)), [{ name: '', ...T2 }, { name: 'Beta' }, { name: 'Delta', ...S1 }, { name: 'Epsilon' }]);
+  assert.deepEqual(popup.filter(c => !AAM.listsChat(AAM.trustedChats(context.settings), c)), [{ name: '', ...T2 }, { name: 'Beta' }, { name: 'Delta', ...S1 }, { name: 'Epsilon' }]);
   // Rule limits keep names, so a chat known only by id is not offered there
   const named = AAM.chatChoices({ ...context, named: true });
   assert.deepEqual(named, [{ name: 'Beta' }, { name: 'Alpha', ...T1 }, { name: 'Delta', ...S1 }, { name: 'Epsilon' }]);
@@ -250,11 +253,18 @@ const OLD_EXPORT = {
   ],
 };
 
+// Settings as main stores them: this version only adds chatSources, after main's keys
+const mainKeys = ({ chatSources, ...rest }) => rest;
+
 test('an old export imports byte-identically to main', needsMain, () => {
-  assert.equal(JSON.stringify(AAM.sanitizeSettings(OLD_EXPORT)), JSON.stringify(MAIN.sanitizeSettings(OLD_EXPORT)));
-  // Main's own edge cases on strings, kept as they were
-  const odd = { sites: [site(['', 'Research']), { id: 's', host: 'no-chats.example' }], chats: [{ id: 'c', name: 'x', on: 'yes' }] };
-  assert.equal(JSON.stringify(AAM.sanitizeSettings(odd)), JSON.stringify(MAIN.sanitizeSettings(odd)));
+  assert.equal(JSON.stringify(mainKeys(AAM.sanitizeSettings(OLD_EXPORT))), JSON.stringify(MAIN.sanitizeSettings(OLD_EXPORT)));
+  assert.deepEqual(AAM.sanitizeSettings(OLD_EXPORT).chatSources, []);
+  // Main's own edge cases, kept as they were; chats is main's sanitizer as is
+  const odd = {
+    sites: [site(['', 'Research']), { id: 's', host: 'no-chats.example' }],
+    chats: [{ id: 'c', name: 'x', on: 'yes' }, chat('Research', T1), chat('', S1), { id: 'chat-test-no-id', name: 'No id' }, null],
+  };
+  assert.equal(JSON.stringify(mainKeys(AAM.sanitizeSettings(odd))), JSON.stringify(MAIN.sanitizeSettings(odd)));
   // Where main would widen a limit of only empty names to every chat, the rule is dropped instead
   assert.deepEqual(MAIN.sanitizeSettings({ actions: [action([''])] }).actions[0].chats, []);
   assert.deepEqual(AAM.sanitizeSettings({ actions: [action([''])] }).actions, []);
@@ -263,15 +273,16 @@ test('an old export imports byte-identically to main', needsMain, () => {
 test('the new format imports with its pairs; pairs of names the limit lost are left out', () => {
   const raw = {
     sites: [site(['Research', 'Ops'], { sources: [{ ...bound('Ops', T1), extra: 'dropped' }, bound('Gone', T2)] })],
-    chats: [chat('Research', T1), chat('', S1), chat('Plain')],
+    chats: [chat('Plain')],
+    chatSources: [{ ...chat('Research', T1), extra: 'dropped' }, chat('', S1), chat('No ids')],
     actions: [action(['Ops'], { sources: [bound('Ops', { ...T1, ...S1 })] }), action(['Ops'], { id: 'action-test-2', sources: [bound('Gone', T1)] })],
   };
   const clean = AAM.sanitizeSettings(raw);
   assert.deepEqual(clean.sites.map(s => [s.chats, s.sources]), [[['Research', 'Ops'], [bound('Ops', T1)]]]);
-  assert.deepEqual(clean.chats, [
+  assert.deepEqual(clean.chats, [{ id: 'chat-test-Plain', name: 'Plain', on: true }]);
+  assert.deepEqual(clean.chatSources, [
     { id: 'chat-test-Research', name: 'Research', ...T1, on: true },
     { id: 'chat-test-unnamed', name: '', ...S1, on: true },
-    { id: 'chat-test-Plain', name: 'Plain', on: true },
   ]);
   assert.deepEqual(clean.actions.map(a => [a.chats, a.sources]), [[['Ops'], [bound('Ops', { ...T1, ...S1 })]], [['Ops'], undefined]]);
 });
@@ -282,11 +293,11 @@ test('an imported entry or pair with an invalid id is dropped, never downgraded 
     const clean = AAM.sanitizeSettings({
       sites: [site(['Research'], { sources: [bound('Research', { threadId: id })] })],
       actions: [action(['Research'], { sources: [bound('Research', { ...T1, scheduleId: id })] })],
-      chats: [chat('Research', { threadId: id }), chat('Kept', T1)],
+      chatSources: [chat('Research', { threadId: id }), chat('Research', { ...T1, scheduleId: id }), chat('Kept', T1)],
     });
     assert.deepEqual(clean.sites, [], JSON.stringify(id));
     assert.deepEqual(clean.actions, [], JSON.stringify(id));
-    assert.deepEqual(clean.chats.map(c => c.name), ['Kept'], JSON.stringify(id));
+    assert.deepEqual([clean.chats, clean.chatSources.map(c => c.name)], [[], ['Kept']], JSON.stringify(id));
   }
   // Pairs that are not a list of named pairs drop the rule too
   for (const sources of [{ name: 'Research', ...T1 }, 'Research', [bound('', T1)], [bound('Research', {})], [null]]) {
@@ -302,15 +313,16 @@ test('a chat limit that is not a list of names drops its rule, never widening it
   }
   // A rule that never had a limit is any chat, as on main
   assert.deepEqual(AAM.sanitizeSettings({ sites: [{ id: 's', host: 'example.com' }] }).sites[0].chats, []);
-  // Chat entries need a name, or ids for one without
-  assert.deepEqual(AAM.sanitizeSettings({ chats: [chat(''), { id: 'chat-test-x', on: true }, 'Research', chat('', S1)] }).chats.map(c => c.name), ['']);
+  // A chatSources that is not a list, or entries without a string name, are dropped
+  assert.deepEqual(AAM.sanitizeSettings({ chatSources: chat('Research', T1) }).chatSources, []);
+  assert.deepEqual(AAM.sanitizeSettings({ chatSources: [{ id: 'chat-test-x', ...T1, on: true }, 'Research', null] }).chatSources, []);
 });
 
 test('export then import gives the same settings', () => {
   const settings = AAM.sanitizeSettings({
     ...OLD_EXPORT,
     sites: [...OLD_EXPORT.sites, site(['Ops', 'Research'], { id: 'site-test-4', host: 'ops.example', sources: [bound('Ops', T1)] })],
-    chats: [...OLD_EXPORT.chats, chat('Ops', { ...T1, ...S1 }), chat('', S1)],
+    chatSources: [chat('Ops', { ...T1, ...S1 }), chat('', S1, false)],
     actions: [...OLD_EXPORT.actions, action(['Ops'], { id: 'action-test-3', sources: [bound('Ops', S1), bound('Ops', T2)] })],
   });
   const exported = plainCopy({ app: 'auto-approve-for-muse', version: 'test', settings });
@@ -330,7 +342,7 @@ function newSettings() {
   chats = AAM.addChatRule(chats, 'Plain');
   chats = [...chats, chat('Off', T2, false)];
   const off = AAM.setLimit(site(['Ops'], { id: 'site-test-off', host: 'off.example', on: false }), AAM.toggleLimit({ chats: ['Ops'] }, { name: 'Research', ...S1 }, true));
-  return plainCopy(AAM.sanitizeSettings(settingsWith({ sites: [...sites, off], actions, chats })));
+  return plainCopy(AAM.sanitizeSettings(withChats(chats, { sites: [...sites, off], actions })));
 }
 
 function everyCard() {
@@ -352,27 +364,35 @@ function pairMatch(settings, card) {
   const ids = AAM.cardPair(card);
   if (!AAM.hasIds(ids)) return false;
   const same = e => (e.threadId || '') === ids.threadId && (e.scheduleId || '') === ids.scheduleId;
-  if (settings.chats.some(c => c.on && same(c))) return true;
+  if (settings.chatSources.some(c => c.on && same(c))) return true;
   const rules = card.host ? settings.sites : settings.actions;
   return rules.some(r => r.on && (r.sources || []).some(same) && AAM.isTrusted({ ...settings, chats: [], sites: card.host ? [{ ...r, chats: [], sources: undefined }] : [], actions: card.host ? [] : [{ ...r, chats: [], sources: undefined }] }, card));
 }
 
 // Round 2 item 5: an old version reads exports and synced settings with its own sanitizeSettings and isTrusted
-test('an old version reading new settings trusts exactly what main trusts with the same rules', needsMain, () => {
+test('an old version reading new settings trusts no more than main with the same rules', needsMain, () => {
   const settings = newSettings();
-  assert.ok(settings.sites.some(s => s.sources) && settings.actions.some(a => a.sources) && settings.chats.some(c => c.threadId));
+  assert.ok(settings.sites.some(s => s.sources) && settings.actions.some(a => a.sources) && settings.chatSources.some(c => c.threadId));
+  // The arrays main reads hold only what main stores
+  assert.deepEqual(settings.chats.map(c => Object.keys(c)), [['id', 'name', 'on']]);
+  assert.ok([...settings.sites, ...settings.actions].every(r => r.chats.every(c => typeof c === 'string' && c)));
   const oldImport = MAIN.sanitizeSettings(plainCopy(settings));
   const stripped = MAIN.sanitizeSettings(strip(settings));
   assert.deepEqual(oldImport.sites[0].chats, ['Research']);
   assert.deepEqual(oldImport.actions[0].chats, ['Research']);
   let checked = 0;
+  let narrower = 0;
   for (const card of everyCard()) {
     const expected = MAIN.isTrusted(stripped, card);
-    assert.equal(MAIN.isTrusted(oldImport, card), expected, `import ${JSON.stringify(card)}`);
-    assert.equal(MAIN.isTrusted(settings, card), expected, `sync ${JSON.stringify(card)}`);
+    const imported = MAIN.isTrusted(oldImport, card);
+    assert.equal(MAIN.isTrusted(settings, card), imported, `sync ${JSON.stringify(card)}`);
+    assert.ok(!imported || expected, `import ${JSON.stringify(card)}`);
+    if (expected && !imported) narrower++;
     checked++;
   }
   assert.ok(checked > 200);
+  // Chats trusted with ids are not trusted at all by an old version
+  assert.ok(narrower > 0);
 });
 
 test('this version trusts more than main only on an exact pair match', needsMain, () => {
@@ -387,7 +407,7 @@ test('this version trusts more than main only on an exact pair match', needsMain
   assert.ok(widened > 0);
 });
 
-// For cards without ids every trust decision is main's, whatever entries the rules hold
+// For cards without ids every trust decision is main's on the names main would have stored
 test('cards without ids are trusted exactly as on main', needsMain, () => {
   const entries = ['Research', 'Other', ''];
   const cardChats = ['Research', 'Other', ''];
@@ -395,7 +415,7 @@ test('cards without ids are trusted exactly as on main', needsMain, () => {
   for (const name of entries) {
     for (const on of [true, false]) {
       settingsList.push(settingsWith({ chats: [{ id: 'c', name, on }] }));
-      settingsList.push(settingsWith({ chats: [{ id: 'c', name, ...T1, on }] }));
+      settingsList.push(settingsWith({ chatSources: [{ id: 'c', name, ...T1, on }] }));
       settingsList.push(settingsWith({ sites: [site([name].filter(Boolean), { on })] }));
       settingsList.push(settingsWith({ sites: [site([name])] }));
       settingsList.push(settingsWith({ sites: [site([name, 'Ops'].filter(Boolean), { on, sources: name ? [bound(name, T1)] : undefined })] }));
@@ -408,7 +428,7 @@ test('cards without ids are trusted exactly as on main', needsMain, () => {
   let checked = 0;
   for (const settings of settingsList) {
     for (const card of cards) {
-      assert.equal(AAM.isTrusted(settings, card), MAIN.isTrusted(settings, card), JSON.stringify([settings.chats, settings.sites, settings.actions, card]));
+      assert.equal(AAM.isTrusted(settings, card), MAIN.isTrusted(strip(settings), card), JSON.stringify([settings.chats, settings.chatSources, settings.sites, settings.actions, card]));
       assert.equal(AAM.cardKey(card), MAIN.cardKey(card));
       checked++;
     }
