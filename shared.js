@@ -175,13 +175,7 @@ const AAM = (() => {
     const next = sites.map(s => ({ ...s, chats: [...s.chats] }));
     const found = next.find(s => bareHost(s.host) === bareHost(host));
     if (!found) return [...next, { id: newId(), host, sub, chats: chat ? [chat] : [], on: true }];
-    // A disabled rule trusts nothing, so turning it back on takes exactly the scope picked now, not its old wider one
-    if (!found.on) {
-      found.sub = sub;
-      found.chats = chat ? [chat] : [];
-      found.on = true;
-      return next;
-    }
+    found.on = true;
     found.sub = found.sub || sub;
     if (!chat) found.chats = [];
     else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
@@ -192,13 +186,8 @@ const AAM = (() => {
     const next = actions.map(a => ({ ...a, chats: [...a.chats] }));
     const found = next.find(a => (a.site || '') === site && (a.title === title || (policy && a.policy === policy)));
     if (!found) return [...next, { id: newId(), title, ...(policy && { policy }), ...(site && { site }), chats: chat ? [chat] : [], on: true }];
+    found.on = true;
     if (policy) found.policy = policy;
-    if (!found.on) {
-      delete found.sub;
-      found.chats = chat ? [chat] : [];
-      found.on = true;
-      return next;
-    }
     if (!chat) found.chats = [];
     else if (found.chats.length && !found.chats.includes(chat)) found.chats.push(chat);
     return next;
@@ -257,7 +246,7 @@ const AAM = (() => {
     return out;
   }
 
-  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, mergePending, sanitizeSettings };
+  return { SETTINGS_DEFAULTS, LOCAL_DEFAULTS, LOG_LIMIT, STORE_URL, REPO_URL, UPLOAD_POLICY, ALWAYS_RE, ONCE_RE, DENY_RE, CONTEXT_RE, APPROVALS_TAB_RE, optionRole, pickAllowButtons, clickTarget, samePick, cleanText, normalizeHost, bareHost, hostMatches, parseCard, cardKey, cardLabel, isTrusted, isPurchase, addSiteRule, addActionRule, addChatRule, newId, mergePending, sanitizeSettings };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAM;

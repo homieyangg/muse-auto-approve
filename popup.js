@@ -215,7 +215,7 @@ function logRow(entry, { state, undo, open }) {
   el.className = 'row';
   const time = Object.assign(document.createElement('time'), { textContent: I18N.clock(entry.ts) });
   const text = document.createElement('div');
-  text.textContent = label(entry);
+  text.textContent = AAT.rowLabel(entry, t) || t('fromUnknown');
   const sub = Object.assign(document.createElement('small'), { textContent: `${entry.chat || t('fromUnknown')}・` });
   sub.append(Object.assign(document.createElement('span'), { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') }));
   if (state === 'trusted') sub.append('・', Object.assign(document.createElement('span'), { className: 'now', textContent: t('trusted') }));

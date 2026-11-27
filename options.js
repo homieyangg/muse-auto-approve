@@ -406,7 +406,7 @@ function trustCell({ state, undo, open }, entry) {
 function logRows(entry, row) {
   const tr = el('tr', { className: row.open ? 'open' : '' },
     el('td', { textContent: I18N.clock(entry.ts) }),
-    el('td', { textContent: AAM.cardLabel(entry, t) }),
+    el('td', { textContent: AAT.rowLabel(entry, t) }),
     el('td', { textContent: entry.chat || t('fromUnknown') }),
     el('td', { className: `result ${entry.result}`, textContent: t(RESULT_TEXT[entry.result] || 'resultAllowed') }),
     el('td', { className: 'act' }, trustCell(row, entry)));

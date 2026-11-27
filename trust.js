@@ -1,20 +1,83 @@
 'use strict';
 
-// "Trust" on a recent-activity row: which rows offer it, the rule it saves, and undoing that one change
+// "Trust" on a recent-activity row: which rows offer it, the rule it saves, and undoing that one change.
+// It never edits what an existing rule matches: it re-enables or extends a rule only when its criteria are exactly the
+// card's, and otherwise appends a new rule
 const AAT = (() => {
   const aam = typeof AAM !== 'undefined' ? AAM : require('./shared.js');
 
-  // True when this entry's card would still stop and ask with the current settings. Purchases never qualify, and action
-  // entries written before the log stored `purchase` are skipped since their purchase state is unknown
-  function wouldAsk(settings, entry) {
+  const bare = host => aam.bareHost(host || '');
+
+  // Entry-level conditions. Action entries need a stored purchase answer and a policy: without a policy the rule would
+  // match by title alone, and an upload card read without its destination would then be trusted for any site
+  function trustable(entry) {
     if (!entry.host && !entry.action) return false;
     if (aam.isPurchase(entry)) return false;
-    if (!entry.host && entry.purchase == null) return false;
+    if (entry.host) return true;
+    if (entry.purchase == null || !entry.policy) return false;
+    return entry.policy !== aam.UPLOAD_POLICY || !!entry.site;
+  }
+
+  // True when this entry's card would still stop and ask with the current settings
+  function wouldAsk(settings, entry) {
     if (aam.isTrusted(settings, entry)) return false;
     return !(settings.mode === 'all' && (entry.host || entry.site || settings.includeActions));
   }
 
-  // The log is newest first; only the newest entry of each card gets the button
+  function scopes(entry) {
+    return entry.chat ? ['any', 'only'] : ['any'];
+  }
+
+  // What the saved rule matches. The matcher ignores a leading www, so the host is stored and shown without it
+  function criteria(entry) {
+    if (entry.host) return { list: 'sites', match: { host: bare(entry.host), sub: false } };
+    return { list: 'actions', match: { title: entry.action, policy: entry.policy, ...(entry.site && { site: bare(entry.site) }) } };
+  }
+
+  function sameCriteria(list, rule, match) {
+    if (rule.sub) return false;
+    if (list === 'sites') return bare(rule.host) === match.host;
+    return rule.title === match.title && (rule.policy || '') === match.policy && bare(rule.site) === (match.site || '');
+  }
+
+  const sameChats = (a, b) => a.length === b.length && a.every(c => b.includes(c));
+  const canon = rule => JSON.stringify(Object.keys(rule).sort().map(k => [k, rule[k]]));
+
+  function freshId(rules) {
+    let id = aam.newId();
+    while (rules.some(r => r.id === id)) id = aam.newId();
+    return id;
+  }
+
+  // Returns the settings patch and the undo record, or null when the row offers nothing for this scope.
+  // A rule is reused only when its id is unique and its criteria are the card's: a disabled one whose chats are exactly the
+  // pick is turned back on, and for "only" an enabled one limited to other chats gains this chat. Anything else is appended
+  function planTrust(settings, entry, scope) {
+    if (!scopes(entry).includes(scope) || !trustable(entry) || !wouldAsk(settings, entry)) return null;
+    const { list, match } = criteria(entry);
+    const rules = settings[list] || [];
+    const chats = scope === 'only' ? [entry.chat] : [];
+    const exact = rules.filter(r => sameCriteria(list, r, match) && rules.filter(o => o.id === r.id).length === 1);
+    const off = exact.find(r => !r.on && sameChats(r.chats, chats));
+    const limited = scope === 'only' && exact.find(r => r.on && r.chats.length);
+    const prev = off || limited || null;
+    const after = off ? { ...off, on: true }
+      : limited ? { ...limited, chats: [...limited.chats, entry.chat] }
+      : { id: freshId(rules), ...match, chats, on: true };
+    const next = prev ? rules.map(r => (r.id === prev.id ? after : r)) : [...rules, after];
+    return { patch: { [list]: next }, change: { list, key: entry.key, id: after.id, prev, after } };
+  }
+
+  // The inverse of one trust click, only while that rule is still exactly as the click left it; null otherwise
+  function planUndo(settings, change) {
+    const rules = settings[change.list] || [];
+    const hits = rules.filter(r => r.id === change.id);
+    if (hits.length !== 1 || canon(hits[0]) !== canon(change.after)) return null;
+    if (!change.prev) return { [change.list]: rules.filter(r => r.id !== change.id) };
+    return { [change.list]: rules.map(r => (r.id === change.id ? change.prev : r)) };
+  }
+
+  // Newest first; only the newest entry of each card gets the button
   function offers(settings, log) {
     const seen = new Set();
     const out = new Set();
@@ -26,49 +89,13 @@ const AAT = (() => {
     return out;
   }
 
-  function scopes(entry) {
-    return entry.chat ? ['any', 'only'] : ['any'];
+  // Row label with hosts as the matcher reads them, so the row names exactly what Trust saves
+  function rowLabel(entry, t) {
+    return aam.cardLabel({ ...entry, host: bare(entry.host), site: bare(entry.site) }, t);
   }
 
-  // The rule list with this entry's rule added or merged; "only" limits it to exactly the entry's chat
-  function addRule(settings, entry, scope) {
-    const chat = scope === 'only' ? entry.chat : '';
-    if (entry.host) return { list: 'sites', rules: aam.addSiteRule(settings.sites, entry.host, { chat }) };
-    const rules = aam.addActionRule(settings.actions || [], entry.action, { chat, policy: entry.policy || '', site: entry.site || '' });
-    return { list: 'actions', rules };
-  }
-
-  // The one rule a trust click changed, with its state before the click (null when the click created it)
-  function changedRule(before, after) {
-    const old = new Map(before.map(r => [r.id, r]));
-    for (const rule of after) {
-      const prev = old.get(rule.id);
-      if (!prev) return { id: rule.id, prev: null };
-      if (JSON.stringify(prev) !== JSON.stringify(rule)) return { id: rule.id, prev };
-    }
-    return null;
-  }
-
-  // Returns the settings patch and the undo record, or null when the scope isn't offered, nothing would change, or the
-  // merge would trust more than the picked scope
-  function planTrust(settings, entry, scope) {
-    if (!scopes(entry).includes(scope) || !wouldAsk(settings, entry)) return null;
-    const { list, rules } = addRule(settings, entry, scope);
-    const change = changedRule(settings[list] || [], rules);
-    if (!change) return null;
-    // An enabled rule that covers subdomains would extend them to this chat too; only a disabled one is reset to sub off
-    if (change.prev && rules.find(r => r.id === change.id).sub) return null;
-    return { patch: { [list]: rules }, change: { list, key: entry.key, ...change } };
-  }
-
-  // The inverse of one trust click applied to the current lists, so changes made elsewhere since then are kept
-  function planUndo(settings, change) {
-    const rules = settings[change.list] || [];
-    if (!change.prev) return { [change.list]: rules.filter(r => r.id !== change.id) };
-    return { [change.list]: rules.map(r => (r.id === change.id ? change.prev : r)) };
-  }
-
-  // storage is chrome.storage.sync; both read the settings fresh instead of using the page's copy
+  // storage is chrome.storage.sync. chrome.storage has no compare-and-set, so the lists are read right before the write,
+  // with nothing awaited in between, instead of using the page's copy
   async function trust(storage, entry, scope) {
     const plan = planTrust(await storage.get(aam.SETTINGS_DEFAULTS), entry, scope);
     if (!plan) return null;
@@ -77,8 +104,9 @@ const AAT = (() => {
   }
 
   async function undo(storage, change) {
-    const current = await storage.get({ [change.list]: [] });
-    await storage.set(planUndo(current, change));
+    const patch = planUndo(await storage.get({ [change.list]: [] }), change);
+    if (patch) await storage.set(patch);
+    return !!patch;
   }
 
   // Row controls for the popup and the options page. The undo record lives until the next trust click or the page closes
@@ -93,14 +121,16 @@ const AAT = (() => {
       return b;
     };
 
-    // Per shown entry: 'trusted' (with undo on the first shown row of that card), 'offer' (open when its scope buttons show) or ''
+    // Per shown entry: 'trusted' (undo on the first shown row of that card, while the rule is untouched since),
+    // 'offer' (open when its scope buttons show) or ''
     function states(settings, log, shown) {
       const offered = offers(settings, log);
+      const undoable = !!last && !!planUndo(settings, last);
       const out = new Map();
       let undoShown = false;
       for (const entry of shown) {
         if (last && entry.key === last.key && !wouldAsk(settings, entry)) {
-          out.set(entry, { state: 'trusted', undo: !undoShown });
+          out.set(entry, { state: 'trusted', undo: undoable && !undoShown });
           undoShown = true;
         } else if (offered.has(entry)) out.set(entry, { state: 'offer', open: entry.key === openKey });
         else out.set(entry, { state: '' });
@@ -139,14 +169,16 @@ const AAT = (() => {
         const change = last;
         last = null;
         render();
-        if (change) await undo(storage, change);
+        // Changed elsewhere since the click: keep showing Trusted, without Undo
+        if (change && !(await undo(storage, change))) last = change;
+        render();
       });
     }
 
     return { states, trustButton, pickButtons, undoButton };
   }
 
-  return { wouldAsk, offers, scopes, planTrust, planUndo, trust, undo, controls };
+  return { trustable, wouldAsk, offers, scopes, planTrust, planUndo, rowLabel, trust, undo, controls };
 })();
 
 if (typeof module !== 'undefined') module.exports = AAT;
